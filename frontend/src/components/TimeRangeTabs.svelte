@@ -9,20 +9,21 @@
   let { current, onchange }: Props = $props();
 
   const ranges: { key: TimeRange; label: string }[] = [
-    { key: "today", label: "Today" },
-    { key: "7d", label: "7 Days" },
-    { key: "30d", label: "30 Days" },
-    { key: "custom", label: "Custom" },
+    { key: "today", label: "今日" },
+    { key: "7d", label: "7 天" },
+    { key: "30d", label: "30 天" },
+    { key: "custom", label: "自定义" },
   ];
 
-  let showCustom = $derived(current === "custom");
   let customFrom = $state("");
   let customTo = $state("");
+  let showCustomInputs = $state(false);
 
   function selectRange(key: TimeRange) {
     if (key === "custom") {
-      onchange("custom", customFrom, customTo);
+      showCustomInputs = true;
     } else {
+      showCustomInputs = false;
       onchange(key);
     }
   }
@@ -35,7 +36,7 @@
 <div class="flex items-center gap-2">
   {#each ranges as r}
     <button
-      class="px-3 py-1.5 text-sm rounded-md transition-colors {current === r.key
+      class="px-3 py-1.5 text-sm rounded-md transition-colors {(current === r.key || (r.key === 'custom' && showCustomInputs))
         ? 'bg-blue-600 text-white'
         : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'}"
       onclick={() => selectRange(r.key)}
@@ -44,7 +45,7 @@
     </button>
   {/each}
 
-  {#if showCustom}
+  {#if showCustomInputs}
     <div class="flex items-center gap-2 ml-2">
       <input
         type="date"
@@ -61,7 +62,7 @@
         class="px-2 py-1 text-sm bg-blue-600 rounded hover:bg-blue-500"
         onclick={applyCustom}
       >
-        Apply
+        应用
       </button>
     </div>
   {/if}

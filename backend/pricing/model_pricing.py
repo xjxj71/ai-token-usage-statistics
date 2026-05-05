@@ -1,3 +1,7 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
 MODEL_PRICING = {
     "claude-opus-4-7": {"input": 15.0, "output": 75.0, "cache_read": 1.875, "cache_write": 18.75},
     "claude-sonnet-4-6": {"input": 3.0, "output": 15.0, "cache_read": 0.375, "cache_write": 3.75},
@@ -22,6 +26,7 @@ def calculate_cost(
 ) -> float:
     pricing = MODEL_PRICING.get(model)
     if not pricing:
+        logger.warning("Unknown model '%s', cannot calculate cost", model)
         return 0.0
 
     cost = (

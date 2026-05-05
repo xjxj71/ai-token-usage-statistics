@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Claude Code PostToolUse hook script.
+"""Claude Code PostToolUse 钩子脚本。
 
-Receives tool usage data and writes it as a JSON file
-for the token-statistic collector to pick up.
+接收工具使用数据，将其写入 JSON 文件，
+供 Token 统计采集器读取。
 
-Install: place this script at ~/.claude/token-statistic/report_token.py
+安装：将此脚本放置于 ~/.claude/token-statistic/report_token.py
 """
 import json
 import os
@@ -43,14 +43,16 @@ def main():
             "cache_creation_input_tokens": data.get("cache_creation_input_tokens", 0),
         }
 
+    now = datetime.now(timezone.utc)
+
     record = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": now.isoformat(),
         "model": data.get("model", "unknown"),
         "session_id": data.get("session_id", ""),
         "usage": usage,
     }
 
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+    ts = now.strftime("%Y%m%dT%H%M%S%f")
     filename = f"usage-{ts}.json"
     (OUTPUT_DIR / filename).write_text(
         json.dumps(record, ensure_ascii=False, indent=2),

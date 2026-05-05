@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import * as echarts from "echarts";
   import type { BreakdownItem } from "../types";
 
   interface Props {
@@ -50,14 +51,14 @@
       },
       series: [
         {
-          name: "Input",
+          name: "输入",
           type: "bar",
           stack: "tokens",
           data: models.map((m) => byModel.get(m)?.input || 0),
           itemStyle: { color: COLORS[0] },
         },
         {
-          name: "Output",
+          name: "输出",
           type: "bar",
           stack: "tokens",
           data: models.map((m) => byModel.get(m)?.output || 0),
@@ -69,21 +70,23 @@
 
   $effect(() => {
     if (!chartEl || !breakdown) return;
-
-    import("echarts").then((echarts) => {
-      if (!chart) {
-        chart = echarts.init(chartEl!, "dark");
-      }
-      chart.setOption(buildOption(breakdown));
-    });
+    if (!chart) {
+      chart = echarts.init(chartEl, "dark");
+    }
+    chart.setOption(buildOption(breakdown));
   });
 
   onMount(() => {
-    return () => chart?.dispose();
+    const handleResize = () => chart?.resize();
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      chart?.dispose();
+    };
   });
 </script>
 
 <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
-  <h3 class="text-sm text-gray-400 mb-2">Model Distribution</h3>
+  <h3 class="text-sm text-gray-400 mb-2">模型分布</h3>
   <div bind:this={chartEl} class="w-full h-64"></div>
 </div>

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onMount } from "svelte";
+
   interface Props {
     agents: string[];
     models: string[];
@@ -11,6 +13,19 @@
 
   let showAgents = $state(false);
   let showModels = $state(false);
+  let containerEl: HTMLDivElement | undefined = $state();
+
+  function handleClickOutside(e: MouseEvent) {
+    if (containerEl && !containerEl.contains(e.target as Node)) {
+      showAgents = false;
+      showModels = false;
+    }
+  }
+
+  onMount(() => {
+    document.addEventListener("click", handleClickOutside, true);
+    return () => document.removeEventListener("click", handleClickOutside, true);
+  });
 
   function toggleAgent(agent: string) {
     const next = selectedAgents.includes(agent)
@@ -31,15 +46,15 @@
   }
 </script>
 
-<div class="fixed bottom-0 left-0 right-0 bg-gray-800 border-t border-gray-700 px-6 py-3 flex items-center gap-4 z-50">
-  <span class="text-xs text-gray-500 uppercase tracking-wide">Filters:</span>
+<div bind:this={containerEl} class="fixed bottom-0 left-0 right-0 bg-gray-800 border-t border-gray-700 px-6 py-3 flex items-center gap-4 z-50">
+  <span class="text-xs text-gray-500 uppercase tracking-wide">筛选:</span>
 
   <div class="relative">
     <button
       class="px-3 py-1 text-sm bg-gray-700 rounded hover:bg-gray-600 flex items-center gap-1"
       onclick={() => (showAgents = !showAgents)}
     >
-      Agent ({selectedAgents.length || "All"})
+      Agent ({selectedAgents.length || "全部"})
       <span class="text-xs">&#9662;</span>
     </button>
     {#if showAgents}
@@ -58,7 +73,7 @@
           </label>
         {/each}
         {#if agents.length === 0}
-          <div class="px-3 py-2 text-gray-500 text-sm">No agents yet</div>
+          <div class="px-3 py-2 text-gray-500 text-sm">暂无 Agent</div>
         {/if}
       </div>
     {/if}
@@ -69,7 +84,7 @@
       class="px-3 py-1 text-sm bg-gray-700 rounded hover:bg-gray-600 flex items-center gap-1"
       onclick={() => (showModels = !showModels)}
     >
-      Model ({selectedModels.length || "All"})
+      模型 ({selectedModels.length || "全部"})
       <span class="text-xs">&#9662;</span>
     </button>
     {#if showModels}
@@ -88,7 +103,7 @@
           </label>
         {/each}
         {#if models.length === 0}
-          <div class="px-3 py-2 text-gray-500 text-sm">No models yet</div>
+          <div class="px-3 py-2 text-gray-500 text-sm">暂无模型</div>
         {/if}
       </div>
     {/if}
@@ -98,6 +113,6 @@
     class="px-3 py-1 text-sm text-gray-400 hover:text-white"
     onclick={clearFilters}
   >
-    Clear
+    清除
   </button>
 </div>

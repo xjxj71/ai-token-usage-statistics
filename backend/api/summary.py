@@ -67,7 +67,7 @@ def _aggregate_rows(rows: list[SummaryRow]) -> dict:
 
 @router.get("/summary")
 async def get_summary(
-    range: str = Query("today", alias="range"),
+    range_key: str = Query("today", alias="range"),
     from_date: Optional[str] = Query(None, alias="from"),
     to_date: Optional[str] = Query(None, alias="to"),
     agent: Optional[str] = Query(None),
@@ -75,7 +75,7 @@ async def get_summary(
     group_by: str = Query("agent"),
 ):
     db = await db_module.get_db()
-    from_ts, to_ts = _resolve_range(range, from_date, to_date)
+    from_ts, to_ts = _resolve_range(range_key, from_date, to_date)
 
     agents = agent.split(",") if agent else None
     models = model.split(",") if model else None

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import * as echarts from "echarts";
   import type { BreakdownItem } from "../types";
 
   interface Props {
@@ -16,7 +17,7 @@
   function buildOption(data: BreakdownItem[]) {
     const byAgent = new Map<string, number>();
     for (const d of data) {
-      byAgent.set(d.agent, (byAgent.get(d.agent) || 0) + d.input_tokens + d.output_tokens);
+      byAgent.set(d.agent, (byAgent.get(d.agent) || 0) + d.input_tokens + d.output_tokens + (d.cache_read_tokens || 0) + (d.cache_write_tokens || 0));
     }
 
     const pieData = [...byAgent.entries()].map(([name, value]) => ({ name, value }));
@@ -53,21 +54,23 @@
 
   $effect(() => {
     if (!chartEl || !breakdown) return;
-
-    import("echarts").then((echarts) => {
-      if (!chart) {
-        chart = echarts.init(chartEl!, "dark");
-      }
-      chart.setOption(buildOption(breakdown));
-    });
+    if (!chart) {
+      chart = echarts.init(chartEl, "dark");
+    }
+    chart.setOption(buildOption(breakdown));
   });
 
   onMount(() => {
-    return () => chart?.dispose();
+    const handleResize = () => chart?.resize();
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      chart?.dispose();
+    };
   });
 </script>
 
 <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
-  <h3 class="text-sm text-gray-400 mb-2">Agent Distribution</h3>
+  <h3 class="text-sm text-gray-400 mb-2">Agent 分布</h3>
   <div bind:this={chartEl} class="w-full h-64"></div>
 </div>

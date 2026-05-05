@@ -12,6 +12,16 @@ from backend.config import settings
 from backend.db.database import get_db
 from backend.db.models import TokenRecord, insert_records
 
+
+def _notify_sse(total_new: int) -> None:
+    """Notify SSE listeners that new records are available."""
+    try:
+        from backend.api.stream import notify_new_records
+        if total_new > 0:
+            notify_new_records()
+    except Exception:
+        pass
+
 logger = logging.getLogger(__name__)
 
 COLLECTORS: list[BaseCollector] = [
@@ -43,7 +53,8 @@ async def run_collection_cycle() -> int:
 async def _poll_loop() -> None:
     while True:
         try:
-            await run_collection_cycle()
+            total_new = await run_collection_cycle()
+            _notify_sse(total_new)
         except Exception as e:
             logger.error("Collection cycle error: %s", e, exc_info=True)
         await asyncio.sleep(settings.poll_interval_seconds)

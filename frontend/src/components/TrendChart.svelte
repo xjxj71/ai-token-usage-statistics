@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import * as echarts from "echarts";
   import type { BreakdownItem } from "../types";
 
   interface Props {
@@ -10,12 +11,6 @@
 
   let chartEl: HTMLDivElement | undefined = $state();
   let chart: any = null;
-
-  const COLORS: Record<string, string> = {
-    "claude-code": "#4A90D9",
-    hermes: "#50C878",
-    openclaw: "#FF6B6B",
-  };
 
   function buildOption(data: BreakdownItem[]) {
     const agents = [...new Set(data.map((d) => d.agent))];
@@ -46,21 +41,21 @@
       },
       series: [
         {
-          name: "Input Tokens",
+          name: "输入 Token",
           type: "bar",
           stack: "tokens",
           data: data.map((d) => d.input_tokens),
           itemStyle: { color: "#4A90D9" },
         },
         {
-          name: "Output Tokens",
+          name: "输出 Token",
           type: "bar",
           stack: "tokens",
           data: data.map((d) => d.output_tokens),
           itemStyle: { color: "#50C878" },
         },
         {
-          name: "Cache Tokens",
+          name: "缓存 Token",
           type: "bar",
           stack: "tokens",
           data: data.map((d) => d.cache_read_tokens + d.cache_write_tokens),
@@ -72,21 +67,23 @@
 
   $effect(() => {
     if (!chartEl || !breakdown) return;
-
-    import("echarts").then((echarts) => {
-      if (!chart) {
-        chart = echarts.init(chartEl!, "dark");
-      }
-      chart.setOption(buildOption(breakdown));
-    });
+    if (!chart) {
+      chart = echarts.init(chartEl, "dark");
+    }
+    chart.setOption(buildOption(breakdown));
   });
 
   onMount(() => {
-    return () => chart?.dispose();
+    const handleResize = () => chart?.resize();
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      chart?.dispose();
+    };
   });
 </script>
 
 <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
-  <h3 class="text-sm text-gray-400 mb-2">Token Consumption by Agent/Model</h3>
+  <h3 class="text-sm text-gray-400 mb-2">Token 用量对比</h3>
   <div bind:this={chartEl} class="w-full h-80"></div>
 </div>

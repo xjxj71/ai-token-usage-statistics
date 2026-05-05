@@ -1,3 +1,5 @@
+import asyncio
+
 import aiosqlite
 from pathlib import Path
 
@@ -32,20 +34,24 @@ CREATE INDEX IF NOT EXISTS idx_token_usage_ts    ON token_usage(timestamp);
 CREATE INDEX IF NOT EXISTS idx_token_usage_agent ON token_usage(agent);
 CREATE INDEX IF NOT EXISTS idx_token_usage_model ON token_usage(model);
 CREATE INDEX IF NOT EXISTS idx_token_usage_comp  ON token_usage(timestamp, agent, model);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_token_usage_unique
+    ON token_usage(timestamp, agent, session_id, model);
 """
 
 _db: aiosqlite.Connection | None = None
+_db_lock = asyncio.Lock()
 
 
 async def get_db() -> aiosqlite.Connection:
     global _db
-    if _db is None:
-        settings.db_path.parent.mkdir(parents=True, exist_ok=True)
-        _db = await aiosqlite.connect(str(settings.db_path))
-        _db.row_factory = aiosqlite.Row
-        await _db.execute("PRAGMA journal_mode=WAL")
-        await _db.execute("PRAGMA foreign_keys=ON")
-    return _db
+    async with _db_lock:
+        if _db is None:
+            settings.db_path.parent.mkdir(parents=True, exist_ok=True)
+            _db = await aiosqlite.connect(str(settings.db_path))
+            _db.row_factory = aiosqlite.Row
+            await _db.execute("PRAGMA journal_mode=WAL")
+            await _db.execute("PRAGMA foreign_keys=ON")
+        return _db
 
 
 async def init_db() -> None:
@@ -57,24 +63,21 @@ async def init_db() -> None:
 
 async def close_db() -> None:
     global _db
-    if _db is not None:
-        await _db.close()
-        _db = None
+    async with _db_lock:
+        if _db is not None:
+            await _db.close()
+            _db = None
 
 
 async def _seed_pricing(db: aiosqlite.Connection) -> None:
-    from backend.pricing.model_pricing import MODEL_PRICING
-
-    count = await db.execute_fetchall("SELECT COUNT(*) FROM model_pricing")
-    if count[0][0] > 0:
-        return
-
     from datetime import datetime, timezone
+
+    from backend.pricing.model_pricing import MODEL_PRICING
 
     now = datetime.now(timezone.utc).isoformat()
     for model, prices in MODEL_PRICING.items():
         await db.execute(
-            """INSERT OR IGNORE INTO model_pricing
+            """INSERT OR REPLACE INTO model_pricing
                (model, input_price, output_price, cache_read_price, cache_write_price, updated_at)
                VALUES (?, ?, ?, ?, ?, ?)""",
             (model, prices["input"], prices["output"],

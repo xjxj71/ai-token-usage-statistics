@@ -38,7 +38,7 @@ async def insert_records(db: aiosqlite.Connection, records: Sequence[TokenRecord
     if not records:
         return
     await db.executemany(
-        """INSERT INTO token_usage
+        """INSERT OR IGNORE INTO token_usage
            (timestamp, agent, model, session_id,
             input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
             cost_usd, raw_data)
@@ -95,8 +95,20 @@ async def fetch_summary(
     where_sql = f"WHERE {' AND '.join(wheres)}" if wheres else ""
 
     group_col = group_by if group_by in ("agent", "model") else "agent"
+
+    if group_col == "agent":
+        # Group by agent — model becomes a display value (empty string).
+        select_agent = "agent"
+        select_model = "'' AS model"
+        group_clause = "agent"
+    else:
+        # Group by model — agent becomes a display value (empty string).
+        select_agent = "'' AS agent"
+        select_model = "model"
+        group_clause = "model"
+
     rows = await db.execute_fetchall(
-        f"""SELECT agent, model,
+        f"""SELECT {select_agent}, {select_model},
                SUM(input_tokens) as input_tokens,
                SUM(output_tokens) as output_tokens,
                SUM(cache_read_tokens) as cache_read_tokens,
@@ -105,7 +117,7 @@ async def fetch_summary(
                COUNT(*) as call_count
            FROM token_usage
            {where_sql}
-           GROUP BY {group_col}, model
+           GROUP BY {group_clause}
            ORDER BY cost_usd DESC""",
         params,
     )
