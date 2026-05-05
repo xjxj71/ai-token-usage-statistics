@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
 
@@ -13,6 +14,19 @@ from backend.pricing.model_pricing import calculate_cost
 logger = logging.getLogger(__name__)
 
 
+def _parse_ts(ts) -> datetime:
+    """Parse a timestamp — handles ISO strings and millisecond epoch ints."""
+    if isinstance(ts, (int, float)):
+        # Millisecond epoch (e.g. 1777902554979)
+        if ts > 1e12:
+            ts = ts / 1000.0
+        return datetime.fromtimestamp(ts, tz=timezone.utc)
+    try:
+        return datetime.fromisoformat(str(ts))
+    except (ValueError, TypeError):
+        return datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+
 class OpenClawCollector(BaseCollector):
     @property
     def name(self) -> str:
@@ -20,80 +34,82 @@ class OpenClawCollector(BaseCollector):
 
     async def collect(self) -> Sequence[TokenRecord]:
         state = self._load_state()
-        last_ts = state.get("last_timestamp", "")
+        last_ts_str = state.get("last_timestamp", "")
+        last_dt = _parse_ts(last_ts_str)
 
-        sessions_dir = self._resolve_sessions_dir()
-        if sessions_dir is None:
+        # Copy sessions.json from WSL /root to /tmp for UNC access
+        if not settings.wsl_copy_to_tmp(
+            "/root/.openclaw/agents/main/sessions/sessions.json",
+            "/tmp/openclaw_sessions.json",
+        ):
+            logger.warning("OpenClaw: failed to copy sessions.json via wsl_copy")
+            return []
+
+        sessions_path = Path(settings.openclaw_sessions_path)
+        if not sessions_path.exists():
+            logger.warning("OpenClaw: copied file not accessible at %s", sessions_path)
+            return []
+
+        try:
+            data = json.loads(sessions_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("OpenClaw: failed to read sessions.json: %s", e)
+            return []
+
+        # sessions.json is a dict keyed by agent session names, e.g.:
+        #   {"agent:main:main": {...}, "agent:main:tui-xxx": {...}, ...}
+        # NOT a list.
+        if not isinstance(data, dict):
+            logger.warning("OpenClaw: unexpected sessions.json format (expected dict)")
             return []
 
         records: list[TokenRecord] = []
-        max_ts = last_ts
+        max_ts_str = last_ts_str
 
-        for agent_dir in sorted(sessions_dir.iterdir()):
-            if not agent_dir.is_dir():
+        for agent_key, session in data.items():
+            if not isinstance(session, dict):
                 continue
 
-            sessions_file = agent_dir / "sessions" / "sessions.json"
-            if not sessions_file.exists():
+            # updatedAt is millisecond epoch integer
+            ts_raw = session.get("updatedAt", session.get("startedAt", ""))
+            ts_dt = _parse_ts(ts_raw)
+            if ts_dt <= last_dt:
                 continue
 
-            try:
-                data = json.loads(sessions_file.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError) as e:
-                logger.warning("Failed to read %s: %s", sessions_file, e)
-                continue
+            model = session.get("model", "unknown")
+            input_tokens = session.get("inputTokens", 0) or 0
+            output_tokens = session.get("outputTokens", 0) or 0
+            cache_read = session.get("cacheRead", 0) or 0
+            cache_write = session.get("cacheWrite", 0) or 0
+            cost = session.get("estimatedCostUsd", 0) or 0
 
-            sessions = data if isinstance(data, list) else data.get("sessions", [])
-            for session in sessions:
-                ts = session.get("updatedAt", session.get("createdAt", ""))
-                if ts <= last_ts:
-                    continue
+            if cost <= 0:
+                cost = calculate_cost(model, input_tokens, output_tokens, cache_read, cache_write)
 
-                model = session.get("model", "unknown")
-                input_tokens = session.get("inputTokens", 0)
-                output_tokens = session.get("outputTokens", 0)
-                cache_read = session.get("cacheRead", 0)
-                cache_write = session.get("cacheWrite", 0)
-                cost = session.get("estimatedCostUsd", 0)
+            # Convert ts to ISO string for storage
+            ts_iso = ts_dt.isoformat()
 
-                if cost <= 0:
-                    cost = calculate_cost(model, input_tokens, output_tokens, cache_read, cache_write)
-
-                records.append(
-                    TokenRecord(
-                        timestamp=ts,
-                        agent=self.name,
-                        model=model,
-                        session_id=session.get("id", ""),
-                        input_tokens=input_tokens,
-                        output_tokens=output_tokens,
-                        cache_read_tokens=cache_read,
-                        cache_write_tokens=cache_write,
-                        cost_usd=round(cost, 6),
-                        raw_data=json.dumps(session, ensure_ascii=False),
-                    )
+            records.append(
+                TokenRecord(
+                    timestamp=ts_iso,
+                    agent=self.name,
+                    model=model,
+                    session_id=str(session.get("sessionId", agent_key)),
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    cache_read_tokens=cache_read,
+                    cache_write_tokens=cache_write,
+                    cost_usd=round(cost, 6),
+                    raw_data=json.dumps(
+                        {"agent_key": agent_key, "session_id": session.get("sessionId")},
+                        ensure_ascii=False,
+                    ),
                 )
-                max_ts = max(max_ts, ts)
+            )
+            if ts_dt > _parse_ts(max_ts_str):
+                max_ts_str = ts_raw
 
         if records:
-            self._save_state({"last_timestamp": max_ts})
+            self._save_state({"last_timestamp": max_ts_str})
 
         return records
-
-    def _resolve_sessions_dir(self) -> Path | None:
-        base = f"{settings.wsl_root}\\home"
-        if settings.wsl_user:
-            path = Path(f"{base}\\{settings.wsl_user}\\.openclaw\\agents")
-            if path.exists():
-                return path
-
-        try:
-            home = Path(base)
-            for user_dir in home.iterdir():
-                candidate = user_dir / ".openclaw" / "agents"
-                if candidate.exists():
-                    return candidate
-        except OSError:
-            pass
-
-        return None

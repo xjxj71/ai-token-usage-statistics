@@ -4,6 +4,7 @@ import json
 import logging
 import shutil
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
 
@@ -26,8 +27,16 @@ class HermesCollector(BaseCollector):
         state = self._load_state()
         last_row_id = state.get("last_row_id", 0)
 
-        db_path = self._resolve_db_path()
-        if db_path is None:
+        # Copy state.db from WSL /root to /tmp for UNC access
+        if not settings.wsl_copy_to_tmp(
+            "/root/.hermes/state.db", "/tmp/hermes_state.db"
+        ):
+            logger.warning("Hermes: failed to copy state.db via wsl_copy")
+            return []
+
+        db_path = settings.hermes_db_path
+        if not Path(db_path).exists():
+            logger.warning("Hermes: copied file not accessible at %s", db_path)
             return []
 
         tmp_path = await self._copy_to_temp(db_path)
@@ -40,30 +49,17 @@ class HermesCollector(BaseCollector):
             Path(tmp_path).unlink(missing_ok=True)
 
         if records:
-            max_id = max(r.raw_data.get("_row_id", 0) for r in records if r.raw_data)
+            raw_datas = []
+            for r in records:
+                if r.raw_data:
+                    raw_datas.append(json.loads(r.raw_data))
+            max_id = max(d.get("_row_id", 0) for d in raw_datas) if raw_datas else 0
             self._save_state({"last_row_id": max_id})
 
         return records
 
-    def _resolve_db_path(self) -> str | None:
-        base = f"{settings.wsl_root}\\home"
-        if settings.wsl_user:
-            path = Path(f"{base}\\{settings.wsl_user}\\.hermes\\state.db")
-            if path.exists():
-                return str(path)
-
-        try:
-            home = Path(base)
-            for user_dir in home.iterdir():
-                candidate = user_dir / ".hermes" / "state.db"
-                if candidate.exists():
-                    return str(candidate)
-        except OSError:
-            pass
-
-        return None
-
     async def _copy_to_temp(self, db_path: str) -> str | None:
+        """Copy the UNC-accessible db to a local temp file for SQLite access."""
         try:
             tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
             shutil.copy2(db_path, tmp.name)
@@ -78,11 +74,14 @@ class HermesCollector(BaseCollector):
         async with aiosqlite.connect(db_path) as db:
             db.row_factory = aiosqlite.Row
             try:
+                # Hermes sessions schema uses:
+                #   started_at REAL  (Unix timestamp, e.g. 1778000332.40501)
+                #   id TEXT PRIMARY KEY  (session id)
                 rows = await db.execute_fetchall(
                     """SELECT rowid, input_tokens, output_tokens,
                               cache_read_tokens, cache_write_tokens,
                               estimated_cost_usd, actual_cost_usd,
-                              created_at, model, session_id
+                              started_at, model, id
                        FROM sessions
                        WHERE rowid > ?
                        ORDER BY rowid""",
@@ -105,9 +104,13 @@ class HermesCollector(BaseCollector):
                     model, input_tokens, output_tokens, cache_read, cache_write
                 )
 
-                ts = row["created_at"] or ""
-                if not ts:
-                    from datetime import datetime, timezone
+                # started_at is REAL (Unix timestamp), convert to ISO string
+                started_at = row["started_at"]
+                if started_at:
+                    ts = datetime.fromtimestamp(
+                        started_at, tz=timezone.utc
+                    ).isoformat()
+                else:
                     ts = datetime.now(timezone.utc).isoformat()
 
                 records.append(
@@ -115,7 +118,7 @@ class HermesCollector(BaseCollector):
                         timestamp=ts,
                         agent=self.name,
                         model=model,
-                        session_id=str(row["session_id"] or ""),
+                        session_id=str(row["id"] or ""),
                         input_tokens=input_tokens,
                         output_tokens=output_tokens,
                         cache_read_tokens=cache_read,

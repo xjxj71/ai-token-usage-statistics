@@ -1,172 +1,214 @@
-# Agent Tool Configuration Guide
+# Agent 数据配置指南
 
-This document describes what you need to configure in each agent tool so the token-statistic collector can read token usage data.
+本文档说明各 Agent 工具的数据源路径和采集方式，以便 Token 统计采集器能够读取 Token 用量数据。
+
+---
+
+## 数据源路径总览
+
+| Agent | 数据文件 | WSL 路径 | Windows UNC 路径 |
+|-------|---------|---------|-----------------|
+| Hermes | state.db (SQLite) | `/root/.hermes/state.db` → 复制到 `/tmp/hermes_state.db` | `\\wsl$\project-claude\tmp\hermes_state.db` |
+| Claude Code | costs.jsonl (JSONL) | `/home/claude/.claude/metrics/costs.jsonl` | `\\wsl$\project-claude\home\claude\.claude\metrics\costs.jsonl` |
+| OpenClaw | sessions.json | `/root/.openclaw/agents/main/sessions/sessions.json` → 复制到 `/tmp/openclaw_sessions.json` | `\\wsl$\project-claude\tmp\openclaw_sessions.json` |
+
+### 权限与数据复制机制
+
+Hermes 和 OpenClaw 的数据文件位于 `/root/` 目录下（权限 700），WSL 默认用户 `claude` 无法通过 UNC 路径访问。采集器使用 `wsl_copy_to_tmp()` 解决此问题：
+
+1. 每次采集前，将源文件复制到 `/tmp/` 并设置权限为 644
+2. **Windows 部署时**：通过 `wsl.exe -u root -- cp <src> /tmp/<name> && chmod 644 /tmp/<name>` 执行复制
+3. **WSL 内测试时**：直接用 `shutil.copy2()` 复制（因为运行用户就是 root）
 
 ---
 
 ## 1. Claude Code
 
-Claude Code requires a **PostToolUse hook** to write token data to a JSON file. The collector then reads these files via the WSL filesystem.
+### 无需额外配置
 
-### Step 1: Create the hook script
+Claude Code 自动在 `~/.claude/metrics/` 目录下生成 `costs.jsonl` 文件，采集器直接读取该文件。
 
-Place the script at `~/.claude/token-statistic/report_token.py` inside WSL:
+### 数据格式
 
-```bash
-mkdir -p ~/.claude/token-statistic
-```
+JSONL 文件，每行一个 JSON 对象：
 
-Copy the script from this project:
-```
-backend/collectors/scripts/report_claude_code.py
-```
-
-Save it as:
-```
-~/.claude/token-statistic/report_token.py
-```
-
-Make it executable:
-```bash
-chmod +x ~/.claude/token-statistic/report_token.py
-```
-
-### Step 2: Configure the hook
-
-Edit `~/.claude/settings.json` (in WSL) and add the hook:
-
-```json
-{
-  "hooks": {
-    "PostToolUse": [
-      {
-        "type": "command",
-        "command": "python3 ~/.claude/token-statistic/report_token.py \"$TOOL_INPUT\""
-      }
-    ]
-  }
-}
-```
-
-If you already have hooks configured, append to the existing `PostToolUse` array.
-
-### Step 3: Verify
-
-Run Claude Code and use any tool. Check that JSON files appear:
-
-```bash
-ls ~/.claude/token-statistic/usage-*.json
-```
-
-Each file should look like:
 ```json
 {
   "timestamp": "2026-05-02T10:30:00.123456+00:00",
-  "model": "claude-sonnet-4-6",
   "session_id": "abc123",
-  "usage": {
-    "input_tokens": 1500,
-    "output_tokens": 800,
-    "cache_read_input_tokens": 500,
-    "cache_creation_input_tokens": 200
-  }
+  "model": "unknown",
+  "input_tokens": 0,
+  "output_tokens": 0,
+  "estimated_cost_usd": 0.0
 }
 ```
 
-### What the collector does
+> **注意**：当前 `costs.jsonl` 全是零数据（model=unknown, tokens=0），属于占位采集，等待 Claude Code 后续版本提供有效数据。
 
-The Windows-side `ClaudeCodeCollector` polls `\\wsl$\Ubuntu\home\<user>\.claude\token-statistic\` every 5 seconds, reads new JSON files since the last check, calculates cost, writes to the central SQLite DB, then the files are left in place (not deleted, so you can debug).
+### 采集器工作原理
+
+`ClaudeCodeCollector` 每 5 秒轮询 `costs.jsonl` 文件（Windows 通过 UNC 路径 `\\wsl$\project-claude\home\claude\.claude\metrics\costs.jsonl`，WSL 内直接读取 `/home/claude/.claude/metrics/costs.jsonl`），解析新增的 JSONL 行，计算费用，写入中央 SQLite 数据库。增量读取通过文件偏移量追踪实现。
+
+### 验证
+
+```bash
+# 检查数据文件是否存在
+ls ~/.claude/metrics/costs.jsonl
+
+# 查看内容
+head -5 ~/.claude/metrics/costs.jsonl
+```
 
 ---
 
 ## 2. Hermes (Nous Research)
 
-**No configuration required.** Hermes already stores structured token data in a SQLite database.
+### 无需配置
 
-### Data location
+Hermes 已将结构化的 Token 数据存储在 SQLite 数据库中。采集器自动读取。
 
-The collector reads from:
-```
-~/.hermes/state.db
-```
+### 数据位置
 
-The `sessions` table contains: `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `estimated_cost_usd`, `actual_cost_usd`, `model`, `session_id`, `created_at`.
+- **源文件**：`/root/.hermes/state.db`（需 root 权限）
+- **采集副本**：`/tmp/hermes_state.db`（通过 `wsl_copy_to_tmp()` 自动复制）
 
-### How it works
+### 数据格式
 
-The `HermesCollector` copies `state.db` to a temp file on each poll cycle (to avoid SQLite locking issues), reads new rows by tracking the last `rowid`, then cleans up the temp copy.
+SQLite `sessions` 表，主要列：
 
-### Verify data exists
+| 列名 | 类型 | 说明 |
+|------|------|------|
+| `started_at` | REAL | Unix 时间戳 |
+| `model` | TEXT | 模型名称（如 `glm-5.1`） |
+| `input_tokens` | INTEGER | 输入 Token 数 |
+| `output_tokens` | INTEGER | 输出 Token 数 |
+| `cache_read_tokens` | INTEGER | 缓存读取 Token 数 |
+| `cache_write_tokens` | INTEGER | 缓存写入 Token 数 |
+| `estimated_cost_usd` | REAL | 预估费用 |
+| `actual_cost_usd` | REAL | 实际费用 |
+| `cost_status` | TEXT | 费用状态 |
+| `billing_provider` | TEXT | 计费提供商 |
+| `session_id` | TEXT | 会话 ID |
+
+### 工作原理
+
+`HermesCollector` 在每个轮询周期：
+
+1. 通过 `wsl_copy_to_tmp()` 将 `/root/.hermes/state.db` 复制到 `/tmp/hermes_state.db`（chmod 644）
+2. 读取副本数据库的 `sessions` 表
+3. 通过追踪上次读取的 `rowid` 获取新行
+4. 处理完毕后清理临时副本
+
+### 验证数据是否存在
 
 ```bash
-# Check if Hermes has been used
-ls ~/.hermes/state.db
+# 需 root 权限
+sudo ls /root/.hermes/state.db
+sudo sqlite3 /root/.hermes/state.db "SELECT COUNT(*) FROM sessions;"
 
-# Query session count
-sqlite3 ~/.hermes/state.db "SELECT COUNT(*) FROM sessions;"
+# 检查采集副本
+ls /tmp/hermes_state.db
 ```
 
 ---
 
 ## 3. OpenClaw
 
-**No configuration required.** OpenClaw persists session data as JSON files.
+### 无需配置
 
-### Data location
+OpenClaw 将会话数据持久化为 JSON 文件，采集器自动读取。
 
-The collector reads from:
+### 数据位置
+
+- **源文件**：`/root/.openclaw/agents/main/sessions/sessions.json`（需 root 权限）
+- **采集副本**：`/tmp/openclaw_sessions.json`（通过 `wsl_copy_to_tmp()` 自动复制）
+
+### 数据格式
+
+`sessions.json` 是一个 JSON 对象（dict，非 list），结构如下：
+
+```json
+{
+  "agent:main:main": {
+    "sessionId": "abc123",
+    "updatedAt": 1714617600000,
+    "totalTokens": 5000,
+    "inputTokens": 3000,
+    "outputTokens": 2000,
+    "cacheRead": 1000,
+    "cacheWrite": 500,
+    "estimatedCostUsd": 0.05,
+    "model": "mimo-v2-pro"
+  }
+}
 ```
-~/.openclaw/agents/<agentId>/sessions/sessions.json
-```
 
-Each session entry contains: `inputTokens`, `outputTokens`, `totalTokens`, `cacheRead`, `cacheWrite`, `contextTokens`, `estimatedCostUsd`, `model`, `id`, `updatedAt`.
+- **key**：agent session 名（如 `"agent:main:main"`）
+- **value**：包含 `sessionId`、`updatedAt`（毫秒时间戳）、`totalTokens`、`inputTokens`、`outputTokens`、`cacheRead`、`cacheWrite`、`estimatedCostUsd`、`model` 等
 
-### How it works
+### 工作原理
 
-The `OpenClawCollector` scans all agent directories under `~/.openclaw/agents/`, reads each `sessions.json`, and processes entries with timestamps newer than the last collection.
+`OpenClawCollector` 在每个轮询周期：
 
-### Verify data exists
+1. 通过 `wsl_copy_to_tmp()` 将 `/root/.openclaw/agents/main/sessions/sessions.json` 复制到 `/tmp/openclaw_sessions.json`（chmod 644）
+2. 读取副本，解析 JSON dict
+3. 遍历所有 session 条目，处理 `updatedAt` 时间戳晚于上次采集的记录
+4. 将新记录写入中央 SQLite 数据库
+
+### 验证数据是否存在
 
 ```bash
-# Check if OpenClaw has been used
-ls ~/.openclaw/agents/
+# 需 root 权限
+sudo ls /root/.openclaw/agents/main/sessions/sessions.json
 
-# Check session data
-ls ~/.openclaw/agents/*/sessions/sessions.json
+# 检查采集副本
+ls /tmp/openclaw_sessions.json
 ```
 
 ---
 
-## 4. Token Statistic Tool Configuration
+## 4. Token 统计工具配置
 
-Set environment variables to configure the collector:
+通过环境变量或 `config.py` 配置采集器：
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `TOKEN_STAT_WSL_DISTRO` | `Ubuntu` | WSL distribution name |
-| `TOKEN_STAT_WSL_USER` | (auto-detect) | Your WSL username. Set this for faster startup |
-| `TOKEN_STAT_POLL_INTERVAL_SECONDS` | `5` | Collector polling interval |
-| `TOKEN_STAT_HOST` | `127.0.0.1` | Server bind address |
-| `TOKEN_STAT_PORT` | `8000` | Server port |
+| 变量 / 配置项 | 默认值 | 说明 |
+|--------------|--------|------|
+| `wsl_distro` / `TOKEN_STAT_WSL_DISTRO` | `project-claude` | WSL 发行版名称 |
+| `wsl_user_accessible` | `claude` | UNC 可访问的 WSL 用户（数据可通过 UNC 读取） |
+| `wsl_user_root` | `root` | root 权限用户（用于通过 `wsl.exe -u root -- cp` 复制 /root/ 下的数据） |
+| `poll_interval_seconds` / `TOKEN_STAT_POLL_INTERVAL_SECONDS` | `5` | 采集器轮询间隔（秒） |
+| `db_path` / `TOKEN_STAT_DB_PATH` | `data/token_statistic.db` | 本地 SQLite 数据库路径 |
+| `TOKEN_STAT_HOST` | `127.0.0.1` | 服务绑定地址 |
+| `TOKEN_STAT_PORT` | `8000` | 服务端口 |
 
-### Example startup
+### 启动示例
 
 ```bash
-# Windows (PowerShell or CMD)
-set TOKEN_STAT_WSL_USER=your_wsl_username
+# Windows (PowerShell 或 CMD)
+set TOKEN_STAT_WSL_DISTRO=project-claude
 cd "D:\research project\ai-token-usage-statistics"
 .venv\Scripts\activate
 uvicorn backend.main:app --reload
 ```
 
-Then open http://127.0.0.1:8000 in your browser.
+然后在浏览器打开 http://127.0.0.1:8000 。
 
 ---
 
-## Quick Reference
+## 快速参考
 
-| Agent | Config Needed | Data Source | Access Method |
-|-------|--------------|-------------|---------------|
-| Claude Code | PostToolUse hook + script | `~/.claude/token-statistic/*.json` | File polling |
-| Hermes | None | `~/.hermes/state.db` (SQLite) | DB copy + query |
-| OpenClaw | None | `~/.openclaw/agents/*/sessions/sessions.json` | File polling |
+| Agent | 是否需要配置 | 数据来源 | 访问方式 |
+|-------|-------------|---------|---------|
+| Claude Code | 无 | `~/.claude/metrics/costs.jsonl` (JSONL) | UNC 或原生路径直接读取 |
+| Hermes | 无 | `/root/.hermes/state.db` (SQLite) | `wsl_copy_to_tmp()` 复制到 `/tmp/` 后读取 |
+| OpenClaw | 无 | `/root/.openclaw/agents/main/sessions/sessions.json` | `wsl_copy_to_tmp()` 复制到 `/tmp/` 后读取 |
+
+---
+
+## 已验证的采集结果
+
+| Agent | 记录数 | 说明 |
+|-------|--------|------|
+| Hermes | 71 条 | 模型 glm-5.1，input_tokens 最高 28,654 |
+| Claude Code | 102 条 | 全是零数据（costs.jsonl 本身无有效数据） |
+| OpenClaw | 70 条 | 模型包括 mimo-v2-pro, mimo-v2.5-pro, deepseek-v4 等 |

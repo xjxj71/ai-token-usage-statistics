@@ -14,6 +14,14 @@ from backend.pricing.model_pricing import calculate_cost
 logger = logging.getLogger(__name__)
 
 
+def _parse_ts(ts: str) -> datetime:
+    """Parse an ISO timestamp string, falling back to epoch on failure."""
+    try:
+        return datetime.fromisoformat(ts)
+    except (ValueError, TypeError):
+        return datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+
 class ClaudeCodeCollector(BaseCollector):
     @property
     def name(self) -> str:
@@ -21,63 +29,70 @@ class ClaudeCodeCollector(BaseCollector):
 
     async def collect(self) -> Sequence[TokenRecord]:
         state = self._load_state()
-        last_ts = state.get("last_timestamp", "")
+        last_ts_str = state.get("last_timestamp", "")
+        last_dt = _parse_ts(last_ts_str)
 
-        json_dir = self._wsl_path("home")
-        if settings.wsl_user:
-            json_dir = f"{settings.wsl_root}\\home\\{settings.wsl_user}\\.claude\\token-statistic"
-        else:
-            json_dir = f"{settings.wsl_root}\\home"
-
-        try:
-            wsl_home = Path(json_dir)
-            if not wsl_home.exists():
-                return []
-        except OSError:
-            return []
-
-        token_dir = wsl_home / ".claude" / "token-statistic"
-        if not token_dir.exists():
+        costs_path = Path(settings.claude_costs_path)
+        if not costs_path.exists():
+            logger.debug("Claude Code: costs.jsonl not found at %s", costs_path)
             return []
 
         records: list[TokenRecord] = []
-        for json_file in sorted(token_dir.glob("*.json")):
+        max_ts_str = last_ts_str
+
+        try:
+            text = costs_path.read_text(encoding="utf-8")
+        except OSError as e:
+            logger.warning("Claude Code: failed to read costs.jsonl: %s", e)
+            return []
+
+        for line_no, line in enumerate(text.splitlines(), 1):
+            line = line.strip()
+            if not line:
+                continue
+
             try:
-                data = json.loads(json_file.read_text(encoding="utf-8"))
-                ts = data.get("timestamp", "")
-                if ts <= last_ts:
-                    continue
+                data = json.loads(line)
+            except json.JSONDecodeError as e:
+                logger.warning("Claude Code: line %d parse error: %s", line_no, e)
+                continue
 
-                usage = data.get("usage", {})
-                model = data.get("model", "unknown")
+            ts = data.get("timestamp", "")
+            ts_dt = _parse_ts(ts)
+            if ts_dt <= last_dt:
+                continue
 
-                input_tokens = usage.get("input_tokens", 0)
-                output_tokens = usage.get("output_tokens", 0)
-                cache_read = usage.get("cache_read_input_tokens", 0)
-                cache_write = usage.get("cache_creation_input_tokens", 0)
+            model = data.get("model", "unknown")
+            input_tokens = data.get("input_tokens", 0)
+            output_tokens = data.get("output_tokens", 0)
+            estimated_cost = data.get("estimated_cost_usd", 0)
 
-                cost = calculate_cost(model, input_tokens, output_tokens, cache_read, cache_write)
+            # costs.jsonl doesn't have cache token fields
+            cache_read = 0
+            cache_write = 0
 
-                records.append(
-                    TokenRecord(
-                        timestamp=ts,
-                        agent=self.name,
-                        model=model,
-                        session_id=data.get("session_id", ""),
-                        input_tokens=input_tokens,
-                        output_tokens=output_tokens,
-                        cache_read_tokens=cache_read,
-                        cache_write_tokens=cache_write,
-                        cost_usd=cost,
-                        raw_data=json.dumps(data, ensure_ascii=False),
-                    )
+            cost = estimated_cost if estimated_cost and estimated_cost > 0 else calculate_cost(
+                model, input_tokens, output_tokens, cache_read, cache_write
+            )
+
+            records.append(
+                TokenRecord(
+                    timestamp=ts,
+                    agent=self.name,
+                    model=model,
+                    session_id=data.get("session_id", ""),
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    cache_read_tokens=cache_read,
+                    cache_write_tokens=cache_write,
+                    cost_usd=round(cost, 6),
+                    raw_data=json.dumps(data, ensure_ascii=False),
                 )
-                last_ts = max(last_ts, ts)
-
-            except (json.JSONDecodeError, KeyError, OSError) as e:
-                logger.warning("Failed to parse %s: %s", json_file, e)
+            )
+            if ts_dt > _parse_ts(max_ts_str):
+                max_ts_str = ts
 
         if records:
-            self._save_state({"last_timestamp": last_ts})
+            self._save_state({"last_timestamp": max_ts_str})
 
         return records
