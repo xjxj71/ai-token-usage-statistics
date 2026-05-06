@@ -7,6 +7,7 @@ from fastapi import APIRouter, Query
 
 from backend.db import database as db_module
 from backend.db.models import fetch_usage_page
+from backend.api.summary import _resolve_range
 
 router = APIRouter(tags=["usage"])
 
@@ -17,6 +18,7 @@ async def get_usage(
     limit: int = Query(50, ge=1, le=500),
     agent: Optional[str] = Query(None),
     model: Optional[str] = Query(None),
+    range_key: Optional[str] = Query(None, alias="range"),
     from_date: Optional[str] = Query(None, alias="from"),
     to_date: Optional[str] = Query(None, alias="to"),
 ):
@@ -25,14 +27,20 @@ async def get_usage(
     agents = agent.split(",") if agent else None
     models = model.split(",") if model else None
 
+    # Use centralized range resolution when range_key is provided
+    if range_key:
+        from_ts, to_ts = _resolve_range(range_key, from_date, to_date)
+    else:
+        from_ts, to_ts = from_date, to_date
+
     records, total = await fetch_usage_page(
         db,
         page=page,
         limit=limit,
         agents=agents,
         models=models,
-        from_ts=from_date,
-        to_ts=to_date,
+        from_ts=from_ts,
+        to_ts=to_ts,
     )
 
     return {

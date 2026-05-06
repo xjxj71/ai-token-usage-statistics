@@ -27,10 +27,17 @@
     models: [],
   });
 
+  function localDateStr(d: Date): string {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
   function computeFromTo(range: TimeRange): { from?: string; to?: string } {
     if (range === "custom") return {};
     const now = new Date();
-    const to = now.toISOString().slice(0, 10);
+    const to = localDateStr(now);
     let from: string;
     switch (range) {
       case "today":
@@ -39,13 +46,13 @@
       case "7d": {
         const d = new Date(now);
         d.setDate(d.getDate() - 7);
-        from = d.toISOString().slice(0, 10);
+        from = localDateStr(d);
         break;
       }
       case "30d": {
         const d = new Date(now);
         d.setDate(d.getDate() - 30);
-        from = d.toISOString().slice(0, 10);
+        from = localDateStr(d);
         break;
       }
       default:

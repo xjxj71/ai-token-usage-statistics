@@ -160,8 +160,9 @@ GET /api/summary
 
 GET /api/usage
     ?page=1&limit=50
+    &range=today|7d|30d|custom    # 时间范围（与 summary 共用解析逻辑）
+    &from=...&to=...             # 不指定 range 时按 from/to 筛选
     &agent=...&model=...
-    &from=...&to=...
 
     响应: {
       items: [TokenRecord],

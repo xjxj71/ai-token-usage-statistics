@@ -121,15 +121,20 @@ npm run build      # 生产构建（由 FastAPI 托管）
 ### 请求示例
 
 ```bash
-# 今日汇总
+# 今日汇总（按北京时间 0 点起算）
 curl "http://localhost:8000/api/summary?range=today"
 
 # 按 Agent 和模型筛选
 curl "http://localhost:8000/api/summary?range=7d&agent=claude-code&model=claude-sonnet-4-6"
 
-# 最近使用记录
-curl "http://localhost:8000/api/usage?page=1&limit=50"
+# 最近使用记录（支持 range 参数）
+curl "http://localhost:8000/api/usage?range=today&page=1&limit=50"
+
+# 不指定 range 时按 from/to 筛选
+curl "http://localhost:8000/api/usage?from=2026-05-01&to=2026-05-07"
 ```
+
+> **时区说明**：`range=today`、`7d`、`30d` 均按本地时区（Asia/Shanghai）计算零点起止时间，数据库中存储的 timestamp 为 UTC 格式。前端同样使用本地日期生成 from/to 参数，确保跨时区一致性。
 
 ## 项目结构
 

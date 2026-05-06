@@ -374,7 +374,13 @@ ss -tlnp | grep 8000
 netstat -ano | findstr 8000
 ```
 
-更换端口：`TOKEN_STAT_PORT=9000 uvicorn backend.main:app`
+更换端口：`TOKEN_STAT_PORT=*** uvicorn backend.main:app`
+
+### "今日"筛选数据不正确
+
+数据库中的 timestamp 统一存储为 UTC 格式，后端 `_resolve_range()` 按 Asia/Shanghai 时区计算本地零点再转 UTC 进行查询。前端 `computeFromTo()` 同样使用本地日期。
+
+如果时区不正确（如服务器不在 UTC+8），需修改 `backend/api/summary.py` 中 `local_tz` 的时区配置。
 
 ### SQLite 数据库锁定
 
