@@ -6,8 +6,8 @@
 
 - **多 Agent 支持**：采集 Claude Code、Hermes、OpenClaw 的 Token 用量
 - **实时仪表盘**：基于 SSE 推送更新，无需刷新页面
-- **费用估算**：内置各模型定价，自动计算使用成本
-- **丰富图表**：趋势折线图、Agent 分布饼图、模型占比柱状图（ECharts）
+- **费用估算**：内置各模型定价（YAML 配置，支持热更新），自动计算使用成本
+- **丰富图表**：Agent Token 对比图、Agent 消耗占比饼图、模型分布条形图（ECharts）
 - **时间范围筛选**：今日 / 7 天 / 30 天 / 自定义区间
 - **可扩展采集器**：实现 `BaseCollector` 即可接入新 Agent
 - **双环境运行**：Windows 原生部署（UNC 路径）和 WSL 内开发测试（自动检测）
@@ -36,7 +36,7 @@ Windows 原生 或 WSL 内运行
 
 | 层级 | 技术 |
 |------|------|
-| 后端 | Python 3.11+, FastAPI, aiosqlite, Pydantic |
+| 后端 | Python 3.11+, FastAPI, aiosqlite, Pydantic, PyYAML |
 | 前端 | Svelte 5, TypeScript, ECharts, TailwindCSS, Vite |
 | 数据库 | SQLite |
 | 实时通信 | Server-Sent Events (SSE) |
@@ -96,15 +96,15 @@ npm run build      # 生产构建（由 FastAPI 托管）
 | Agent | 数据文件 | WSL 路径 | Windows UNC 路径 |
 |-------|---------|---------|-----------------|
 | Hermes | state.db (SQLite) | `/root/.hermes/state.db` → 复制到 `/tmp/hermes_state.db` | `\\wsl$\project-claude\tmp\hermes_state.db` |
-| Claude Code | costs.jsonl (JSONL) | `/home/claude/.claude/metrics/costs.jsonl` | `\\wsl$\project-claude\home\claude\.claude\metrics\costs.jsonl` |
+| Claude Code | session JSONL | `/home/claude/.claude/projects/**/*.jsonl` | `\\wsl$\project-claude\home\claude\.claude\projects\`（递归扫描） |
 | OpenClaw | sessions.json | `/root/.openclaw/agents/main/sessions/sessions.json` → 复制到 `/tmp/openclaw_sessions.json` | `\\wsl$\project-claude\tmp\openclaw_sessions.json` |
 
-> **权限说明**：Hermes 和 OpenClaw 的数据在 `/root/` 下（权限 700），WSL 默认用户 `claude` 无法通过 UNC 访问。采集器会在每次采集前通过 `wsl_copy_to_tmp()` 将文件复制到 `/tmp/`（chmod 644），然后读取副本。Windows 部署时用 `wsl.exe -u root -- cp` 执行复制；WSL 内测试时直接用 `shutil.copy2`。
+> **权限说明**：Hermes 和 OpenClaw 的数据在 `/root/` 下（权限 700），WSL 默认用户 `claude` 无法通过 UNC 访问。采集器会在每次采集前通过 `wsl_copy_to_tmp()` 将文件复制到 `/tmp/`（chmod 644），然后读取副本。Windows 部署时用 `wsl.exe -u root -- cp` 执行复制；WSL 内测试时直接用 `shutil.copy2`。Claude Code 的数据在 `claude` 用户目录下，无权限问题，不需要 `wsl_copy_to_tmp()`。
 
 ### Agent 配置
 
 - **Hermes** 和 **OpenClaw**：无需配置，采集器自动读取数据文件。
-- **Claude Code**：当前采集 `costs.jsonl`（`~/.claude/metrics/` 下自动生成），无需额外配置。
+- **Claude Code**：无需配置。采集器扫描 `~/.claude/projects/` 下所有 session JSONL 文件，提取 `message.usage` 中的 token 数据。零侵入，无需在 Claude Code 中做任何操作。
 
 详见 [Agent 配置指南](docs/agent-setup-guide.md)。
 
@@ -149,6 +149,8 @@ ai-token-usage-statistics/
 │       ├── api/             # 请求封装 + SSE 客户端
 │       └── types/           # TypeScript 类型定义
 ├── tests/                   # pytest 测试用例
+├── config/                  # 模型定价 YAML 配置
+├── scripts/                 # 工具脚本（费用重算等）
 ├── docs/                    # 设计文档、配置指南
 └── pyproject.toml           # Python 项目配置
 ```

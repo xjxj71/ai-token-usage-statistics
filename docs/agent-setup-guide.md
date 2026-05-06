@@ -9,7 +9,7 @@
 | Agent | 数据文件 | WSL 路径 | Windows UNC 路径 |
 |-------|---------|---------|-----------------|
 | Hermes | state.db (SQLite) | `/root/.hermes/state.db` → 复制到 `/tmp/hermes_state.db` | `\\wsl$\project-claude\tmp\hermes_state.db` |
-| Claude Code | costs.jsonl (JSONL) | `/home/claude/.claude/metrics/costs.jsonl` | `\\wsl$\project-claude\home\claude\.claude\metrics\costs.jsonl` |
+| Claude Code | session JSONL | `/home/claude/.claude/projects/**/*.jsonl` | `\\wsl$\project-claude\home\claude\.claude\projects\`（递归扫描） |
 | OpenClaw | sessions.json | `/root/.openclaw/agents/main/sessions/sessions.json` → 复制到 `/tmp/openclaw_sessions.json` | `\\wsl$\project-claude\tmp\openclaw_sessions.json` |
 
 ### 权限与数据复制机制
@@ -22,41 +22,51 @@ Hermes 和 OpenClaw 的数据文件位于 `/root/` 目录下（权限 700），W
 
 ---
 
-## 1. Claude Code
+## 1. Claude Code（零侵入方案）
 
-### 无需额外配置
+**无需配置，无需在 Claude Code 中做任何操作。**
 
-Claude Code 自动在 `~/.claude/metrics/` 目录下生成 `costs.jsonl` 文件，采集器直接读取该文件。
+数据位置：
+- WSL 路径: `~/.claude/projects/` 下按项目组织的 JSONL 文件
+- 完整路径: `/home/claude/.claude/projects/{project-name}/{session-id}.jsonl`
+- Windows UNC: `\\wsl$\project-claude\home\claude\.claude\projects\`
+- 无权限问题（claude 用户自己的文件）
 
-### 数据格式
-
-JSONL 文件，每行一个 JSON 对象：
+数据格式：
+每行一个 JSON 对象。采集器筛选 `type=="assistant"` 的行，提取 `message.usage` 字段：
 
 ```json
 {
-  "timestamp": "2026-05-02T10:30:00.123456+00:00",
-  "session_id": "abc123",
-  "model": "unknown",
-  "input_tokens": 0,
-  "output_tokens": 0,
-  "estimated_cost_usd": 0.0
+  "type": "assistant",
+  "message": {
+    "model": "claude-opus-4-6",
+    "usage": {
+      "input_tokens": 5000,
+      "output_tokens": 800,
+      "cache_read_input_tokens": 20000,
+      "cache_creation_input_tokens": 1000
+    }
+  },
+  "timestamp": "2026-05-02T10:30:00.123Z",
+  "sessionId": "abc123",
+  "cwd": "/home/claude/project",
+  "gitBranch": "main"
 }
 ```
 
-> **注意**：当前 `costs.jsonl` 全是零数据（model=unknown, tokens=0），属于占位采集，等待 Claude Code 后续版本提供有效数据。
+工作原理：
+1. 递归扫描 `~/.claude/projects/**/*.jsonl`
+2. 筛选 `type=="assistant"` 行，提取 `message.usage` 中的 token 数据
+3. 通过 `file_positions` 状态文件追踪已处理的文件位置，增量读取
+4. 自动计算费用（基于 `config/model_pricing.yaml`）
 
-### 采集器工作原理
-
-`ClaudeCodeCollector` 每 5 秒轮询 `costs.jsonl` 文件（Windows 通过 UNC 路径 `\\wsl$\project-claude\home\claude\.claude\metrics\costs.jsonl`，WSL 内直接读取 `/home/claude/.claude/metrics/costs.jsonl`），解析新增的 JSONL 行，计算费用，写入中央 SQLite 数据库。增量读取通过文件偏移量追踪实现。
-
-### 验证
-
+验证：
 ```bash
-# 检查数据文件是否存在
-ls ~/.claude/metrics/costs.jsonl
+# 查看 session JSONL 文件
+find ~/.claude/projects -name "*.jsonl" | head -5
 
-# 查看内容
-head -5 ~/.claude/metrics/costs.jsonl
+# 查看某文件中的 token 数据
+cat ~/.claude/projects/*/*.jsonl | grep '"type":"assistant"' | head -1 | python3 -m json.tool
 ```
 
 ---
@@ -199,7 +209,7 @@ uvicorn backend.main:app --reload
 
 | Agent | 是否需要配置 | 数据来源 | 访问方式 |
 |-------|-------------|---------|---------|
-| Claude Code | 无 | `~/.claude/metrics/costs.jsonl` (JSONL) | UNC 或原生路径直接读取 |
+| Claude Code | 无 | `~/.claude/projects/**/*.jsonl` (JSONL) | 直接读取（claude 用户自有文件） |
 | Hermes | 无 | `/root/.hermes/state.db` (SQLite) | `wsl_copy_to_tmp()` 复制到 `/tmp/` 后读取 |
 | OpenClaw | 无 | `/root/.openclaw/agents/main/sessions/sessions.json` | `wsl_copy_to_tmp()` 复制到 `/tmp/` 后读取 |
 
@@ -210,5 +220,5 @@ uvicorn backend.main:app --reload
 | Agent | 记录数 | 说明 |
 |-------|--------|------|
 | Hermes | 71 条 | 模型 glm-5.1，input_tokens 最高 28,654 |
-| Claude Code | 102 条 | 全是零数据（costs.jsonl 本身无有效数据） |
+| Claude Code | 2,993 条 | 零侵入方案：从 session JSONL 提取，10 个模型，覆盖 2026-03-13 ~ 2026-05-04 |
 | OpenClaw | 70 条 | 模型包括 mimo-v2-pro, mimo-v2.5-pro, deepseek-v4 等 |

@@ -16,6 +16,8 @@ ai-token-usage-statistics/
 ├── backend/           # FastAPI 后端
 ├── frontend/          # Svelte 前端源码
 ├── data/              # SQLite 数据库（运行时生成）
+├── config/            # 模型定价 YAML 配置
+├── scripts/           # 工具脚本（费用重算等）
 ├── docs/              # 文档
 ├── tests/             # 测试
 └── pyproject.toml     # Python 项目配置
@@ -136,7 +138,7 @@ npm run build
 | Agent | 数据文件 | WSL 路径 | Windows UNC 路径 |
 |-------|---------|---------|-----------------|
 | Hermes | state.db (SQLite) | `/root/.hermes/state.db` → 复制到 `/tmp/hermes_state.db` | `\\wsl$\project-claude\tmp\hermes_state.db` |
-| Claude Code | costs.jsonl (JSONL) | `/home/claude/.claude/metrics/costs.jsonl` | `\\wsl$\project-claude\home\claude\.claude\metrics\costs.jsonl` |
+| Claude Code | session JSONL | `/home/claude/.claude/projects/**/*.jsonl` | `\\wsl$\project-claude\home\claude\.claude\projects\`（递归扫描） |
 | OpenClaw | sessions.json | `/root/.openclaw/agents/main/sessions/sessions.json` → 复制到 `/tmp/openclaw_sessions.json` | `\\wsl$\project-claude\tmp\openclaw_sessions.json` |
 
 ### 权限与数据复制机制
@@ -147,22 +149,52 @@ Hermes 和 OpenClaw 的数据文件位于 `/root/` 目录下（权限 700），W
 2. **Windows 部署时**：通过 `wsl.exe -u root -- cp <src> /tmp/<name> && chmod 644 /tmp/<name>` 执行复制
 3. **WSL 内测试时**：直接用 `shutil.copy2()` 复制（因为运行用户就是 root）
 
-### Claude Code
+### Claude Code（零侵入方案）
 
-无需配置。Claude Code 自动在 `~/.claude/metrics/` 下生成 `costs.jsonl` 文件，采集器直接读取。
+**无需配置，无需在 Claude Code 中做任何操作。**
 
-数据格式：JSONL 文件，每行一个 JSON 对象，包含 `timestamp`、`session_id`、`model`、`input_tokens`、`output_tokens`、`estimated_cost_usd`。
+数据位置：
+- WSL 路径: `~/.claude/projects/` 下按项目组织的 JSONL 文件
+- 完整路径: `/home/claude/.claude/projects/{project-name}/{session-id}.jsonl`
+- Windows UNC: `\\wsl$\project-claude\home\claude\.claude\projects\`
+- 无权限问题（claude 用户自己的文件）
 
-> **注意**：当前 `costs.jsonl` 全是零数据（model=unknown, tokens=0），属于占位采集，等待 Claude Code 后续版本提供有效数据。
+数据格式：
+每行一个 JSON 对象。采集器筛选 `type=="assistant"` 的行，提取 `message.usage` 字段：
+
+```json
+{
+  "type": "assistant",
+  "message": {
+    "model": "claude-opus-4-6",
+    "usage": {
+      "input_tokens": 5000,
+      "output_tokens": 800,
+      "cache_read_input_tokens": 20000,
+      "cache_creation_input_tokens": 1000
+    }
+  },
+  "timestamp": "2026-05-02T10:30:00.123Z",
+  "sessionId": "abc123",
+  "cwd": "/home/claude/project",
+  "gitBranch": "main"
+}
+```
+
+工作原理：
+1. 递归扫描 `~/.claude/projects/**/*.jsonl`
+2. 筛选 `type=="assistant"` 行，提取 `message.usage` 中的 token 数据
+3. 通过 `file_positions` 状态文件追踪已处理的文件位置，增量读取
+4. 自动计算费用（基于 `config/model_pricing.yaml`）
 
 验证：
 
 ```bash
-# 检查数据文件是否存在
-ls ~/.claude/metrics/costs.jsonl
+# 查看 session JSONL 文件
+find ~/.claude/projects -name "*.jsonl" | head -5
 
-# 查看内容
-head -5 ~/.claude/metrics/costs.jsonl
+# 查看某文件中的 token 数据
+cat ~/.claude/projects/*/*.jsonl | grep '"type":"assistant"' | head -1 | python3 -m json.tool
 ```
 
 ### Hermes
@@ -195,7 +227,29 @@ sudo ls /root/.openclaw/agents/main/sessions/sessions.json
 ls /tmp/openclaw_sessions.json
 ```
 
-## 四、数据库
+## 四、模型定价配置
+
+模型定价数据存储在 `config/model_pricing.yaml` 中。修改定价后：
+
+1. **热更新（无需重启）**：调用 `backend.pricing.model_pricing.reload_pricing()`
+2. **重算历史费用**：运行 `python scripts/recalc_costs.py`（支持 `--dry-run` 预览）
+
+配置文件格式：
+
+```yaml
+models:
+  claude-opus-4-6:
+    input: 15.0      # 每百万 token 输入价格 (USD)
+    output: 75.0     # 每百万 token 输出价格 (USD)
+    cache_read: 1.875  # 可选，默认 0
+    cache_write: 18.75  # 可选，默认 0
+  # 免费模型
+  deepseek/deepseek-v4-flash-free:
+    input: 0
+    output: 0
+```
+
+## 五、数据库
 
 ### 自动初始化
 
@@ -227,7 +281,7 @@ sqlite3 data/token_statistic.db ".backup data/backup_$(date +%Y%m%d).db"
 DELETE FROM token_usage WHERE timestamp < datetime('now', '-90 days');
 ```
 
-## 五、系统服务（可选）
+## 六、系统服务（可选）
 
 ### Linux systemd
 
@@ -267,7 +321,7 @@ sudo systemctl start ai-token-stat
    - 起始于：`D:\research project\ai-token-usage-statistics`
 4. 添加环境变量 `TOKEN_STAT_WSL_DISTRO=project-claude`
 
-## 六、验证部署
+## 七、验证部署
 
 ### 1. 检查后端 API
 
@@ -297,7 +351,7 @@ curl http://127.0.0.1:8000/api/models
 
 打开浏览器开发者工具 → Network → EventStream，应能看到 `/api/stream` 的持续连接。
 
-## 七、常见问题
+## 八、常见问题
 
 ### 前端页面空白
 
@@ -309,7 +363,6 @@ curl http://127.0.0.1:8000/api/models
 2. 确认 `TOKEN_STAT_WSL_DISTRO` 与实际 WSL 发行版名称匹配（在 CMD 中运行 `wsl -l -v` 查看，默认：`project-claude`）
 3. 如果 Hermes 或 OpenClaw 无数据，检查 `wsl_copy_to_tmp()` 是否成功：在 WSL 中运行 `ls /tmp/hermes_state.db` 和 `ls /tmp/openclaw_sessions.json`
 4. 检查 Windows 能否通过 UNC 路径访问 WSL 文件：在资源管理器地址栏输入 `\\wsl$\project-claude\home\claude\`
-5. Claude Code 当前 `costs.jsonl` 可能全是零数据（model=unknown, tokens=0），这属于占位采集
 
 ### 端口被占用
 
@@ -334,7 +387,7 @@ netstat -ano | findstr 8000
 1. **开发模式**：将前端代码复制到 WSL 本地文件系统（`/tmp/` 或 `~/`）运行
 2. **生产模式**：前端构建后由后端托管，不受此影响
 
-## 八、升级
+## 九、升级
 
 ```bash
 # 1. 拉取最新代码
