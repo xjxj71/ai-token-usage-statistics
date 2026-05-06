@@ -11,6 +11,8 @@
   import FilterBar from "./components/FilterBar.svelte";
 
   let summary: SummaryResponse | null = $state(null);
+  let agentBreakdown: SummaryResponse["breakdown"] = $state([]);
+  let modelBreakdown: SummaryResponse["breakdown"] = $state([]);
   let usage: UsageResponse | null = $state(null);
   let agents: string[] = $state([]);
   let models: string[] = $state([]);
@@ -54,7 +56,6 @@
 
   function buildParams(): Record<string, string> {
     const p: Record<string, string> = { range: filter.range };
-    // M2: compute from/to for non-custom ranges as well
     const { from, to } = computeFromTo(filter.range);
     if (filter.range === "custom" && filter.from) {
       p.from = filter.from;
@@ -77,11 +78,14 @@
     if (page !== undefined) currentPage = page;
     try {
       const params = buildParams();
-      const [sum, usg] = await Promise.all([
-        fetchSummary(params),
+      const [agentSum, modelSum, usg] = await Promise.all([
+        fetchSummary({ ...params, group_by: "agent" }),
+        fetchSummary({ ...params, group_by: "model" }),
         fetchUsage({ ...params, page: String(currentPage), limit: String(PAGE_SIZE) }),
       ]);
-      summary = sum;
+      summary = agentSum;
+      agentBreakdown = agentSum.breakdown;
+      modelBreakdown = modelSum.breakdown;
       usage = usg;
     } catch (e: any) {
       error = e.message || "数据加载失败";
@@ -128,7 +132,7 @@
   });
 </script>
 
-<main class="min-h-screen bg-gray-900 text-white">
+<main class="min-h-screen bg-gray-900 text-white" style="padding-bottom: 5.5rem;">
   <header class="border-b border-gray-800 px-6 py-4 flex items-center justify-between relative">
     <h1 class="text-xl font-bold">AI Token 用量统计</h1>
     <TimeRangeTabs current={filter.range} onchange={handleRangeChange} />
@@ -153,22 +157,26 @@
     </div>
   {:else if summary}
     <div class="p-6 space-y-6">
+      <!-- 统计卡片：6个 -->
       <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <StatCard title="总 Token" value={summary.total_tokens} unit="" />
         <StatCard title="输入 Token" value={summary.input_tokens} unit="" />
         <StatCard title="输出 Token" value={summary.output_tokens} unit="" />
         <StatCard title="缓存 Token" value={summary.cache_tokens} unit="" />
         <StatCard title="总费用" value={summary.cost_usd} unit="$" prefix={true} />
-        <StatCard title="调用次数" value={summary.call_count} unit="次" />
+        <StatCard title="请求次数" value={summary.call_count} unit="次" />
       </div>
 
-      <TrendChart breakdown={summary.breakdown} />
+      <!-- Agent Token 用量对比 -->
+      <TrendChart breakdown={agentBreakdown} />
 
+      <!-- Agent饼图 + 模型条形图 -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <AgentPie breakdown={summary.breakdown} />
-        <ModelBar breakdown={summary.breakdown} />
+        <AgentPie breakdown={agentBreakdown} />
+        <ModelBar breakdown={modelBreakdown} />
       </div>
 
+      <!-- 最近使用记录 -->
       {#if usage}
         <UsageTable
           items={usage.items}

@@ -53,11 +53,15 @@ class Settings(BaseSettings):
         return f"{self.wsl_root}\\tmp\\hermes_state.db"
 
     @property
-    def claude_costs_path(self) -> str:
-        """Claude Code costs.jsonl."""
+    def claude_projects_dir(self) -> str:
+        """Claude Code session JSONL directory (~/.claude/projects/).
+
+        Zero-intrusion data source: Claude Code writes session files here
+        natively. We read them directly — no hooks or config needed.
+        """
         if self.is_wsl:
-            return f"/home/{self.wsl_user_accessible}/.claude/metrics/costs.jsonl"
-        return f"{self.wsl_root}\\home\\{self.wsl_user_accessible}\\.claude\\metrics\\costs.jsonl"
+            return f"/home/{self.wsl_user_accessible}/.claude/projects"
+        return f"{self.wsl_root}\\home\\{self.wsl_user_accessible}\\.claude\\projects"
 
     @property
     def openclaw_sessions_path(self) -> str:

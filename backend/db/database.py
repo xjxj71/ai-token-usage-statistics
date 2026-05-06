@@ -72,7 +72,11 @@ async def close_db() -> None:
 async def _seed_pricing(db: aiosqlite.Connection) -> None:
     from datetime import datetime, timezone
 
-    from backend.pricing.model_pricing import MODEL_PRICING
+    from backend.pricing.model_pricing import MODEL_PRICING, load_pricing
+
+    # Ensure pricing is loaded from YAML
+    if not MODEL_PRICING:
+        load_pricing()
 
     now = datetime.now(timezone.utc).isoformat()
     for model, prices in MODEL_PRICING.items():

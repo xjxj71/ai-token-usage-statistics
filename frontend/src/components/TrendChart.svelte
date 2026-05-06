@@ -12,6 +12,12 @@
   let chartEl: HTMLDivElement | undefined = $state();
   let chart: any = null;
 
+  function fmt(n: number): string {
+    if (n >= 1e8) return (n / 1e8).toFixed(2) + " 亿";
+    if (n >= 1e4) return (n / 1e4).toFixed(1) + " 万";
+    return n.toLocaleString();
+  }
+
   function buildOption(data: BreakdownItem[]) {
     const agents = [...new Set(data.map((d) => d.agent))];
 
@@ -22,6 +28,16 @@
         backgroundColor: "#1f2937",
         borderColor: "#374151",
         textStyle: { color: "#e5e7eb" },
+        formatter: (params: any[]) => {
+          let html = `<b>${params[0].axisValue}</b><br/>`;
+          let total = 0;
+          for (const p of params) {
+            total += p.value;
+            html += `${p.marker} ${p.seriesName}: <b>${fmt(p.value)}</b><br/>`;
+          }
+          html += `<b>总计: ${fmt(total)}</b>`;
+          return html;
+        },
       },
       legend: {
         data: agents,

@@ -46,8 +46,9 @@
   }
 </script>
 
-<div bind:this={containerEl} class="fixed bottom-0 left-0 right-0 bg-gray-800 border-t border-gray-700 px-6 py-3 flex items-center gap-4 z-50">
-  <span class="text-xs text-gray-500 uppercase tracking-wide">筛选:</span>
+<!-- Fixed bottom bar with backdrop blur, h-14 (56px) -->
+<div bind:this={containerEl} class="fixed bottom-0 left-0 right-0 bg-gray-800/95 backdrop-blur-sm border-t border-gray-700 px-6 py-3 flex items-center gap-4 z-50 h-14">
+  <span class="text-xs text-gray-500 uppercase tracking-wide shrink-0">筛选:</span>
 
   <div class="relative">
     <button
