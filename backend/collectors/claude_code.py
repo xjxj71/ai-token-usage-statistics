@@ -41,6 +41,9 @@ class ClaudeCodeCollector(BaseCollector):
         # Track processed file positions for incremental reads
         file_positions: dict[str, int] = state.get("file_positions", {})
 
+        # Fix permissions on root-owned files before scanning
+        settings.ensure_claude_projects_readable()
+
         projects_dir = Path(settings.claude_projects_dir)
         if not projects_dir.exists():
             logger.debug("Claude Code: projects dir not found at %s", projects_dir)

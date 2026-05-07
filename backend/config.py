@@ -70,6 +70,62 @@ class Settings(BaseSettings):
             return "/tmp/openclaw_sessions.json"
         return f"{self.wsl_root}\\tmp\\openclaw_sessions.json"
 
+    # ── Permission fix helper ────────────────────────────────
+
+    def ensure_claude_projects_readable(self) -> None:
+        """Fix permissions on Claude Code project files owned by root.
+
+        When Claude Code runs as root (e.g. via sudo), it creates session
+        JSONL files under ``~claude/.claude/projects/`` owned by root with
+        mode 600.  The Windows UNC reader accesses these as the WSL default
+        user (claude), which gets Permission denied.
+
+        This method chowns and chmods the tree so the default user can read.
+        Inside WSL we are already root — direct chmod/chown.
+        On Windows we call ``wsl.exe -u root`` to do it.
+        """
+        linux_dir = f"/home/{self.wsl_user_accessible}/.claude/projects"
+        try:
+            if self.is_wsl:
+                import os
+                import pwd
+                target_uid = pwd.getpwnam(self.wsl_user_accessible).pw_uid
+                # Walk and fix ownership + readability
+                for dirpath, _dirnames, filenames in os.walk(linux_dir):
+                    try:
+                        os.chown(dirpath, target_uid, target_uid)
+                        os.chmod(dirpath, 0o755)
+                    except OSError:
+                        pass
+                    for fn in filenames:
+                        fp = os.path.join(dirpath, fn)
+                        try:
+                            os.chown(fp, target_uid, target_uid)
+                            os.chmod(fp, 0o644)
+                        except OSError:
+                            pass
+                return
+
+            # Windows: call wsl.exe to fix permissions as root
+            result = subprocess.run(
+                [
+                    "wsl.exe", "-u", self.wsl_user_root, "-d", self.wsl_distro, "--",
+                    "bash", "-c",
+                    f"chown -R {self.wsl_user_accessible}:{self.wsl_user_accessible} '{linux_dir}' "
+                    f"&& chmod -R a+rX '{linux_dir}'",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode != 0:
+                logger.warning(
+                    "ensure_claude_projects_readable failed: %s %s",
+                    result.stdout, result.stderr,
+                )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+            logger.warning("ensure_claude_projects_readable error: %s", e)
+
     # ── WSL copy helper ──────────────────────────────────────
 
     def wsl_copy_to_tmp(self, linux_src: str, linux_dst: str) -> bool:
