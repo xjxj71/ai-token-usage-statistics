@@ -19,13 +19,34 @@ logger = logging.getLogger(__name__)
 
 
 class HermesCollector(BaseCollector):
+    """Collect token usage from Hermes state.db (sessions table).
+
+    Dual-mode collection:
+    - **Closed sessions** (ended_at IS NOT NULL): inserted once with final
+      token values, then the rowid watermark advances past them.
+    - **Open sessions** (ended_at IS NULL): upserted every poll cycle with
+      the latest cumulative token counts.  Tracked in open_session_ids
+      until they close.
+
+    On first run after migration from the old `last_row_id` state format,
+    ``closed_up_to_rowid`` defaults to 0 which triggers a full re-read of
+    all sessions — this automatically fixes any stale snapshot data that
+    the previous collector left behind.
+    """
+
+    upsert_mode = True
+
     @property
     def name(self) -> str:
         return "hermes"
 
     async def collect(self) -> Sequence[TokenRecord]:
         state = self._load_state()
-        last_row_id = state.get("last_row_id", 0)
+        # Migration: old state key was "last_row_id".  If the new key is
+        # missing we default to 0, forcing a full re-read that repairs all
+        # stale snapshots from the old collector.
+        closed_up_to_rowid: int = state.get("closed_up_to_rowid", 0)
+        open_session_ids: list[str] = state.get("open_session_ids", [])
 
         # Copy state.db from WSL /root to /tmp for UNC access
         if not settings.wsl_copy_to_tmp(
@@ -44,18 +65,23 @@ class HermesCollector(BaseCollector):
             return []
 
         try:
-            records = await self._read_new_records(tmp_path, last_row_id)
+            records, still_open, new_closed_up_to = await self._read_sessions(
+                tmp_path, closed_up_to_rowid, open_session_ids
+            )
         finally:
             Path(tmp_path).unlink(missing_ok=True)
 
-        if records:
-            raw_datas = []
-            for r in records:
-                if r.raw_data:
-                    raw_datas.append(json.loads(r.raw_data))
-            max_id = max(d.get("_row_id", 0) for d in raw_datas) if raw_datas else 0
-            self._save_state({"last_row_id": max_id})
+        # Always persist state so open_session_ids stays current even when
+        # no TokenRecords are produced (e.g. all-zero open sessions).
+        self._save_state({
+            "closed_up_to_rowid": new_closed_up_to,
+            "open_session_ids": still_open,
+        })
 
+        logger.info(
+            "Hermes: collected %d records (open: %d, closed_up_to: %d)",
+            len(records), len(still_open), new_closed_up_to,
+        )
         return records
 
     async def _copy_to_temp(self, db_path: str) -> str | None:
@@ -68,40 +94,88 @@ class HermesCollector(BaseCollector):
             logger.warning("Failed to copy hermes state.db: %s", e)
             return None
 
-    async def _read_new_records(self, db_path: str, last_row_id: int) -> list[TokenRecord]:
+    async def _read_sessions(
+        self,
+        db_path: str,
+        closed_up_to_rowid: int,
+        open_session_ids: list[str],
+    ) -> tuple[list[TokenRecord], list[str], int]:
+        """Read sessions that are new or still open.
+
+        Returns:
+            (records, still_open_ids, new_closed_up_to_rowid)
+        """
         records: list[TokenRecord] = []
 
         async with aiosqlite.connect(db_path) as db:
             db.row_factory = aiosqlite.Row
+
+            # Build query: new sessions (rowid past watermark) OR sessions
+            # we're still tracking because they were open last cycle.
+            if open_session_ids:
+                placeholders = ",".join("?" for _ in open_session_ids)
+                query = f"""
+                    SELECT rowid, input_tokens, output_tokens,
+                           cache_read_tokens, cache_write_tokens,
+                           estimated_cost_usd, actual_cost_usd,
+                           started_at, ended_at, model, id
+                    FROM sessions
+                    WHERE rowid > ? OR id IN ({placeholders})
+                    ORDER BY rowid
+                """
+                params: list = [closed_up_to_rowid] + open_session_ids
+            else:
+                query = """
+                    SELECT rowid, input_tokens, output_tokens,
+                           cache_read_tokens, cache_write_tokens,
+                           estimated_cost_usd, actual_cost_usd,
+                           started_at, ended_at, model, id
+                    FROM sessions
+                    WHERE rowid > ?
+                    ORDER BY rowid
+                """
+                params = [closed_up_to_rowid]
+
             try:
-                # Hermes sessions schema uses:
-                #   started_at REAL  (Unix timestamp, e.g. 1778000332.40501)
-                #   id TEXT PRIMARY KEY  (session id)
-                rows = await db.execute_fetchall(
-                    """SELECT rowid, input_tokens, output_tokens,
-                              cache_read_tokens, cache_write_tokens,
-                              estimated_cost_usd, actual_cost_usd,
-                              started_at, model, id
-                       FROM sessions
-                       WHERE rowid > ?
-                       ORDER BY rowid""",
-                    [last_row_id],
-                )
+                rows = await db.execute_fetchall(query, params)
             except aiosqlite.OperationalError as e:
                 logger.warning("Hermes DB query failed: %s", e)
-                return records
+                return records, open_session_ids, closed_up_to_rowid
+
+            still_open: list[str] = []
+            max_closed_rowid = closed_up_to_rowid
 
             for row in rows:
                 row_id = row["rowid"]
+                session_id = str(row["id"] or "")
+                ended_at = row["ended_at"]
                 model = row["model"] or "unknown"
                 input_tokens = row["input_tokens"] or 0
                 output_tokens = row["output_tokens"] or 0
                 cache_read = row["cache_read_tokens"] or 0
                 cache_write = row["cache_write_tokens"] or 0
 
+                # Track session lifecycle
+                if ended_at is not None:
+                    # Closed — advance watermark past it
+                    if row_id > max_closed_rowid:
+                        max_closed_rowid = row_id
+                else:
+                    # Still in progress — keep tracking next cycle
+                    still_open.append(session_id)
+
+                # Skip all-zero records (empty / aborted sessions)
+                if input_tokens == 0 and output_tokens == 0 and cache_read == 0 and cache_write == 0:
+                    continue
+
+                # Cost: prefer actual_cost if available, else calculate
                 actual_cost = row["actual_cost_usd"]
-                cost = actual_cost if actual_cost and actual_cost > 0 else calculate_cost(
-                    model, input_tokens, output_tokens, cache_read, cache_write
+                cost = (
+                    actual_cost
+                    if actual_cost and actual_cost > 0
+                    else calculate_cost(
+                        model, input_tokens, output_tokens, cache_read, cache_write
+                    )
                 )
 
                 # started_at is REAL (Unix timestamp), convert to ISO string
@@ -118,14 +192,20 @@ class HermesCollector(BaseCollector):
                         timestamp=ts,
                         agent=self.name,
                         model=model,
-                        session_id=str(row["id"] or ""),
+                        session_id=session_id,
                         input_tokens=input_tokens,
                         output_tokens=output_tokens,
                         cache_read_tokens=cache_read,
                         cache_write_tokens=cache_write,
                         cost_usd=round(cost, 6),
-                        raw_data=json.dumps({"_row_id": row_id}, ensure_ascii=False),
+                        raw_data=json.dumps(
+                            {
+                                "_row_id": row_id,
+                                "ended": ended_at is not None,
+                            },
+                            ensure_ascii=False,
+                        ),
                     )
                 )
 
-        return records
+        return records, still_open, max_closed_rowid

@@ -12,6 +12,10 @@ from backend.db.models import TokenRecord
 
 
 class BaseCollector(ABC):
+    # Subclasses set True to use UPSERT (insert-or-update) instead of INSERT OR IGNORE.
+    # Used by collectors that track cumulative session-level data which updates over time.
+    upsert_mode: bool = False
+
     @property
     @abstractmethod
     def name(self) -> str:

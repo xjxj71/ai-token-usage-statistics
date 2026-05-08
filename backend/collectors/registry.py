@@ -10,7 +10,7 @@ from backend.collectors.hermes import HermesCollector
 from backend.collectors.openclaw import OpenClawCollector
 from backend.config import settings
 from backend.db.database import get_db
-from backend.db.models import TokenRecord, insert_records
+from backend.db.models import TokenRecord, insert_records, upsert_records
 
 
 def _notify_sse(total_new: int) -> None:
@@ -41,7 +41,10 @@ async def run_collection_cycle() -> int:
         try:
             records: Sequence[TokenRecord] = await collector.collect()
             if records:
-                await insert_records(db, records)
+                if collector.upsert_mode:
+                    await upsert_records(db, records)
+                else:
+                    await insert_records(db, records)
                 total_new += len(records)
                 logger.info("Collected %d records from %s", len(records), collector.name)
         except Exception as e:

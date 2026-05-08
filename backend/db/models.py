@@ -55,6 +55,40 @@ async def insert_records(db: aiosqlite.Connection, records: Sequence[TokenRecord
     await db.commit()
 
 
+async def upsert_records(db: aiosqlite.Connection, records: Sequence[TokenRecord]) -> None:
+    """Insert new records or update existing ones.
+
+    For collectors that track cumulative session-level data (e.g. Hermes),
+    the same (timestamp, agent, session_id, model) row gets updated each
+    poll cycle with the latest token counts until the session closes.
+    """
+    if not records:
+        return
+    await db.executemany(
+        """INSERT INTO token_usage
+               (timestamp, agent, model, session_id,
+                input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+                cost_usd, raw_data)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(timestamp, agent, session_id, model) DO UPDATE SET
+                input_tokens       = excluded.input_tokens,
+                output_tokens      = excluded.output_tokens,
+                cache_read_tokens  = excluded.cache_read_tokens,
+                cache_write_tokens = excluded.cache_write_tokens,
+                cost_usd           = excluded.cost_usd,
+                raw_data           = excluded.raw_data""",
+        [
+            (
+                r.timestamp, r.agent, r.model, r.session_id,
+                r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_write_tokens,
+                r.cost_usd, r.raw_data,
+            )
+            for r in records
+        ],
+    )
+    await db.commit()
+
+
 def _build_where(
     agents: list[str] | None = None,
     models: list[str] | None = None,
