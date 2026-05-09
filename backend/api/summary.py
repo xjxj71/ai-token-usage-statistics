@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import asyncio
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -9,7 +9,11 @@ from fastapi import APIRouter, Query
 from backend.db import database as db_module
 from backend.db.models import SummaryRow, fetch_summary
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(tags=["summary"])
+
+from backend.api.constants import IGNORED_MODELS
 
 
 def _resolve_range(
@@ -45,7 +49,15 @@ def _resolve_range(
         return today_start_utc.isoformat(), now_utc.isoformat()
 
 
-def _aggregate_rows(rows: list[SummaryRow]) -> dict:
+def _aggregate_rows(rows: list[SummaryRow], group_by: str = "agent") -> dict:
+    # 仅在按模型分组时过滤掉无意义的模型
+    # 按 agent 分组时 model 字段为空字符串，不应被过滤
+    if group_by == "model":
+        clean_rows = [r for r in rows if r.model.lower() not in IGNORED_MODELS]
+    else:
+        clean_rows = rows
+
+    # 汇总统计仍基于全部数据（包含被过滤的模型）
     total_input = sum(r.input_tokens for r in rows)
     total_output = sum(r.output_tokens for r in rows)
     total_cache_read = sum(r.cache_read_tokens for r in rows)
@@ -73,7 +85,7 @@ def _aggregate_rows(rows: list[SummaryRow]) -> dict:
                 "cost_usd": r.cost_usd,
                 "call_count": r.call_count,
             }
-            for r in rows
+            for r in clean_rows
         ],
     }
 
@@ -102,4 +114,4 @@ async def get_summary(
         group_by=group_by,
     )
 
-    return _aggregate_rows(rows)
+    return _aggregate_rows(rows, group_by=group_by)

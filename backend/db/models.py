@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Sequence
 
 import aiosqlite
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -34,9 +37,34 @@ class SummaryRow:
     call_count: int
 
 
+async def _ensure_models_in_pricing(db: aiosqlite.Connection, models: set[str]) -> None:
+    """确保模型在 model_pricing 表中存在，不存在则插入默认定价（0）。"""
+    if not models:
+        return
+
+    placeholders = ",".join("?" for _ in models)
+    rows = await db.execute_fetchall(
+        f"SELECT model FROM model_pricing WHERE model IN ({placeholders})",
+        list(models),
+    )
+    existing = {r["model"] for r in rows}
+    new_models = models - existing
+
+    if new_models:
+        now = datetime.now(timezone.utc).isoformat()
+        await db.executemany(
+            """INSERT INTO model_pricing
+               (model, input_price, output_price, cache_read_price, cache_write_price, updated_at)
+               VALUES (?, 0.0, 0.0, 0.0, 0.0, ?)""",
+            [(m, now) for m in new_models],
+        )
+        logger.info("Auto-detected new models added to pricing: %s", ", ".join(sorted(new_models)))
+
+
 async def insert_records(db: aiosqlite.Connection, records: Sequence[TokenRecord]) -> None:
     if not records:
         return
+    await _ensure_models_in_pricing(db, {r.model for r in records})
     await db.executemany(
         """INSERT OR IGNORE INTO token_usage
            (timestamp, agent, model, session_id,
@@ -64,6 +92,7 @@ async def upsert_records(db: aiosqlite.Connection, records: Sequence[TokenRecord
     """
     if not records:
         return
+    await _ensure_models_in_pricing(db, {r.model for r in records})
     await db.executemany(
         """INSERT INTO token_usage
                (timestamp, agent, model, session_id,

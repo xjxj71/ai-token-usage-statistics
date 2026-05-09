@@ -90,11 +90,11 @@ echo  [5/5] Starting services ...
 echo.
 
 :: Kill old processes on target ports
-for /f "tokens=5" %%p in ('netstat -ano 2^>nul ^| findstr ":8000.*LISTENING"') do (
+for /f "tokens=5" %%p in ('netstat -ano 2^>nul ^| findstr /c:":8001" ^| findstr "LISTENING"') do (
     echo         Killing old backend PID=%%p
     taskkill /pid %%p /f >nul 2>&1
 )
-for /f "tokens=5" %%p in ('netstat -ano 2^>nul ^| findstr ":5173.*LISTENING"') do (
+for /f "tokens=5" %%p in ('netstat -ano 2^>nul ^| findstr /c:":5173" ^| findstr "LISTENING"') do (
     echo         Killing old frontend PID=%%p
     taskkill /pid %%p /f >nul 2>&1
 )
@@ -103,7 +103,7 @@ for /f "tokens=5" %%p in ('netstat -ano 2^>nul ^| findstr ":5173.*LISTENING"') d
 set "TMP_BAT=%TEMP%\token-stat-backend.bat"
 echo @echo off > "%TMP_BAT%"
 echo cd /d "%PROJECT_DIR%" >> "%TMP_BAT%"
-echo "%VENV_DIR%\Scripts\python.exe" -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload >> "%TMP_BAT%"
+echo "%VENV_DIR%\Scripts\python.exe" -m uvicorn backend.main:app --host 127.0.0.1 --port 8001 --reload >> "%TMP_BAT%"
 echo pause >> "%TMP_BAT%"
 
 set "TMP_BAT_FE=%TEMP%\token-stat-frontend.bat"
@@ -121,7 +121,7 @@ echo         Waiting for backend ...
 set "READY=0"
 for /l %%i in (1,1,30) do (
     if !READY! equ 0 (
-        curl -s http://127.0.0.1:8000/api/models >nul 2>&1
+        curl -s http://127.0.0.1:8001/api/models >nul 2>&1
         if !errorlevel! equ 0 (
             set "READY=1"
             echo         Backend ready
@@ -145,7 +145,7 @@ start http://127.0.0.1:5173
 
 echo.
 echo  ------------------------------------------
-echo   Backend:  http://127.0.0.1:8000
+echo   Backend:  http://127.0.0.1:8001
 echo   Frontend: http://127.0.0.1:5173
 echo.
 echo   Close this window won't stop services
