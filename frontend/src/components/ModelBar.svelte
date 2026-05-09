@@ -18,6 +18,10 @@
     return n.toLocaleString();
   }
 
+  function truncate(name: string, max = 12): string {
+    return name.length > max ? name.slice(0, max) + "..." : name;
+  }
+
   function buildOption(data: BreakdownItem[]) {
     // 按 total token 降序排列
     const sorted = [...data].sort((a, b) => {
@@ -27,6 +31,12 @@
     });
 
     const modelNames = sorted.map((d) => d.model || "未知");
+    const hasLongNames = modelNames.some((n) => n.length > 10);
+    const count = modelNames.length;
+    // 模型少时不旋转；模型多或有长名称时旋转 45 度
+    const rotate = count > 8 || hasLongNames ? 45 : count > 5 ? 25 : 0;
+    // 底部留白：旋转时需要更多空间
+    const bottomPct = rotate > 0 ? Math.min(15 + count * 1.5, 25) : 8;
 
     return {
       backgroundColor: "transparent",
@@ -37,7 +47,9 @@
         textStyle: { color: "#e5e7eb" },
         axisPointer: { type: "shadow" },
         formatter: (params: any[]) => {
-          let html = `<b>${params[0].axisValue}</b><br/>`;
+          // tooltip 显示完整模型名
+          const fullName = modelNames[params[0].dataIndex] || params[0].axisValue;
+          let html = `<b>${fullName}</b><br/>`;
           let total = 0;
           for (const p of params) {
             total += p.value;
@@ -52,15 +64,17 @@
         textStyle: { color: "#9ca3af" },
         top: 0,
       },
-      grid: { left: "3%", right: "4%", bottom: "10%", top: "14%", containLabel: true },
+      grid: { left: "3%", right: "4%", bottom: `${bottomPct}%`, top: "14%", containLabel: true },
       xAxis: {
         type: "category",
-        data: modelNames,
+        data: modelNames.map((n) => truncate(n)),
         axisLabel: {
           color: "#9ca3af",
-          rotate: modelNames.length > 6 ? 35 : 0,
+          rotate,
           fontSize: 11,
           interval: 0,
+          overflow: "truncate",
+          width: 90,
         },
       },
       yAxis: {
@@ -124,5 +138,5 @@
 
 <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
   <h3 class="text-sm text-gray-400 mb-2">模型 Token 用量对比</h3>
-  <div bind:this={chartEl} class="w-full h-80"></div>
+  <div bind:this={chartEl} class="w-full h-64"></div>
 </div>

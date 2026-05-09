@@ -9,6 +9,7 @@
   import ModelBar from "./components/ModelBar.svelte";
   import UsageTable from "./components/UsageTable.svelte";
   import FilterBar from "./components/FilterBar.svelte";
+  import ModelPricing from "./components/ModelPricing.svelte";
 
   let summary: SummaryResponse | null = $state(null);
   let agentBreakdown: SummaryResponse["breakdown"] = $state([]);
@@ -193,6 +194,9 @@
           onPageChange={handlePageChange}
         />
       {/if}
+
+      <!-- 模型费用定价 -->
+      <ModelPricing />
     </div>
   {/if}
 

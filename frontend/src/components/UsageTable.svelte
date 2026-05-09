@@ -26,6 +26,7 @@
   }
 
   let totalPages = $derived(Math.max(1, Math.ceil(total / pageSize)));
+  let jumpPage = $state("");
 
   function pageNumbers(): number[] {
     const pages: number[] = [];
@@ -33,6 +34,20 @@
     const end = Math.min(totalPages, page + 2);
     for (let i = start; i <= end; i++) pages.push(i);
     return pages;
+  }
+
+  function handleJump() {
+    const p = parseInt(jumpPage, 10);
+    if (!isNaN(p) && p >= 1 && p <= totalPages) {
+      onPageChange(p);
+      jumpPage = "";
+    }
+  }
+
+  function handleJumpKeydown(e: KeyboardEvent) {
+    if (e.key === "Enter") {
+      handleJump();
+    }
   }
 </script>
 
@@ -87,13 +102,23 @@
     </table>
   </div>
 
-  <!-- Pagination UI -->
+  <!-- Enhanced Pagination UI -->
   {#if totalPages > 1}
-    <div class="px-4 py-3 border-t border-gray-700 flex items-center justify-between">
+    <div class="px-4 py-3 border-t border-gray-700 flex items-center justify-between flex-wrap gap-2">
       <span class="text-xs text-gray-500">
-        第 {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} 条 / 共 {total} 条
+        第 {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} 条 / 共 {total} 条，共 {totalPages} 页
       </span>
       <div class="flex items-center gap-1">
+        <!-- 首页 -->
+        <button
+          class="px-2 py-1 text-xs rounded {page <= 1 ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:bg-gray-700'}"
+          disabled={page <= 1}
+          onclick={() => onPageChange(1)}
+          title="首页"
+        >
+          ««
+        </button>
+        <!-- 上一页 -->
         <button
           class="px-2 py-1 text-xs rounded {page <= 1 ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:bg-gray-700'}"
           disabled={page <= 1}
@@ -101,6 +126,7 @@
         >
           上一页
         </button>
+        <!-- 页码 -->
         {#each pageNumbers() as p}
           <button
             class="px-2.5 py-1 text-xs rounded {p === page ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-700'}"
@@ -109,12 +135,39 @@
             {p}
           </button>
         {/each}
+        <!-- 下一页 -->
         <button
           class="px-2 py-1 text-xs rounded {page >= totalPages ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:bg-gray-700'}"
           disabled={page >= totalPages}
           onclick={() => onPageChange(page + 1)}
         >
           下一页
+        </button>
+        <!-- 末页 -->
+        <button
+          class="px-2 py-1 text-xs rounded {page >= totalPages ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:bg-gray-700'}"
+          disabled={page >= totalPages}
+          onclick={() => onPageChange(totalPages)}
+          title="末页"
+        >
+          »»
+        </button>
+        <!-- 跳转 -->
+        <span class="text-xs text-gray-500 ml-2">跳至</span>
+        <input
+          type="number"
+          bind:value={jumpPage}
+          onkeydown={handleJumpKeydown}
+          min="1"
+          max={totalPages}
+          class="w-12 px-1 py-0.5 text-xs text-center bg-gray-700 border border-gray-600 rounded text-white focus:border-blue-500 focus:outline-none"
+          placeholder=""
+        />
+        <button
+          class="px-2 py-1 text-xs rounded text-gray-400 hover:bg-gray-700"
+          onclick={handleJump}
+        >
+          Go
         </button>
       </div>
     </div>
