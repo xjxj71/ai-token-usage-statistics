@@ -256,7 +256,7 @@ uvicorn backend.main:app --reload
 
 | Agent | 记录数 | 说明 |
 |-------|--------|------|
-| Hermes | 71 条 | 模型 glm-5.1，input_tokens 最高 28,654 |
+| Hermes | 124 条 | 13 个模型，总计 44M input tokens（含 mimo-v2-pro, glm-5.1, stepfun/step-3.5-flash 等） |
 | Claude Code | 2,993 条 | 零侵入方案：从 session JSONL 提取，10 个模型，覆盖 2026-03-13 ~ 2026-05-04 |
 | OpenClaw | 70 条 | 模型包括 mimo-v2-pro, mimo-v2.5-pro, deepseek-v4 等 |
 | OpenClaude | 78 条 | Windows 本地采集，模型 mimo-v2.5-pro，3 个 session |
