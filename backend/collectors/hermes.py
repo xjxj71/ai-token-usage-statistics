@@ -47,6 +47,16 @@ class HermesCollector(BaseCollector):
         # stale snapshots from the old collector.
         closed_up_to_rowid: int = state.get("closed_up_to_rowid", 0)
         open_session_ids: list[str] = state.get("open_session_ids", [])
+        # Sessions confirmed as closed with final data collected.
+        # These will not be re-queried even if their rowid is below the watermark.
+        finalized_ids: list[str] = state.get("finalized_ids", [])
+
+        # Migration: if finalized_ids is missing but closed_up_to_rowid > 0,
+        # we need a repair pass to fix stale snapshots from the old collector.
+        # Reset watermark to 0 to re-read all sessions and build finalized_ids.
+        if not finalized_ids and closed_up_to_rowid > 0:
+            logger.info("Hermes: migration — resetting watermark to repair stale snapshots")
+            closed_up_to_rowid = 0
 
         # Copy state.db from WSL /root to /tmp for UNC access
         if not settings.wsl_copy_to_tmp(
@@ -65,8 +75,8 @@ class HermesCollector(BaseCollector):
             return []
 
         try:
-            records, still_open, new_closed_up_to = await self._read_sessions(
-                tmp_path, closed_up_to_rowid, open_session_ids
+            records, still_open, new_closed_up_to, new_finalized = await self._read_sessions(
+                tmp_path, closed_up_to_rowid, open_session_ids, finalized_ids
             )
         finally:
             Path(tmp_path).unlink(missing_ok=True)
@@ -76,6 +86,7 @@ class HermesCollector(BaseCollector):
         self._save_state({
             "closed_up_to_rowid": new_closed_up_to,
             "open_session_ids": still_open,
+            "finalized_ids": new_finalized,
         })
 
         logger.info(
@@ -99,11 +110,12 @@ class HermesCollector(BaseCollector):
         db_path: str,
         closed_up_to_rowid: int,
         open_session_ids: list[str],
-    ) -> tuple[list[TokenRecord], list[str], int]:
+        finalized_ids: list[str],
+    ) -> tuple[list[TokenRecord], list[str], int, list[str]]:
         """Read sessions that are new or still open.
 
         Returns:
-            (records, still_open_ids, new_closed_up_to_rowid)
+            (records, still_open_ids, new_closed_up_to_rowid, finalized_ids)
         """
         records: list[TokenRecord] = []
 
@@ -112,38 +124,39 @@ class HermesCollector(BaseCollector):
 
             # Build query: new sessions (rowid past watermark) OR sessions
             # we're still tracking because they were open last cycle.
+            # Exclude finalized closed sessions to avoid redundant re-reads.
+            conditions = ["rowid > ?"]
+            params: list = [closed_up_to_rowid]
+
             if open_session_ids:
                 placeholders = ",".join("?" for _ in open_session_ids)
-                query = f"""
-                    SELECT rowid, input_tokens, output_tokens,
-                           cache_read_tokens, cache_write_tokens,
-                           estimated_cost_usd, actual_cost_usd,
-                           started_at, ended_at, model, id
-                    FROM sessions
-                    WHERE rowid > ? OR id IN ({placeholders})
-                    ORDER BY rowid
-                """
-                params: list = [closed_up_to_rowid] + open_session_ids
-            else:
-                query = """
-                    SELECT rowid, input_tokens, output_tokens,
-                           cache_read_tokens, cache_write_tokens,
-                           estimated_cost_usd, actual_cost_usd,
-                           started_at, ended_at, model, id
-                    FROM sessions
-                    WHERE rowid > ?
-                    ORDER BY rowid
-                """
-                params = [closed_up_to_rowid]
+                conditions.append(f"id IN ({placeholders})")
+                params += open_session_ids
+
+            if finalized_ids:
+                placeholders = ",".join("?" for _ in finalized_ids)
+                conditions.append(f"id NOT IN ({placeholders})")
+                params += finalized_ids
+
+            query = f"""
+                SELECT rowid, input_tokens, output_tokens,
+                       cache_read_tokens, cache_write_tokens,
+                       estimated_cost_usd, actual_cost_usd,
+                       started_at, ended_at, model, id
+                FROM sessions
+                WHERE {" OR ".join(conditions)}
+                ORDER BY rowid
+            """
 
             try:
                 rows = await db.execute_fetchall(query, params)
             except aiosqlite.OperationalError as e:
                 logger.warning("Hermes DB query failed: %s", e)
-                return records, open_session_ids, closed_up_to_rowid
+                return records, open_session_ids, closed_up_to_rowid, finalized_ids
 
             still_open: list[str] = []
             max_closed_rowid = closed_up_to_rowid
+            new_finalized = list(finalized_ids)
 
             for row in rows:
                 row_id = row["rowid"]
@@ -157,9 +170,11 @@ class HermesCollector(BaseCollector):
 
                 # Track session lifecycle
                 if ended_at is not None:
-                    # Closed — advance watermark past it
+                    # Closed — advance watermark past it and mark finalized
                     if row_id > max_closed_rowid:
                         max_closed_rowid = row_id
+                    if session_id not in new_finalized:
+                        new_finalized.append(session_id)
                 else:
                     # Still in progress — keep tracking next cycle
                     still_open.append(session_id)
@@ -208,4 +223,4 @@ class HermesCollector(BaseCollector):
                     )
                 )
 
-        return records, still_open, max_closed_rowid
+        return records, still_open, max_closed_rowid, new_finalized
