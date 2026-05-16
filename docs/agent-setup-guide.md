@@ -11,6 +11,7 @@
 | Hermes | state.db (SQLite) | `/root/.hermes/state.db` → 复制到 `/tmp/hermes_state.db` | `\\wsl$\project-claude\tmp\hermes_state.db` |
 | Claude Code | session JSONL | `/home/claude/.claude/projects/**/*.jsonl` | `\\wsl$\project-claude\home\claude\.claude\projects\`（递归扫描） |
 | OpenClaw | sessions.json | `/root/.openclaw/agents/main/sessions/sessions.json` → 复制到 `/tmp/openclaw_sessions.json` | `\\wsl$\project-claude\tmp\openclaw_sessions.json` |
+| OpenClaude | session JSONL | — | `%USERPROFILE%\.openclaude\projects\**\*.jsonl`（Windows 本地，直接读取） |
 
 ### 权限与数据复制机制
 
@@ -177,7 +178,42 @@ ls /tmp/openclaw_sessions.json
 
 ---
 
-## 4. Token 统计工具配置
+## 4. OpenClaude
+
+### 无需配置
+
+OpenClaude 运行在 Windows 本地，数据格式与 Claude Code 相同。采集器直接读取本地文件，无需 WSL 路径转换或权限处理。
+
+### 数据位置
+
+- **目录**：`%USERPROFILE%\.openclaude\projects\`
+- **完整路径**：`%USERPROFILE%\.openclaude\projects\{project-name}\{session-id}.jsonl`
+- **子 agent**：`%USERPROFILE%\.openclaude\projects\{project-name}\{session-id}\subagents\{agent-id}.jsonl`
+
+### 数据格式
+
+与 Claude Code 完全相同，每行一个 JSON 对象。采集器筛选 `type=="assistant"` 的行，提取 `message.usage` 字段。
+
+### 工作原理
+
+1. 递归扫描 `%USERPROFILE%\.openclaude\projects\**\*.jsonl`
+2. 筛选 `type=="assistant"` 行，提取 `message.usage` 中的 token 数据
+3. 通过 `file_positions` 状态文件追踪已处理的文件位置，增量读取
+4. 跳过全零记录（streaming 中间块），自动计算费用
+
+### 验证数据是否存在
+
+```bash
+# Windows CMD
+dir %USERPROFILE%\.openclaude\projects\*.jsonl /s
+
+# PowerShell
+Get-ChildItem -Path $env:USERPROFILE\.openclaude\projects -Filter *.jsonl -Recurse
+```
+
+---
+
+## 5. Token 统计工具配置
 
 通过环境变量或 `config.py` 配置采集器：
 
@@ -212,6 +248,7 @@ uvicorn backend.main:app --reload
 | Claude Code | 无 | `~/.claude/projects/**/*.jsonl` (JSONL) | 直接读取（claude 用户自有文件） |
 | Hermes | 无 | `/root/.hermes/state.db` (SQLite) | `wsl_copy_to_tmp()` 复制到 `/tmp/` 后读取 |
 | OpenClaw | 无 | `/root/.openclaw/agents/main/sessions/sessions.json` | `wsl_copy_to_tmp()` 复制到 `/tmp/` 后读取 |
+| OpenClaude | 无 | `%USERPROFILE%\.openclaude\projects\**\*.jsonl` (JSONL) | Windows 本地直接读取 |
 
 ---
 
@@ -222,3 +259,4 @@ uvicorn backend.main:app --reload
 | Hermes | 71 条 | 模型 glm-5.1，input_tokens 最高 28,654 |
 | Claude Code | 2,993 条 | 零侵入方案：从 session JSONL 提取，10 个模型，覆盖 2026-03-13 ~ 2026-05-04 |
 | OpenClaw | 70 条 | 模型包括 mimo-v2-pro, mimo-v2.5-pro, deepseek-v4 等 |
+| OpenClaude | 78 条 | Windows 本地采集，模型 mimo-v2.5-pro，3 个 session |

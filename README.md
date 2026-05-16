@@ -4,7 +4,7 @@
 
 ## 功能特性
 
-- **多 Agent 支持**：采集 Claude Code、Hermes、OpenClaw 的 Token 用量
+- **多 Agent 支持**：采集 Claude Code、Hermes、OpenClaw、OpenClaude 的 Token 用量
 - **实时仪表盘**：基于 SSE 推送更新，无需刷新页面
 - **费用估算**：内置各模型定价（YAML 配置，支持热更新），自动计算使用成本
 - **丰富图表**：Agent Token 对比图、Agent 消耗占比饼图、模型分布条形图（ECharts）
@@ -28,6 +28,11 @@ Windows 原生 或 WSL 内运行
                              │  Hermes (root)        │
                              │  OpenClaw (root)      │
                              └──────────────────────-┘
+
+                             ┌────────────────────────┐
+                             │     Windows 本地        │
+                             │  OpenClaude (用户)      │
+                             └────────────────────────┘
 ```
 
 后端设计为 Windows 原生部署，通过 UNC 路径 (`\\wsl$\project-claude\...`) 访问 WSL 中的 Agent 数据文件。在 WSL 内开发测试时也能运行——自动检测 `is_wsl` 环境变量，使用 Linux 原生路径。
@@ -98,6 +103,7 @@ npm run build      # 生产构建（由 FastAPI 托管）
 | Hermes | state.db (SQLite) | `/root/.hermes/state.db` → 复制到 `/tmp/hermes_state.db` | `\\wsl$\project-claude\tmp\hermes_state.db` |
 | Claude Code | session JSONL | `/home/claude/.claude/projects/**/*.jsonl` | `\\wsl$\project-claude\home\claude\.claude\projects\`（递归扫描） |
 | OpenClaw | sessions.json | `/root/.openclaw/agents/main/sessions/sessions.json` → 复制到 `/tmp/openclaw_sessions.json` | `\\wsl$\project-claude\tmp\openclaw_sessions.json` |
+| OpenClaude | session JSONL | — | `%USERPROFILE%\.openclaude\projects\**\*.jsonl`（Windows 本地，直接读取） |
 
 > **权限说明**：Hermes 和 OpenClaw 的数据在 `/root/` 下（权限 700），WSL 默认用户 `claude` 无法通过 UNC 访问。采集器会在每次采集前通过 `wsl_copy_to_tmp()` 将文件复制到 `/tmp/`（chmod 644），然后读取副本。Windows 部署时用 `wsl.exe -u root -- cp` 执行复制；WSL 内测试时直接用 `shutil.copy2`。Claude Code 的数据在 `claude` 用户目录下，无权限问题，不需要 `wsl_copy_to_tmp()`。
 
@@ -105,6 +111,7 @@ npm run build      # 生产构建（由 FastAPI 托管）
 
 - **Hermes** 和 **OpenClaw**：无需配置，采集器自动读取数据文件。
 - **Claude Code**：无需配置。采集器扫描 `~/.claude/projects/` 下所有 session JSONL 文件，提取 `message.usage` 中的 token 数据。零侵入，无需在 Claude Code 中做任何操作。
+- **OpenClaude**：无需配置。采集器扫描 Windows 本地 `%USERPROFILE%\.openclaude\projects\` 下所有 session JSONL 文件，数据格式与 Claude Code 相同。无需 WSL 路径转换或权限处理。
 
 详见 [Agent 配置指南](docs/agent-setup-guide.md)。
 
