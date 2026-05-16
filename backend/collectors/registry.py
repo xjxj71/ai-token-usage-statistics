@@ -7,6 +7,7 @@ from typing import Sequence
 from backend.collectors.base import BaseCollector
 from backend.collectors.claude_code import ClaudeCodeCollector
 from backend.collectors.hermes import HermesCollector
+from backend.collectors.openclaude import OpenClaudeCollector
 from backend.collectors.openclaw import OpenClawCollector
 from backend.config import settings
 from backend.db.database import get_db
@@ -28,6 +29,7 @@ COLLECTORS: list[BaseCollector] = [
     ClaudeCodeCollector(),
     HermesCollector(),
     OpenClawCollector(),
+    OpenClaudeCollector(),
 ]
 
 _task: asyncio.Task | None = None

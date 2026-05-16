@@ -4,4 +4,4 @@
 IGNORED_MODELS = {"0", "unknown", ""}
 
 # 支持的 Agent 白名单，筛选下拉菜单只显示这些
-SUPPORTED_AGENTS = {"hermes", "claude-code", "openclaw"}
+SUPPORTED_AGENTS = {"hermes", "claude-code", "openclaw", "openclaude"}
