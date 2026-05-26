@@ -195,12 +195,11 @@ class HermesCollector(BaseCollector):
                     )
                 )
 
-                # Timestamp: open sessions use current time (so cumulative
-                # token counts appear under today's range for ongoing sessions).
-                # Closed sessions use now() too — this keeps the upsert key
-                # stable from the last open-cycle write, avoiding a duplicate
-                # row when the session transitions from open → closed.
-                ts = datetime.now(timezone.utc).isoformat()
+                # Timestamp: truncate to the current hour (``2026-05-26T10:00:00Z``)
+                # so the upsert key is stable within each hour — no duplicate
+                # rows from 5-second poll cycles.
+                # As hours pass, new hourly snapshots accumulate naturally.
+                ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:00:00Z")
 
                 records.append(
                     TokenRecord(
