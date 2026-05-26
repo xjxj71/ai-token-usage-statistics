@@ -281,9 +281,16 @@ async def fetch_trend(
     name_col = group_col
 
     if granularity == "hour":
-        date_expr = "substr(timestamp, 1, 13)"
+        # Convert UTC timestamp to Shanghai time (UTC+8) before bucketing
+        # SQLite datetime() expects "YYYY-MM-DD HH:MM:SS" format
+        date_expr = (
+            "replace(substr(datetime(replace(substr(timestamp,1,19),'T',' '),'+8 hours'),1,13),' ','T')"
+        )
     else:
-        date_expr = "substr(timestamp, 1, 10)"
+        # Daily: Shanghai date from UTC+8 conversion
+        date_expr = (
+            "substr(datetime(replace(substr(timestamp,1,19),'T',' '),'+8 hours'),1,10)"
+        )
 
     where_sql = f"WHERE {' AND '.join(wheres)}" if wheres else ""
 

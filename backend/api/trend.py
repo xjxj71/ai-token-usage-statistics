@@ -15,13 +15,14 @@ router = APIRouter(tags=["trend"])
 
 
 def _generate_slots(from_ts: str, to_ts: str, granularity: str) -> list[str]:
-    """Generate a complete list of time slots between ``from_ts`` and ``to_ts``.
+    """Generate a complete list of time slots between ``from_ts`` and ``to_ts``
+    in **Shanghai timezone** (UTC+8).
 
-    Hourly: every hour from the start-of-hour of ``from_ts`` to the
-            start-of-hour of ``to_ts``.
-    Daily:  every date (``YYYY-MM-DD``) from ``from_ts`` to ``to_ts``.
+    Hourly: every hour from the start-of-hour to the start-of-hour.
+    Daily:  every date (``YYYY-MM-DD``) from start to end.
     """
     slots: list[str] = []
+    SHANGHAI = timezone(timedelta(hours=8))
 
     def _parse_iso(ts: str) -> datetime:
         """Parse ISO string, handling both full and date-only formats."""
@@ -29,18 +30,16 @@ def _generate_slots(from_ts: str, to_ts: str, granularity: str) -> list[str]:
             return datetime.fromisoformat(ts)
         except (ValueError, TypeError):
             pass
-        # Date-only: "2026-05-26"
         try:
             return datetime.strptime(ts, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         except (ValueError, TypeError):
             pass
         return datetime.now(timezone.utc)
 
-    start = _parse_iso(from_ts)
-    end = _parse_iso(to_ts)
+    start = _parse_iso(from_ts).astimezone(SHANGHAI)
+    end = _parse_iso(to_ts).astimezone(SHANGHAI)
 
     if granularity == "hour":
-        # Round start down to the hour, end up to the next whole hour
         start = start.replace(minute=0, second=0, microsecond=0)
         end = end.replace(minute=0, second=0, microsecond=0)
         cursor = start
@@ -48,7 +47,6 @@ def _generate_slots(from_ts: str, to_ts: str, granularity: str) -> list[str]:
             slots.append(cursor.strftime("%Y-%m-%dT%H"))
             cursor += timedelta(hours=1)
     else:
-        # Daily: round to start of day
         start = start.replace(hour=0, minute=0, second=0, microsecond=0)
         end = end.replace(hour=0, minute=0, second=0, microsecond=0)
         cursor = start
