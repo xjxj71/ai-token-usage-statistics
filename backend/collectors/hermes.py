@@ -212,15 +212,19 @@ class HermesCollector(BaseCollector):
                     )
                 )
 
-                # Timestamp: use started_at so each session has ONE stable
-                # upsert key (timestamp, agent, session_id, model).
+                # Timestamp: closed sessions use started_at (fixed), open
+                # sessions use today's date so deltas appear in the correct
+                # calendar day when queried.
                 started_at = row["started_at"]
-                if started_at:
-                    ts = datetime.fromtimestamp(
-                        started_at, tz=timezone.utc
-                    ).isoformat()
+                if ended_at is not None:
+                    # Closed — stable timestamp
+                    if started_at:
+                        ts = datetime.fromtimestamp(started_at, tz=timezone.utc).isoformat()
+                    else:
+                        ts = datetime.now(timezone.utc).isoformat()
                 else:
-                    ts = datetime.now(timezone.utc).isoformat()
+                    # Open — today's date so the record shows in "today" range
+                    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00Z")
 
                 records.append(
                     TokenRecord(
