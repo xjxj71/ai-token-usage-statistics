@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
-from backend.collectors.registry import _task, run_collection_cycle
+from backend.collectors.registry import run_collection_cycle, is_polling_active
 from backend.config import settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["stream"])
 
@@ -32,7 +35,7 @@ async def _wait_for_notification(timeout: float) -> bool:
 
 @router.get("/stream")
 async def stream_events():
-    polling_active = _task is not None
+    polling_active = is_polling_active()
 
     async def event_generator():
         if polling_active:
@@ -46,7 +49,8 @@ async def stream_events():
                     else:
                         yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
                 except Exception as e:
-                    yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                    logger.error("SSE event generator error: %s", e, exc_info=True)
+                    yield f"data: {json.dumps({'type': 'error', 'message': 'Internal server error'})}\n\n"
         else:
             # No background polling — SSE endpoint triggers collection itself.
             while True:
@@ -58,7 +62,8 @@ async def stream_events():
                     else:
                         yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
                 except Exception as e:
-                    yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                    logger.error("SSE collection error: %s", e, exc_info=True)
+                    yield f"data: {json.dumps({'type': 'error', 'message': 'Internal server error'})}\n\n"
 
                 await asyncio.sleep(settings.poll_interval_seconds)
 

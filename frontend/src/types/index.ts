@@ -57,3 +57,19 @@ export interface FilterState {
   agents: string[];
   models: string[];
 }
+
+export interface TrendPoint {
+  date: string;
+  name: string;
+  total_tokens: number;
+}
+
+export interface TrendSeries {
+  name: string;
+  data: number[];
+}
+
+export interface TrendResponse {
+  dates: string[];
+  series: TrendSeries[];
+}

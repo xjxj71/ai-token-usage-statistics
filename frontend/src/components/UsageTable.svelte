@@ -7,9 +7,10 @@
     page: number;
     pageSize: number;
     onPageChange: (page: number) => void;
+    onExport?: () => void;
   }
 
-  let { items, total, page, pageSize, onPageChange }: Props = $props();
+  let { items, total, page, pageSize, onPageChange, onExport }: Props = $props();
 
   function fmt(n: number): string {
     if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + "M";
@@ -54,7 +55,17 @@
 <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
   <div class="px-4 py-3 border-b border-gray-700 flex justify-between items-center">
     <h3 class="text-sm text-gray-400">最近使用记录</h3>
-    <span class="text-xs text-gray-500">共 {total} 条</span>
+    <div class="flex items-center gap-2">
+      <span class="text-xs text-gray-500">共 {total} 条</span>
+      {#if onExport}
+        <button
+          class="px-2 py-1 text-xs rounded text-gray-400 hover:bg-gray-700 border border-gray-600"
+          onclick={onExport}
+        >
+          导出 CSV
+        </button>
+      {/if}
+    </div>
   </div>
 
   <div class="overflow-x-auto">
@@ -80,7 +91,9 @@
                   ? 'bg-blue-900 text-blue-300'
                   : item.agent === 'hermes'
                     ? 'bg-green-900 text-green-300'
-                    : 'bg-red-900 text-red-300'}"
+                    : item.agent === 'hanako'
+                      ? 'bg-purple-900 text-purple-300'
+                      : 'bg-red-900 text-red-300'}"
               >
                 {item.agent}
               </span>

@@ -6,6 +6,7 @@ from typing import Sequence
 
 from backend.collectors.base import BaseCollector
 from backend.collectors.claude_code import ClaudeCodeCollector
+from backend.collectors.hanako import HanakoCollector
 from backend.collectors.hermes import HermesCollector
 from backend.collectors.openclaude import OpenClaudeCollector
 from backend.collectors.openclaw import OpenClawCollector
@@ -21,18 +22,24 @@ def _notify_sse(total_new: int) -> None:
         if total_new > 0:
             notify_new_records()
     except Exception:
-        pass
+        logger.debug("SSE notification failed (stream module may not be loaded)", exc_info=True)
 
 logger = logging.getLogger(__name__)
 
 COLLECTORS: list[BaseCollector] = [
     ClaudeCodeCollector(),
+    HanakoCollector(),
     HermesCollector(),
     OpenClawCollector(),
     OpenClaudeCollector(),
 ]
 
 _task: asyncio.Task | None = None
+
+
+def is_polling_active() -> bool:
+    """Check if the background polling loop is running."""
+    return _task is not None
 
 
 async def run_collection_cycle() -> int:
@@ -67,7 +74,7 @@ async def _poll_loop() -> None:
 
 def start_polling() -> None:
     global _task
-    _task = asyncio.get_event_loop().create_task(_poll_loop())
+    _task = asyncio.get_running_loop().create_task(_poll_loop())
 
 
 def stop_polling() -> None:

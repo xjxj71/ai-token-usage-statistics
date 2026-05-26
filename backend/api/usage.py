@@ -5,9 +5,9 @@ from typing import Optional
 
 from fastapi import APIRouter, Query
 
+from backend.api.range_utils import resolve_range
 from backend.db import database as db_module
 from backend.db.models import fetch_usage_page
-from backend.api.summary import _resolve_range
 
 router = APIRouter(tags=["usage"])
 
@@ -29,7 +29,7 @@ async def get_usage(
 
     # Use centralized range resolution when range_key is provided
     if range_key:
-        from_ts, to_ts = _resolve_range(range_key, from_date, to_date)
+        from_ts, to_ts = resolve_range(range_key, from_date, to_date)
     else:
         from_ts, to_ts = from_date, to_date
 

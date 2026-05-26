@@ -53,7 +53,7 @@ class BaseCollector(ABC):
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(tmp_path, str(path))
-        except BaseException:
+        except Exception:
             # Clean up temp file on failure
             try:
                 os.unlink(tmp_path)

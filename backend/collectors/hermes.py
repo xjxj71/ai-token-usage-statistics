@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import tempfile
 from datetime import datetime, timezone
@@ -98,9 +99,10 @@ class HermesCollector(BaseCollector):
     async def _copy_to_temp(self, db_path: str) -> str | None:
         """Copy the UNC-accessible db to a local temp file for SQLite access."""
         try:
-            tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-            shutil.copy2(db_path, tmp.name)
-            return tmp.name
+            fd, tmp_path = tempfile.mkstemp(suffix=".db")
+            os.close(fd)
+            shutil.copy2(db_path, tmp_path)
+            return tmp_path
         except OSError as e:
             logger.warning("Failed to copy hermes state.db: %s", e)
             return None

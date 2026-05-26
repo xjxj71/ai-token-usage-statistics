@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.db import database as db_module
 from backend.db.models import fetch_distinct_agents, fetch_distinct_models
@@ -52,7 +52,7 @@ async def get_models():
     # 只返回过滤后的模型，附上定价信息
     result = []
     for m in filtered:
-        entry = pricing.pop(m, {"model": m})
+        entry = pricing.get(m, {"model": m})
         result.append(entry)
 
     return result
@@ -83,10 +83,10 @@ async def get_agents():
 
 
 class PricingUpdate(BaseModel):
-    input_price: float
-    output_price: float
-    cache_read_price: float = 0.0
-    cache_write_price: float = 0.0
+    input_price: float = Field(ge=0)
+    output_price: float = Field(ge=0)
+    cache_read_price: float = Field(default=0.0, ge=0)
+    cache_write_price: float = Field(default=0.0, ge=0)
 
 
 @router.put("/pricing/{model:path}")

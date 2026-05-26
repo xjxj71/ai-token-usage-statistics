@@ -1,52 +1,18 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Query
 
+from backend.api.constants import IGNORED_MODELS
+from backend.api.range_utils import resolve_range
 from backend.db import database as db_module
 from backend.db.models import SummaryRow, fetch_summary
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["summary"])
-
-from backend.api.constants import IGNORED_MODELS
-
-
-def _resolve_range(
-    range_key: str,
-    from_date: Optional[str],
-    to_date: Optional[str],
-) -> tuple[str, str]:
-    # Use local timezone so "today" means local midnight, not UTC midnight.
-    import zoneinfo
-    try:
-        local_tz = zoneinfo.ZoneInfo("Asia/Shanghai")
-    except Exception:
-        local_tz = timezone(timedelta(hours=8))
-
-    now_local = datetime.now(local_tz)
-    today_start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
-
-    # Convert to UTC for DB comparison (timestamps are stored in UTC)
-    today_start_utc = today_start_local.astimezone(timezone.utc)
-    now_utc = now_local.astimezone(timezone.utc)
-
-    if range_key == "today":
-        return today_start_utc.isoformat(), now_utc.isoformat()
-    elif range_key == "7d":
-        start = today_start_utc - timedelta(days=7)
-        return start.isoformat(), now_utc.isoformat()
-    elif range_key == "30d":
-        start = today_start_utc - timedelta(days=30)
-        return start.isoformat(), now_utc.isoformat()
-    elif range_key == "custom" and from_date and to_date:
-        return from_date, to_date
-    else:
-        return today_start_utc.isoformat(), now_utc.isoformat()
 
 
 def _aggregate_rows(rows: list[SummaryRow], group_by: str = "agent") -> dict:
@@ -97,10 +63,10 @@ async def get_summary(
     to_date: Optional[str] = Query(None, alias="to"),
     agent: Optional[str] = Query(None),
     model: Optional[str] = Query(None),
-    group_by: str = Query("agent"),
+    group_by: str = Query("agent", pattern="^(agent|model)$"),
 ):
     db = await db_module.get_db()
-    from_ts, to_ts = _resolve_range(range_key, from_date, to_date)
+    from_ts, to_ts = resolve_range(range_key, from_date, to_date)
 
     agents = agent.split(",") if agent else None
     models = model.split(",") if model else None

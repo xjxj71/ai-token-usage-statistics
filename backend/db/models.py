@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as dataclass_replace
 from datetime import datetime, timezone
 from typing import Sequence
 
@@ -42,13 +42,12 @@ async def _ensure_models_in_pricing(db: aiosqlite.Connection, models: set[str]) 
     if not models:
         return
 
-    placeholders = ",".join("?" for _ in models)
-    rows = await db.execute_fetchall(
-        f"SELECT model FROM model_pricing WHERE model IN ({placeholders})",
-        list(models),
-    )
-    existing = {r["model"] for r in rows}
-    new_models = models - existing
+    # Normalize to lowercase for case-insensitive matching
+    models_lower = {m.lower() for m in models}
+
+    rows = await db.execute_fetchall("SELECT model FROM model_pricing")
+    existing = {r["model"].lower() for r in rows}
+    new_models = models_lower - existing
 
     if new_models:
         now = datetime.now(timezone.utc).isoformat()
@@ -64,7 +63,9 @@ async def _ensure_models_in_pricing(db: aiosqlite.Connection, models: set[str]) 
 async def insert_records(db: aiosqlite.Connection, records: Sequence[TokenRecord]) -> None:
     if not records:
         return
-    await _ensure_models_in_pricing(db, {r.model for r in records})
+    # Normalize model names to lowercase
+    normalized = [dataclass_replace(r, model=r.model.lower()) if r.model != r.model.lower() else r for r in records]
+    await _ensure_models_in_pricing(db, {r.model for r in normalized})
     await db.executemany(
         """INSERT OR IGNORE INTO token_usage
            (timestamp, agent, model, session_id,
@@ -77,7 +78,7 @@ async def insert_records(db: aiosqlite.Connection, records: Sequence[TokenRecord
                 r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_write_tokens,
                 r.cost_usd, r.raw_data,
             )
-            for r in records
+            for r in normalized
         ],
     )
     await db.commit()
@@ -92,7 +93,9 @@ async def upsert_records(db: aiosqlite.Connection, records: Sequence[TokenRecord
     """
     if not records:
         return
-    await _ensure_models_in_pricing(db, {r.model for r in records})
+    # Normalize model names to lowercase
+    normalized = [dataclass_replace(r, model=r.model.lower()) if r.model != r.model.lower() else r for r in records]
+    await _ensure_models_in_pricing(db, {r.model for r in normalized})
     await db.executemany(
         """INSERT INTO token_usage
                (timestamp, agent, model, session_id,
@@ -112,7 +115,7 @@ async def upsert_records(db: aiosqlite.Connection, records: Sequence[TokenRecord
                 r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_write_tokens,
                 r.cost_usd, r.raw_data,
             )
-            for r in records
+            for r in normalized
         ],
     )
     await db.commit()
@@ -253,3 +256,53 @@ async def fetch_distinct_agents(db: aiosqlite.Connection) -> list[str]:
 async def fetch_distinct_models(db: aiosqlite.Connection) -> list[str]:
     rows = await db.execute_fetchall("SELECT DISTINCT model FROM token_usage ORDER BY model")
     return [r["model"] for r in rows]
+
+
+async def fetch_trend(
+    db: aiosqlite.Connection,
+    group_by: str = "agent",
+    granularity: str = "day",
+    from_ts: str | None = None,
+    to_ts: str | None = None,
+    agents: list[str] | None = None,
+    models: list[str] | None = None,
+) -> list[dict]:
+    """Fetch daily/hourly token usage trend, grouped by time period + agent or model.
+
+    Args:
+        granularity: ``"day"`` → group by date (``substr(ts, 1, 10)``).
+                     ``"hour"`` → group by hour (``substr(ts, 1, 13)``).
+
+    Returns rows with: date, name (agent or model), total_tokens.
+    """
+    wheres, params = _build_where(agents, models, from_ts, to_ts)
+
+    group_col = "agent" if group_by == "agent" else "model"
+    name_col = group_col
+
+    if granularity == "hour":
+        date_expr = "substr(timestamp, 1, 13)"
+    else:
+        date_expr = "substr(timestamp, 1, 10)"
+
+    where_sql = f"WHERE {' AND '.join(wheres)}" if wheres else ""
+
+    rows = await db.execute_fetchall(
+        f"""SELECT {date_expr} as date,
+                   {name_col} as name,
+                   SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens) as total_tokens
+            FROM token_usage
+            {where_sql}
+            GROUP BY date, {name_col}
+            ORDER BY date, {name_col}""",
+        params,
+    )
+
+    return [
+        {
+            "date": r["date"],
+            "name": r["name"],
+            "total_tokens": r["total_tokens"],
+        }
+        for r in rows
+    ]

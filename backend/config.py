@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import shlex
 import subprocess
 from pathlib import Path
 from pydantic_settings import BaseSettings
@@ -22,6 +23,9 @@ class Settings(BaseSettings):
     poll_interval_seconds: int = 5
     host: str = "127.0.0.1"
     port: int = 8001
+
+    # Optional API key for authentication. If empty, auth is disabled.
+    api_key: str = ""
 
     frontend_dist: Path = Path("frontend/dist")
 
@@ -107,15 +111,18 @@ class Settings(BaseSettings):
                 return
 
             # Windows: call wsl.exe to fix permissions as root
+            safe_user = shlex.quote(self.wsl_user_accessible)
+            safe_dir = shlex.quote(linux_dir)
             result = subprocess.run(
                 [
                     "wsl.exe", "-u", self.wsl_user_root, "-d", self.wsl_distro, "--",
                     "bash", "-c",
-                    f"chown -R {self.wsl_user_accessible}:{self.wsl_user_accessible} '{linux_dir}' "
-                    f"&& chmod -R a+rX '{linux_dir}'",
+                    f"chown -R {safe_user}:{safe_user} {safe_dir} "
+                    f"&& chmod -R a+rX {safe_dir}",
                 ],
                 capture_output=True,
                 text=True,
+                errors="replace",
                 timeout=30,
             )
             if result.returncode != 0:
@@ -146,14 +153,17 @@ class Settings(BaseSettings):
                 return True
 
             # Windows: call wsl.exe to copy as root
+            safe_src = shlex.quote(linux_src)
+            safe_dst = shlex.quote(linux_dst)
             result = subprocess.run(
                 [
-                    "wsl.exe", "-u", self.wsl_user_root, "--",
+                    "wsl.exe", "-u", self.wsl_user_root, "-d", self.wsl_distro, "--",
                     "bash", "-c",
-                    f"cp '{linux_src}' '{linux_dst}' && chmod 644 '{linux_dst}'",
+                    f"cp {safe_src} {safe_dst} && chmod 644 {safe_dst}",
                 ],
                 capture_output=True,
                 text=True,
+                errors="replace",
                 timeout=30,
             )
             if result.returncode != 0:
@@ -162,7 +172,7 @@ class Settings(BaseSettings):
                 )
                 return False
             return True
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError, UnicodeDecodeError) as e:
             logger.warning("wsl_copy_to_tmp error: %s", e)
             return False
 

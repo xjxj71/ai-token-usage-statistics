@@ -7,24 +7,12 @@ from pathlib import Path
 from typing import Sequence
 
 from backend.collectors.base import BaseCollector
+from backend.collectors.jsonl_utils import parse_timestamp
 from backend.config import settings
 from backend.db.models import TokenRecord
 from backend.pricing.model_pricing import calculate_cost
 
 logger = logging.getLogger(__name__)
-
-
-def _parse_ts(ts) -> datetime:
-    """Parse a timestamp — handles ISO strings and millisecond epoch ints."""
-    if isinstance(ts, (int, float)):
-        # Millisecond epoch (e.g. 1777902554979)
-        if ts > 1e12:
-            ts = ts / 1000.0
-        return datetime.fromtimestamp(ts, tz=timezone.utc)
-    try:
-        return datetime.fromisoformat(str(ts))
-    except (ValueError, TypeError):
-        return datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 class OpenClawCollector(BaseCollector):
@@ -35,7 +23,7 @@ class OpenClawCollector(BaseCollector):
     async def collect(self) -> Sequence[TokenRecord]:
         state = self._load_state()
         last_ts_str = state.get("last_timestamp", "")
-        last_dt = _parse_ts(last_ts_str)
+        last_dt = parse_timestamp(last_ts_str)
 
         # Copy sessions.json from WSL /root to /tmp for UNC access
         if not settings.wsl_copy_to_tmp(
@@ -72,7 +60,7 @@ class OpenClawCollector(BaseCollector):
 
             # updatedAt is millisecond epoch integer
             ts_raw = session.get("updatedAt", session.get("startedAt", ""))
-            ts_dt = _parse_ts(ts_raw)
+            ts_dt = parse_timestamp(ts_raw)
             if ts_dt <= last_dt:
                 continue
 
@@ -106,7 +94,7 @@ class OpenClawCollector(BaseCollector):
                     ),
                 )
             )
-            if ts_dt > _parse_ts(max_ts_str):
+            if not max_ts_str or ts_dt > parse_timestamp(max_ts_str):
                 max_ts_str = ts_raw
 
         if records:

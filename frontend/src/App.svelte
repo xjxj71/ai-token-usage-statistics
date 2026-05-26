@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import type { SummaryResponse, UsageResponse, FilterState, TimeRange } from "./types";
-  import { fetchSummary, fetchUsage, fetchAgents, fetchModels, createEventSource } from "./api/client";
+  import type { SummaryResponse, UsageResponse, FilterState, TimeRange, TrendResponse } from "./types";
+  import { fetchSummary, fetchUsage, fetchAgents, fetchModels, fetchTrend, createEventSource } from "./api/client";
   import TimeRangeTabs from "./components/TimeRangeTabs.svelte";
   import StatCard from "./components/StatCard.svelte";
-  import TrendChart from "./components/TrendChart.svelte";
+  import ComparisonChart from "./components/ComparisonChart.svelte";
+  import TrendLine from "./components/TrendLine.svelte";
   import AgentPie from "./components/AgentPie.svelte";
   import ModelBar from "./components/ModelBar.svelte";
   import UsageTable from "./components/UsageTable.svelte";
@@ -14,6 +15,8 @@
   let summary: SummaryResponse | null = $state(null);
   let agentBreakdown: SummaryResponse["breakdown"] = $state([]);
   let modelBreakdown: SummaryResponse["breakdown"] = $state([]);
+  let trendByAgent: TrendResponse | null = $state(null);
+  let trendByModel: TrendResponse | null = $state(null);
   let usage: UsageResponse | null = $state(null);
   let agents: string[] = $state([]);
   let models: string[] = $state([]);
@@ -80,20 +83,35 @@
     return p;
   }
 
+  function computeGranularity(): string {
+    if (filter.range === "today") return "hour";
+    if (filter.range === "custom" && filter.from && filter.to) {
+      const from = new Date(filter.from);
+      const to = new Date(filter.to);
+      const diffDays = (to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24);
+      if (diffDays <= 1) return "hour";
+    }
+    return "day";
+  }
+
   async function loadData(page?: number) {
     loading = true;
     error = "";
     if (page !== undefined) currentPage = page;
     try {
       const params = buildParams();
-      const [agentSum, modelSum, usg] = await Promise.all([
+      const [agentSum, modelSum, trendAgent, trendModel, usg] = await Promise.all([
         fetchSummary({ ...params, group_by: "agent" }),
         fetchSummary({ ...params, group_by: "model" }),
+        fetchTrend({ ...params, group_by: "agent", granularity: computeGranularity() }),
+        fetchTrend({ ...params, group_by: "model", granularity: computeGranularity() }),
         fetchUsage({ ...params, page: String(currentPage), limit: String(PAGE_SIZE) }),
       ]);
       summary = agentSum;
       agentBreakdown = agentSum.breakdown;
       modelBreakdown = modelSum.breakdown;
+      trendByAgent = trendAgent;
+      trendByModel = trendModel;
       usage = usg;
     } catch (e: any) {
       error = e.message || "数据加载失败";
@@ -126,6 +144,39 @@
 
   function handlePageChange(page: number) {
     loadData(page);
+  }
+
+  async function handleExport() {
+    try {
+      const params = buildParams();
+      const res = await fetch(`/api/usage?${new URLSearchParams({ ...params, limit: "99999" })}`);
+      if (!res.ok) throw new Error("导出失败");
+      const data = await res.json();
+
+      const header = "时间,Agent,模型,输入Token,输出Token,缓存Token,费用(USD)";
+      const rows = data.items.map((r: any) =>
+        [
+          `"${r.timestamp}"`,
+          `"${r.agent}"`,
+          `"${r.model}"`,
+          r.input_tokens,
+          r.output_tokens,
+          r.cache_read_tokens + r.cache_write_tokens,
+          r.cost_usd.toFixed(6),
+        ].join(",")
+      );
+      const csv = "\uFEFF" + header + "\n" + rows.join("\n");
+
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `token-export-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      console.warn("导出失败:", e);
+    }
   }
 
   onMount(() => {
@@ -175,8 +226,14 @@
         <StatCard title="请求次数" value={summary.call_count} unit="次" />
       </div>
 
+      <!-- Token 用量趋势折线图：按 Agent + 按 Model -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <TrendLine data={trendByAgent} title="按 Agent 的 Token 用量趋势" />
+        <TrendLine data={trendByModel} title="按模型的 Token 用量趋势" />
+      </div>
+
       <!-- Agent Token 用量对比 -->
-      <TrendChart breakdown={agentBreakdown} />
+      <ComparisonChart breakdown={agentBreakdown} />
 
       <!-- Agent饼图 + 模型条形图 -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -192,6 +249,7 @@
           page={usage.page}
           pageSize={PAGE_SIZE}
           onPageChange={handlePageChange}
+          onExport={handleExport}
         />
       {/if}
 
