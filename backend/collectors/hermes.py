@@ -22,17 +22,19 @@ logger = logging.getLogger(__name__)
 class HermesCollector(BaseCollector):
     """Collect token usage from Hermes state.db (sessions table).
 
-    Dual-mode collection:
-    - **Closed sessions** (ended_at IS NOT NULL): inserted once with final
-      token values, then the rowid watermark advances past them.
-    - **Open sessions** (ended_at IS NULL): upserted every poll cycle with
-      the latest cumulative token counts.  Tracked in open_session_ids
-      until they close.
+    **Incremental (delta) collection** — each poll cycle records only the
+    *new* tokens consumed since the last poll, avoiding the over-counting
+    that would happen if we stored cumulative values in multiple records.
 
-    On first run after migration from the old `last_row_id` state format,
-    ``closed_up_to_rowid`` defaults to 0 which triggers a full re-read of
-    all sessions — this automatically fixes any stale snapshot data that
-    the previous collector left behind.
+    Dual-mode lifecycle:
+    - **Closed sessions** (ended_at IS NOT NULL): inserted once with final
+      token values (not incremental — the session is done).
+    - **Open sessions** (ended_at IS NULL): upserted every poll cycle with
+      the **delta** (current - last_seen) values.  Tracked in
+      ``open_session_ids`` and ``last_tokens`` until they close.
+
+    ``last_tokens`` is a dict keyed by session_id capturing the most recent
+    token snapshot, so the delta is always relative to the last read.
     """
 
     upsert_mode = True
@@ -43,23 +45,16 @@ class HermesCollector(BaseCollector):
 
     async def collect(self) -> Sequence[TokenRecord]:
         state = self._load_state()
-        # Migration: old state key was "last_row_id".  If the new key is
-        # missing we default to 0, forcing a full re-read that repairs all
-        # stale snapshots from the old collector.
         closed_up_to_rowid: int = state.get("closed_up_to_rowid", 0)
         open_session_ids: list[str] = state.get("open_session_ids", [])
-        # Sessions confirmed as closed with final data collected.
-        # These will not be re-queried even if their rowid is below the watermark.
         finalized_ids: list[str] = state.get("finalized_ids", [])
+        # Last-known token snapshots for delta calculation
+        last_tokens: dict[str, dict[str, int]] = state.get("last_tokens", {})
 
-        # Migration: if finalized_ids is missing but closed_up_to_rowid > 0,
-        # we need a repair pass to fix stale snapshots from the old collector.
-        # Reset watermark to 0 to re-read all sessions and build finalized_ids.
         if not finalized_ids and closed_up_to_rowid > 0:
             logger.info("Hermes: migration — resetting watermark to repair stale snapshots")
             closed_up_to_rowid = 0
 
-        # Copy state.db from WSL /root to /tmp for UNC access
         if not settings.wsl_copy_to_tmp(
             "/root/.hermes/state.db", "/tmp/hermes_state.db"
         ):
@@ -76,18 +71,17 @@ class HermesCollector(BaseCollector):
             return []
 
         try:
-            records, still_open, new_closed_up_to, new_finalized = await self._read_sessions(
-                tmp_path, closed_up_to_rowid, open_session_ids, finalized_ids
+            records, still_open, new_closed_up_to, new_finalized, new_last_tokens = await self._read_sessions(
+                tmp_path, closed_up_to_rowid, open_session_ids, finalized_ids, last_tokens,
             )
         finally:
             Path(tmp_path).unlink(missing_ok=True)
 
-        # Always persist state so open_session_ids stays current even when
-        # no TokenRecords are produced (e.g. all-zero open sessions).
         self._save_state({
             "closed_up_to_rowid": new_closed_up_to,
             "open_session_ids": still_open,
             "finalized_ids": new_finalized,
+            "last_tokens": new_last_tokens,
         })
 
         logger.info(
@@ -113,11 +107,17 @@ class HermesCollector(BaseCollector):
         closed_up_to_rowid: int,
         open_session_ids: list[str],
         finalized_ids: list[str],
-    ) -> tuple[list[TokenRecord], list[str], int, list[str]]:
-        """Read sessions that are new or still open.
+        last_tokens: dict[str, dict[str, int]],
+    ) -> tuple[list[TokenRecord], list[str], int, list[str], dict[str, dict[str, int]]]:
+        """Read sessions and compute incremental delta records.
+
+        For **closed** sessions the full cumulative values are used (once
+        and done).  For **open** sessions we compute the *delta* since the
+        last poll (current - last_tokens) so that daily/hourly aggregations
+        don't over-count.
 
         Returns:
-            (records, still_open_ids, new_closed_up_to_rowid, finalized_ids)
+            (records, still_open_ids, new_closed_up_to_rowid, finalized_ids, new_last_tokens)
         """
         records: list[TokenRecord] = []
 
@@ -154,35 +154,52 @@ class HermesCollector(BaseCollector):
                 rows = await db.execute_fetchall(query, params)
             except aiosqlite.OperationalError as e:
                 logger.warning("Hermes DB query failed: %s", e)
-                return records, open_session_ids, closed_up_to_rowid, finalized_ids
+                return records, open_session_ids, closed_up_to_rowid, finalized_ids, last_tokens
 
             still_open: list[str] = []
             max_closed_rowid = closed_up_to_rowid
             new_finalized = list(finalized_ids)
+            new_last_tokens = dict(last_tokens)
 
             for row in rows:
                 row_id = row["rowid"]
                 session_id = str(row["id"] or "")
                 ended_at = row["ended_at"]
                 model = row["model"] or "unknown"
-                input_tokens = row["input_tokens"] or 0
-                output_tokens = row["output_tokens"] or 0
-                cache_read = row["cache_read_tokens"] or 0
-                cache_write = row["cache_write_tokens"] or 0
 
                 # Track session lifecycle
                 if ended_at is not None:
-                    # Closed — advance watermark past it and mark finalized
                     if row_id > max_closed_rowid:
                         max_closed_rowid = row_id
                     if session_id not in new_finalized:
                         new_finalized.append(session_id)
                 else:
-                    # Still in progress — keep tracking next cycle
                     still_open.append(session_id)
 
-                # Skip all-zero records (empty / aborted sessions)
-                if input_tokens == 0 and output_tokens == 0 and cache_read == 0 and cache_write == 0:
+                # Current cumulative values from state.db
+                cur_input = row["input_tokens"] or 0
+                cur_output = row["output_tokens"] or 0
+                cur_cr = row["cache_read_tokens"] or 0
+                cur_cw = row["cache_write_tokens"] or 0
+
+                # Compute delta relative to last-known snapshot
+                prev = new_last_tokens.get(session_id, {})
+                delta_input = cur_input - prev.get("input", 0)
+                delta_output = cur_output - prev.get("output", 0)
+                delta_cr = cur_cr - prev.get("cache_read", 0)
+                delta_cw = cur_cw - prev.get("cache_write", 0)
+
+                # Update snapshot
+                new_last_tokens[session_id] = {
+                    "input": cur_input,
+                    "output": cur_output,
+                    "cache_read": cur_cr,
+                    "cache_write": cur_cw,
+                }
+
+                # Skip if nothing changed since last poll
+                if (delta_input == 0 and delta_output == 0
+                        and delta_cr == 0 and delta_cw == 0):
                     continue
 
                 # Cost: prefer actual_cost if available, else calculate
@@ -191,15 +208,19 @@ class HermesCollector(BaseCollector):
                     actual_cost
                     if actual_cost and actual_cost > 0
                     else calculate_cost(
-                        model, input_tokens, output_tokens, cache_read, cache_write
+                        model, delta_input, delta_output, delta_cr, delta_cw
                     )
                 )
 
-                # Timestamp: truncate to the current hour (``2026-05-26T10:00:00Z``)
-                # so the upsert key is stable within each hour — no duplicate
-                # rows from 5-second poll cycles.
-                # As hours pass, new hourly snapshots accumulate naturally.
-                ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:00:00Z")
+                # Timestamp: use started_at so each session has ONE stable
+                # upsert key (timestamp, agent, session_id, model).
+                started_at = row["started_at"]
+                if started_at:
+                    ts = datetime.fromtimestamp(
+                        started_at, tz=timezone.utc
+                    ).isoformat()
+                else:
+                    ts = datetime.now(timezone.utc).isoformat()
 
                 records.append(
                     TokenRecord(
@@ -207,19 +228,20 @@ class HermesCollector(BaseCollector):
                         agent=self.name,
                         model=model,
                         session_id=session_id,
-                        input_tokens=input_tokens,
-                        output_tokens=output_tokens,
-                        cache_read_tokens=cache_read,
-                        cache_write_tokens=cache_write,
+                        input_tokens=delta_input,
+                        output_tokens=delta_output,
+                        cache_read_tokens=delta_cr,
+                        cache_write_tokens=delta_cw,
                         cost_usd=round(cost, 6),
                         raw_data=json.dumps(
                             {
                                 "_row_id": row_id,
                                 "ended": ended_at is not None,
+                                "last_seen": datetime.now(timezone.utc).isoformat(),
                             },
                             ensure_ascii=False,
                         ),
                     )
                 )
 
-        return records, still_open, max_closed_rowid, new_finalized
+        return records, still_open, max_closed_rowid, new_finalized, new_last_tokens
