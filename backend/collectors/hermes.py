@@ -195,14 +195,12 @@ class HermesCollector(BaseCollector):
                     )
                 )
 
-                # started_at is REAL (Unix timestamp), convert to ISO string
-                started_at = row["started_at"]
-                if started_at:
-                    ts = datetime.fromtimestamp(
-                        started_at, tz=timezone.utc
-                    ).isoformat()
-                else:
-                    ts = datetime.now(timezone.utc).isoformat()
+                # Timestamp: open sessions use current time (so cumulative
+                # token counts appear under today's range for ongoing sessions).
+                # Closed sessions use now() too — this keeps the upsert key
+                # stable from the last open-cycle write, avoiding a duplicate
+                # row when the session transitions from open → closed.
+                ts = datetime.now(timezone.utc).isoformat()
 
                 records.append(
                     TokenRecord(
