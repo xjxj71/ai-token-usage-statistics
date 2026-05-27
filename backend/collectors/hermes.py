@@ -48,6 +48,7 @@ class HermesCollector(BaseCollector):
         open_session_ids: list[str] = state.get("open_session_ids", [])
         finalized_ids: list[str] = state.get("finalized_ids", [])
         last_tokens: dict[str, dict[str, int]] = state.get("last_tokens", {})
+        last_seen: dict[str, str] = state.get("last_seen", {})
 
         logger.info(
             "Hermes: state loaded — closed_up_to=%d, open=%d, finalized=%d, last_tokens=%d",
@@ -77,8 +78,8 @@ class HermesCollector(BaseCollector):
         logger.info("Hermes: temp copy at %s", tmp_path)
 
         try:
-            records, still_open, new_closed_up_to, new_finalized, new_last_tokens = await self._read_sessions(
-                tmp_path, closed_up_to_rowid, open_session_ids, finalized_ids, last_tokens,
+            records, still_open, new_closed_up_to, new_finalized, new_last_tokens, new_last_seen = await self._read_sessions(
+                tmp_path, closed_up_to_rowid, open_session_ids, finalized_ids, last_tokens, last_seen,
             )
         finally:
             Path(tmp_path).unlink(missing_ok=True)
@@ -88,6 +89,7 @@ class HermesCollector(BaseCollector):
             "open_session_ids": still_open,
             "finalized_ids": new_finalized,
             "last_tokens": new_last_tokens,
+            "last_seen": new_last_seen,
         })
 
         logger.info(
@@ -114,7 +116,8 @@ class HermesCollector(BaseCollector):
         open_session_ids: list[str],
         finalized_ids: list[str],
         last_tokens: dict[str, dict[str, int]],
-    ) -> tuple[list[TokenRecord], list[str], int, list[str], dict[str, dict[str, int]]]:
+        last_seen: dict[str, str],
+    ) -> tuple[list[TokenRecord], list[str], int, list[str], dict[str, dict[str, int]], dict[str, str]]:
         """Read sessions and produce token records.
 
         Dual-mode strategy:
@@ -125,8 +128,12 @@ class HermesCollector(BaseCollector):
           **cumulative** (not delta) values so that the dashboard always
           shows the correct total when querying "today".
 
+        Staleness filter: open sessions with no token change in >24h
+        are skipped to prevent old idle sessions from appearing in
+        "today" dashboard.
+
         Returns:
-            (records, still_open_ids, new_closed_up_to_rowid, finalized_ids, new_last_tokens)
+            (records, still_open_ids, new_closed_up_to_rowid, finalized_ids, new_last_tokens, new_last_seen)
         """
         records: list[TokenRecord] = []
 
@@ -166,7 +173,7 @@ class HermesCollector(BaseCollector):
                 rows = await db.execute_fetchall(query, params)
             except aiosqlite.OperationalError as e:
                 logger.warning("Hermes DB query failed: %s", e)
-                return records, open_session_ids, closed_up_to_rowid, finalized_ids, last_tokens
+                return records, open_session_ids, closed_up_to_rowid, finalized_ids, last_tokens, last_seen
 
             logger.info(
                 "Hermes: query returned %d rows (conditions: %s)",
@@ -177,6 +184,7 @@ class HermesCollector(BaseCollector):
             max_closed_rowid = closed_up_to_rowid
             new_finalized = list(finalized_ids)
             new_last_tokens = dict(last_tokens)
+            new_last_seen = dict(last_seen)
 
             for row in rows:
                 row_id = row["rowid"]
@@ -212,15 +220,6 @@ class HermesCollector(BaseCollector):
                     or cur_cw != prev.get("cache_write", 0)
                 )
 
-                # Diagnostic: log first 3 sessions
-                if len(records) < 3:
-                    logger.info(
-                        "Hermes: session %s — cur=(%d,%d,%d) prev=(%d,%d,%d) changed=%s ended=%s",
-                        session_id[:20], cur_input, cur_output, cur_cr,
-                        prev.get("input", 0), prev.get("output", 0), prev.get("cache_read", 0),
-                        tokens_changed, ended_at is not None,
-                    )
-
                 # Update snapshot
                 new_last_tokens[session_id] = {
                     "input": cur_input,
@@ -229,9 +228,31 @@ class HermesCollector(BaseCollector):
                     "cache_write": cur_cw,
                 }
 
+                # Track last time tokens actually changed
+                if tokens_changed:
+                    new_last_seen[session_id] = datetime.now(timezone.utc).isoformat()
+
                 # Skip if nothing changed since last poll
                 if not tokens_changed:
                     continue
+
+                # Skip stale open sessions: if the last token change was
+                # more than 24 hours ago, don't write a record.  This
+                # prevents old idle sessions from being attributed to
+                # "today" in the dashboard.
+                if ended_at is None:
+                    last_seen_str = new_last_seen.get(session_id)
+                    if last_seen_str:
+                        try:
+                            last_seen_dt = datetime.fromisoformat(last_seen_str)
+                            if datetime.now(timezone.utc) - last_seen_dt > timedelta(hours=24):
+                                logger.info(
+                                    "Hermes: skipping stale session %s (last seen %s)",
+                                    session_id[:20], last_seen_str[:19],
+                                )
+                                continue
+                        except (ValueError, TypeError):
+                            pass
 
                 # Cost: prefer actual_cost if available, else calculate
                 # from cumulative values
@@ -294,4 +315,4 @@ class HermesCollector(BaseCollector):
             "Hermes: _read_sessions done — %d records, %d still_open, max_closed=%d",
             len(records), len(still_open), max_closed_rowid,
         )
-        return records, still_open, max_closed_rowid, new_finalized, new_last_tokens
+        return records, still_open, max_closed_rowid, new_finalized, new_last_tokens, new_last_seen
