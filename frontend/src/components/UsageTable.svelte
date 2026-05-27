@@ -12,6 +12,8 @@
 
   let { items, total, page, pageSize, onPageChange, onExport }: Props = $props();
 
+  let searchQuery = $state("");
+
   function fmt(n: number): string {
     if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + "M";
     if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
@@ -26,8 +28,30 @@
     }
   }
 
+  let filteredItems = $derived(
+    searchQuery
+      ? items.filter(
+          (i) =>
+            i.agent.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            i.model.toLowerCase().includes(searchQuery.toLowerCase())
+        )
+      : items
+  );
+
   let totalPages = $derived(Math.max(1, Math.ceil(total / pageSize)));
   let jumpPage = $state("");
+
+  const agentColors: Record<string, { bg: string; text: string }> = {
+    hermes: { bg: "rgba(99,102,241,.2)", text: "#818CF8" },
+    "claude-code": { bg: "rgba(139,92,246,.2)", text: "#A78BFA" },
+    openclaw: { bg: "rgba(16,185,129,.2)", text: "#34D399" },
+    openclaude: { bg: "rgba(245,158,11,.2)", text: "#FBBF24" },
+    hanako: { bg: "rgba(236,72,153,.2)", text: "#F472B6" },
+  };
+
+  function getAgentColor(agent: string) {
+    return agentColors[agent] || { bg: "rgba(99,102,241,.2)", text: "#818CF8" };
+  }
 
   function pageNumbers(): number[] {
     const pages: number[] = [];
@@ -46,22 +70,27 @@
   }
 
   function handleJumpKeydown(e: KeyboardEvent) {
-    if (e.key === "Enter") {
-      handleJump();
-    }
+    if (e.key === "Enter") handleJump();
   }
 </script>
 
-<div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
-  <div class="px-4 py-3 border-b border-gray-700 flex justify-between items-center">
-    <h3 class="text-sm text-gray-400">最近使用记录</h3>
-    <div class="flex items-center gap-2">
-      <span class="text-xs text-gray-500">共 {total} 条</span>
+<div class="table-card">
+  <div class="table-header">
+    <h3 class="chart-title">使用记录</h3>
+    <div class="flex items-center gap-3">
+      <span class="text-xs text-[var(--text-3)]">共 {total} 条</span>
+      <div class="search-box">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <input
+          type="text"
+          placeholder="搜索 Agent / 模型..."
+          bind:value={searchQuery}
+          class="search-input"
+        />
+      </div>
       {#if onExport}
-        <button
-          class="px-2 py-1 text-xs rounded text-gray-400 hover:bg-gray-700 border border-gray-600"
-          onclick={onExport}
-        >
+        <button class="export-btn" onclick={onExport}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
           导出 CSV
         </button>
       {/if}
@@ -69,120 +98,225 @@
   </div>
 
   <div class="overflow-x-auto">
-    <table class="w-full text-sm">
+    <table>
       <thead>
-        <tr class="border-b border-gray-700 text-gray-500 text-left">
-          <th class="px-4 py-2 font-medium">时间</th>
-          <th class="px-4 py-2 font-medium">Agent</th>
-          <th class="px-4 py-2 font-medium">模型</th>
-          <th class="px-4 py-2 font-medium text-right">输入</th>
-          <th class="px-4 py-2 font-medium text-right">输出</th>
-          <th class="px-4 py-2 font-medium text-right">缓存</th>
-          <th class="px-4 py-2 font-medium text-right">费用</th>
+        <tr>
+          <th>时间</th>
+          <th>Agent</th>
+          <th>模型</th>
+          <th class="text-right">输入</th>
+          <th class="text-right">输出</th>
+          <th class="text-right">缓存</th>
+          <th class="text-right">费用</th>
         </tr>
       </thead>
       <tbody>
-        {#each items as item}
-          <tr class="border-b border-gray-700/50 hover:bg-gray-700/30">
-            <td class="px-4 py-2 text-gray-400">{fmtTime(item.timestamp)}</td>
-            <td class="px-4 py-2">
-              <span
-                class="px-2 py-0.5 rounded text-xs {item.agent === 'claude-code'
-                  ? 'bg-blue-900 text-blue-300'
-                  : item.agent === 'hermes'
-                    ? 'bg-green-900 text-green-300'
-                    : item.agent === 'hanako'
-                      ? 'bg-purple-900 text-purple-300'
-                      : 'bg-red-900 text-red-300'}"
-              >
+        {#each filteredItems as item}
+          {@const c = getAgentColor(item.agent)}
+          <tr>
+            <td class="text-[var(--text-2)]">{fmtTime(item.timestamp)}</td>
+            <td>
+              <span class="agent-badge" style="background:{c.bg};color:{c.text}">
                 {item.agent}
               </span>
             </td>
-            <td class="px-4 py-2 text-gray-300">{item.model}</td>
-            <td class="px-4 py-2 text-right text-gray-400">{fmt(item.input_tokens)}</td>
-            <td class="px-4 py-2 text-right text-gray-400">{fmt(item.output_tokens)}</td>
-            <td class="px-4 py-2 text-right text-gray-400">
+            <td class="text-[var(--text-2)]">{item.model}</td>
+            <td class="text-right text-[var(--text-2)]">{fmt(item.input_tokens)}</td>
+            <td class="text-right text-[var(--text-2)]">{fmt(item.output_tokens)}</td>
+            <td class="text-right text-[var(--text-2)]">
               {fmt(item.cache_read_tokens + item.cache_write_tokens)}
             </td>
-            <td class="px-4 py-2 text-right text-yellow-400">${item.cost_usd.toFixed(4)}</td>
+            <td class="text-right text-[var(--amber)]">${item.cost_usd.toFixed(4)}</td>
           </tr>
         {:else}
           <tr>
-            <td colspan="7" class="px-4 py-8 text-center text-gray-500">暂无使用记录</td>
+            <td colspan="7" class="empty-row">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              <span>暂无使用记录</span>
+            </td>
           </tr>
         {/each}
       </tbody>
     </table>
   </div>
 
-  <!-- Enhanced Pagination UI -->
   {#if totalPages > 1}
-    <div class="px-4 py-3 border-t border-gray-700 flex items-center justify-between flex-wrap gap-2">
-      <span class="text-xs text-gray-500">
-        第 {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} 条 / 共 {total} 条，共 {totalPages} 页
+    <div class="pagination">
+      <span class="text-xs text-[var(--text-3)]">
+        第 {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} 条 / 共 {total} 条
       </span>
       <div class="flex items-center gap-1">
-        <!-- 首页 -->
-        <button
-          class="px-2 py-1 text-xs rounded {page <= 1 ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:bg-gray-700'}"
-          disabled={page <= 1}
-          onclick={() => onPageChange(1)}
-          title="首页"
-        >
-          ««
-        </button>
-        <!-- 上一页 -->
-        <button
-          class="px-2 py-1 text-xs rounded {page <= 1 ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:bg-gray-700'}"
-          disabled={page <= 1}
-          onclick={() => onPageChange(page - 1)}
-        >
-          上一页
-        </button>
-        <!-- 页码 -->
+        <button class="page-btn" disabled={page <= 1} onclick={() => onPageChange(1)} title="首页">&laquo;</button>
+        <button class="page-btn" disabled={page <= 1} onclick={() => onPageChange(page - 1)}>&lsaquo;</button>
         {#each pageNumbers() as p}
-          <button
-            class="px-2.5 py-1 text-xs rounded {p === page ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-700'}"
-            onclick={() => onPageChange(p)}
-          >
+          <button class="page-btn {p === page ? 'active' : ''}" onclick={() => onPageChange(p)}>
             {p}
           </button>
         {/each}
-        <!-- 下一页 -->
-        <button
-          class="px-2 py-1 text-xs rounded {page >= totalPages ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:bg-gray-700'}"
-          disabled={page >= totalPages}
-          onclick={() => onPageChange(page + 1)}
-        >
-          下一页
-        </button>
-        <!-- 末页 -->
-        <button
-          class="px-2 py-1 text-xs rounded {page >= totalPages ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:bg-gray-700'}"
-          disabled={page >= totalPages}
-          onclick={() => onPageChange(totalPages)}
-          title="末页"
-        >
-          »»
-        </button>
-        <!-- 跳转 -->
-        <span class="text-xs text-gray-500 ml-2">跳至</span>
+        <button class="page-btn" disabled={page >= totalPages} onclick={() => onPageChange(page + 1)}>&rsaquo;</button>
+        <button class="page-btn" disabled={page >= totalPages} onclick={() => onPageChange(totalPages)} title="末页">&raquo;</button>
+        <span class="text-xs text-[var(--text-3)] ml-2">跳至</span>
         <input
           type="number"
           bind:value={jumpPage}
           onkeydown={handleJumpKeydown}
           min="1"
           max={totalPages}
-          class="w-12 px-1 py-0.5 text-xs text-center bg-gray-700 border border-gray-600 rounded text-white focus:border-blue-500 focus:outline-none"
+          class="jump-input"
           placeholder=""
         />
-        <button
-          class="px-2 py-1 text-xs rounded text-gray-400 hover:bg-gray-700"
-          onclick={handleJump}
-        >
-          Go
-        </button>
+        <button class="page-btn" onclick={handleJump}>Go</button>
       </div>
     </div>
   {/if}
 </div>
+
+<style>
+  .table-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .table-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .chart-title {
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .search-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 12px;
+  }
+  .search-box:focus-within {
+    border-color: var(--primary);
+  }
+  .search-input {
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text);
+    font-size: 13px;
+    width: 180px;
+  }
+  .search-input::placeholder {
+    color: var(--text-3);
+  }
+  .export-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-2);
+  }
+  .export-btn:hover {
+    border-color: var(--primary);
+    color: var(--text);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  th {
+    text-align: left;
+    padding: 10px 16px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-3);
+    border-bottom: 1px solid var(--border);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  td {
+    padding: 10px 16px;
+    font-size: 13px;
+    border-bottom: 1px solid rgba(51, 65, 85, 0.4);
+  }
+  tr:hover td {
+    background: rgba(99, 102, 241, 0.06);
+  }
+  .agent-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 9999px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .empty-row {
+    text-align: center;
+    padding: 32px 16px;
+    color: var(--text-3);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .pagination {
+    padding: 12px 20px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .page-btn {
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-2);
+  }
+  .page-btn:hover:not(:disabled) {
+    border-color: var(--primary);
+    color: var(--text);
+  }
+  .page-btn.active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+  }
+  .page-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
+  .jump-input {
+    width: 48px;
+    padding: 4px 8px;
+    font-size: 13px;
+    text-align: center;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    outline: none;
+  }
+  .jump-input:focus {
+    border-color: var(--primary);
+  }
+</style>

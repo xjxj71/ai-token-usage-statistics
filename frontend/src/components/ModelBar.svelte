@@ -23,7 +23,6 @@
   }
 
   function buildOption(data: BreakdownItem[]) {
-    // 按 total token 降序排列
     const sorted = [...data].sort((a, b) => {
       const totalA = a.input_tokens + a.output_tokens + a.cache_read_tokens + a.cache_write_tokens;
       const totalB = b.input_tokens + b.output_tokens + b.cache_read_tokens + b.cache_write_tokens;
@@ -31,97 +30,77 @@
     });
 
     const modelNames = sorted.map((d) => d.model || "未知");
-    const hasLongNames = modelNames.some((n) => n.length > 10);
-    const count = modelNames.length;
-    // 模型少时不旋转；模型多或有长名称时旋转 45 度
-    const rotate = count > 8 || hasLongNames ? 45 : count > 5 ? 25 : 0;
-    // 底部留白：旋转时需要更多空间
-    const bottomPct = rotate > 0 ? Math.min(15 + count * 1.5, 25) : 8;
+    const totals = sorted.map((d) => d.input_tokens + d.output_tokens + d.cache_read_tokens + d.cache_write_tokens);
 
     return {
       backgroundColor: "transparent",
       tooltip: {
         trigger: "axis",
-        backgroundColor: "#1f2937",
-        borderColor: "#374151",
-        textStyle: { color: "#e5e7eb" },
+        backgroundColor: "#1E293B",
+        borderColor: "#334155",
+        textStyle: { color: "#F8FAFC", fontSize: 12 },
         axisPointer: { type: "shadow" },
         formatter: (params: any[]) => {
-          // tooltip 显示完整模型名
           const fullName = modelNames[params[0].dataIndex] || params[0].axisValue;
-          let html = `<b>${fullName}</b><br/>`;
-          let total = 0;
-          for (const p of params) {
-            total += p.value;
-            html += `${p.marker} ${p.seriesName}: <b>${formatTokens(p.value)}</b><br/>`;
-          }
-          html += `合计: <b>${formatTokens(total)}</b>`;
-          return html;
+          return `<b>${fullName}</b><br/>合计: <b>${formatTokens(params[0].value)}</b>`;
         },
       },
-      legend: {
-        data: ["输入 Token", "输出 Token", "缓存读取", "缓存写入"],
-        textStyle: { color: "#9ca3af" },
-        top: 0,
-      },
-      grid: { left: "3%", right: "4%", bottom: `${bottomPct}%`, top: "14%", containLabel: true },
+      grid: { left: "4%", right: "12%", bottom: "4%", top: "4%", containLabel: true },
       xAxis: {
-        type: "category",
-        data: modelNames.map((n) => truncate(n)),
+        type: "value",
+        splitLine: { lineStyle: { color: "rgba(51,65,85,.5)" } },
         axisLabel: {
-          color: "#9ca3af",
-          rotate,
+          color: "#64748B",
           fontSize: 11,
-          interval: 0,
-          overflow: "truncate",
-          width: 90,
+          formatter: (v: number) => {
+            if (v >= 1e4) return (v / 1e4) + "万";
+            return String(v);
+          },
         },
       },
       yAxis: {
-        type: "value",
-        axisLabel: {
-          color: "#9ca3af",
-          formatter: (val: number) => formatTokens(val),
-        },
-        splitLine: { lineStyle: { color: "#374151" } },
+        type: "category",
+        data: modelNames.map((n) => truncate(n)).reverse(),
+        axisLine: { show: false },
+        axisTick: { show: false },
+        axisLabel: { color: "#94A3B8", fontSize: 12 },
       },
       series: [
         {
-          name: "输入 Token",
           type: "bar",
-          stack: "tokens",
-          data: sorted.map((d) => d.input_tokens),
-          itemStyle: { color: "#5B8FF9" },
-        },
-        {
-          name: "输出 Token",
-          type: "bar",
-          stack: "tokens",
-          data: sorted.map((d) => d.output_tokens),
-          itemStyle: { color: "#5AD8A6" },
-        },
-        {
-          name: "缓存读取",
-          type: "bar",
-          stack: "tokens",
-          data: sorted.map((d) => d.cache_read_tokens),
-          itemStyle: { color: "#F6BD16" },
-        },
-        {
-          name: "缓存写入",
-          type: "bar",
-          stack: "tokens",
-          data: sorted.map((d) => d.cache_write_tokens),
-          itemStyle: { color: "#E86452" },
+          data: totals.reverse(),
+          barWidth: "50%",
+          itemStyle: {
+            borderRadius: [0, 6, 6, 0],
+            color: {
+              type: "linear" as const,
+              x: 0, y: 0, x2: 1, y2: 0,
+              colorStops: [
+                { offset: 0, color: "#6366F1" },
+                { offset: 1, color: "#22D3EE" },
+              ],
+            },
+          },
+          label: {
+            show: true,
+            position: "right",
+            color: "#94A3B8",
+            fontSize: 11,
+            formatter: (p: any) => formatTokens(p.value),
+          },
         },
       ],
     };
   }
 
   $effect(() => {
-    if (!chartEl || !breakdown?.length) return;
+    if (!chartEl) return;
     if (!chart) {
       chart = echarts.init(chartEl, "dark");
+    }
+    if (!breakdown?.length) {
+      chart.clear();
+      return;
     }
     chart.setOption(buildOption(breakdown), true);
   });
@@ -136,7 +115,24 @@
   });
 </script>
 
-<div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
-  <h3 class="text-sm text-gray-400 mb-2">模型 Token 用量对比</h3>
-  <div bind:this={chartEl} class="w-full h-64"></div>
+<div class="chart-card">
+  <h3 class="chart-title">Model 分布</h3>
+  <div bind:this={chartEl} class="chart-body" style="height:320px;"></div>
 </div>
+
+<style>
+  .chart-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .chart-title {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+  .chart-body {
+    width: 100%;
+  }
+</style>

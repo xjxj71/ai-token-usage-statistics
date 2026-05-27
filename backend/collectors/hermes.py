@@ -22,19 +22,18 @@ logger = logging.getLogger(__name__)
 class HermesCollector(BaseCollector):
     """Collect token usage from Hermes state.db (sessions table).
 
-    **Incremental (delta) collection** — each poll cycle records only the
-    *new* tokens consumed since the last poll, avoiding the over-counting
-    that would happen if we stored cumulative values in multiple records.
-
     Dual-mode lifecycle:
     - **Closed sessions** (ended_at IS NOT NULL): inserted once with final
-      token values (not incremental — the session is done).
-    - **Open sessions** (ended_at IS NULL): upserted every poll cycle with
-      the **delta** (current - last_seen) values.  Tracked in
-      ``open_session_ids`` and ``last_tokens`` until they close.
+      cumulative token values.  Tracked in ``finalized_ids`` to avoid
+      redundant re-reads.
+    - **Open sessions** (ended_at IS NULL): upserted every poll with
+      **cumulative** (not delta) values so the dashboard always shows the
+      correct total for "today" queries.  Each poll replaces the previous
+      cumulative snapshot via upsert on (timestamp, agent, session_id, model).
 
     ``last_tokens`` is a dict keyed by session_id capturing the most recent
-    token snapshot, so the delta is always relative to the last read.
+    token snapshot, used only to detect *whether* tokens changed (skip
+    redundant writes when nothing moved).
     """
 
     upsert_mode = True
@@ -109,12 +108,15 @@ class HermesCollector(BaseCollector):
         finalized_ids: list[str],
         last_tokens: dict[str, dict[str, int]],
     ) -> tuple[list[TokenRecord], list[str], int, list[str], dict[str, dict[str, int]]]:
-        """Read sessions and compute incremental delta records.
+        """Read sessions and produce token records.
 
-        For **closed** sessions the full cumulative values are used (once
-        and done).  For **open** sessions we compute the *delta* since the
-        last poll (current - last_tokens) so that daily/hourly aggregations
-        don't over-count.
+        Dual-mode strategy:
+        - **Closed sessions** (ended_at IS NOT NULL): inserted once with
+          final cumulative values.  Tracked in ``finalized_ids`` to avoid
+          redundant re-reads.
+        - **Open sessions** (ended_at IS NULL): upserted every poll with
+          **cumulative** (not delta) values so that the dashboard always
+          shows the correct total when querying "today".
 
         Returns:
             (records, still_open_ids, new_closed_up_to_rowid, finalized_ids, new_last_tokens)
@@ -182,12 +184,14 @@ class HermesCollector(BaseCollector):
                 cur_cr = row["cache_read_tokens"] or 0
                 cur_cw = row["cache_write_tokens"] or 0
 
-                # Compute delta relative to last-known snapshot
+                # Detect whether tokens changed since last poll
                 prev = new_last_tokens.get(session_id, {})
-                delta_input = cur_input - prev.get("input", 0)
-                delta_output = cur_output - prev.get("output", 0)
-                delta_cr = cur_cr - prev.get("cache_read", 0)
-                delta_cw = cur_cw - prev.get("cache_write", 0)
+                tokens_changed = (
+                    cur_input != prev.get("input", 0)
+                    or cur_output != prev.get("output", 0)
+                    or cur_cr != prev.get("cache_read", 0)
+                    or cur_cw != prev.get("cache_write", 0)
+                )
 
                 # Update snapshot
                 new_last_tokens[session_id] = {
@@ -198,23 +202,23 @@ class HermesCollector(BaseCollector):
                 }
 
                 # Skip if nothing changed since last poll
-                if (delta_input == 0 and delta_output == 0
-                        and delta_cr == 0 and delta_cw == 0):
+                if not tokens_changed:
                     continue
 
                 # Cost: prefer actual_cost if available, else calculate
+                # from cumulative values
                 actual_cost = row["actual_cost_usd"]
                 cost = (
                     actual_cost
                     if actual_cost and actual_cost > 0
                     else calculate_cost(
-                        model, delta_input, delta_output, delta_cr, delta_cw
+                        model, cur_input, cur_output, cur_cr, cur_cw
                     )
                 )
 
                 # Timestamp: closed sessions use started_at (fixed), open
-                # sessions use today's date so deltas appear in the correct
-                # calendar day when queried.
+                # sessions use today's date so cumulative values appear in
+                # the correct "today" range when queried by the dashboard.
                 started_at = row["started_at"]
                 if ended_at is not None:
                     # Closed — stable timestamp
@@ -223,7 +227,8 @@ class HermesCollector(BaseCollector):
                     else:
                         ts = datetime.now(timezone.utc).isoformat()
                 else:
-                    # Open — today's date so the record shows in "today" range
+                    # Open — today's date so the upsert replaces the
+                    # previous poll's cumulative value correctly
                     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00Z")
 
                 records.append(
@@ -232,10 +237,10 @@ class HermesCollector(BaseCollector):
                         agent=self.name,
                         model=model,
                         session_id=session_id,
-                        input_tokens=delta_input,
-                        output_tokens=delta_output,
-                        cache_read_tokens=delta_cr,
-                        cache_write_tokens=delta_cw,
+                        input_tokens=cur_input,
+                        output_tokens=cur_output,
+                        cache_read_tokens=cur_cr,
+                        cache_write_tokens=cur_cw,
                         cost_usd=round(cost, 6),
                         raw_data=json.dumps(
                             {

@@ -33,12 +33,10 @@
   }
 </script>
 
-<div class="flex items-center gap-2">
+<div class="flex items-center gap-1 bg-[var(--card)] rounded-xl p-1 border border-[var(--border)]">
   {#each ranges as r}
     <button
-      class="px-3 py-1.5 text-sm rounded-md transition-colors {(current === r.key || (r.key === 'custom' && showCustomInputs))
-        ? 'bg-blue-600 text-white'
-        : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'}"
+      class="tab-btn {(current === r.key || (r.key === 'custom' && showCustomInputs)) ? 'active' : ''}"
       onclick={() => selectRange(r.key)}
     >
       {r.label}
@@ -46,24 +44,65 @@
   {/each}
 
   {#if showCustomInputs}
-    <div class="flex items-center gap-2 ml-2">
+    <div class="flex items-center gap-2 ml-3 pl-3 border-l border-[var(--border)]">
       <input
         type="date"
         bind:value={customFrom}
-        class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white"
+        class="date-input"
       />
-      <span class="text-gray-500">-</span>
+      <span class="text-[var(--text-3)]">-</span>
       <input
         type="date"
         bind:value={customTo}
-        class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white"
+        class="date-input"
       />
-      <button
-        class="px-2 py-1 text-sm bg-blue-600 rounded hover:bg-blue-500"
-        onclick={applyCustom}
-      >
-        应用
-      </button>
+      <button class="apply-btn" onclick={applyCustom}>应用</button>
     </div>
   {/if}
 </div>
+
+<style>
+  .tab-btn {
+    padding: 8px 16px;
+    border-radius: 10px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: transparent;
+    color: var(--text-3);
+    border: none;
+  }
+  .tab-btn:hover {
+    color: var(--text);
+    background: rgba(99, 102, 241, 0.1);
+  }
+  .tab-btn.active {
+    background: var(--primary);
+    color: #fff;
+  }
+  .date-input {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 13px;
+    color: var(--text);
+    outline: none;
+  }
+  .date-input:focus {
+    border-color: var(--primary);
+  }
+  .apply-btn {
+    padding: 6px 14px;
+    font-size: 13px;
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  .apply-btn:hover {
+    opacity: 0.85;
+  }
+</style>

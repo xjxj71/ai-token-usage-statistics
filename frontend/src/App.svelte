@@ -23,6 +23,7 @@
   let loading = $state(true);
   let error = $state("");
   let currentPage = $state(1);
+  let sseConnected = $state(true);
   const PAGE_SIZE = 50;
 
   let filter: FilterState = $state({
@@ -167,7 +168,7 @@
       );
       const csv = "\uFEFF" + header + "\n" + rows.join("\n");
 
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;charset=utf-8" });
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -185,63 +186,95 @@
 
     const es = createEventSource(() => {
       loadData();
+      sseConnected = true;
     });
+
+    es.onerror = () => {
+      sseConnected = false;
+    };
 
     return () => es.close();
   });
 </script>
 
-<main class="min-h-screen bg-gray-900 text-white" style="padding-bottom: 5.5rem;">
-  <header class="border-b border-gray-800 px-6 py-4 flex items-center justify-between relative">
-    <h1 class="text-xl font-bold">AI Token 用量统计</h1>
+<main class="min-h-screen bg-[var(--bg)] text-[var(--text)]" style="padding-bottom: 2rem;">
+  <!-- Header -->
+  <header class="header-bar">
+    <div class="flex items-center gap-3">
+      <div class="flex items-center gap-2.5">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="2">
+          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+        </svg>
+        <h1 class="text-lg font-bold">AI Token 用量统计</h1>
+      </div>
+      <div class="flex items-center gap-1.5 ml-2">
+        <div class="sse-dot {sseConnected ? 'connected' : 'disconnected'}"></div>
+        <span class="text-[11px] text-[var(--text-3)]">{sseConnected ? '实时连接' : '连接断开'}</span>
+      </div>
+      {#if loading && summary}
+        <span class="text-xs text-[var(--text-3)] animate-pulse ml-2">刷新中...</span>
+      {/if}
+    </div>
     <TimeRangeTabs current={filter.range} onchange={handleRangeChange} />
-    {#if loading && summary}
-      <span class="absolute top-1 right-6 text-xs text-gray-400 animate-pulse">刷新中...</span>
-    {/if}
   </header>
 
   {#if error}
-    <div class="mx-6 mt-4 p-3 bg-red-900/50 border border-red-700 rounded text-red-300 text-sm">
+    <div class="mx-6 mt-4 p-3 bg-red-900/30 border border-red-800 rounded-lg text-red-300 text-sm">
       {error}
     </div>
   {/if}
 
   {#if loading && !summary}
-    <div class="flex flex-col items-center justify-center h-64 text-gray-500 gap-3">
-      <svg class="animate-spin h-8 w-8 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+    <div class="flex flex-col items-center justify-center h-64 text-[var(--text-3)] gap-3">
+      <svg class="animate-spin h-8 w-8" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
       </svg>
       <span>加载中...</span>
     </div>
   {:else if summary}
-    <div class="p-6 space-y-6">
-      <!-- 统计卡片：6个 -->
+    <div class="px-6 pt-2 pb-6 space-y-6">
+      <!-- Agent Filter Tags -->
+      <FilterBar
+        {agents}
+        {models}
+        selectedAgents={filter.agents}
+        selectedModels={filter.models}
+        onchange={handleFilterChange}
+      />
+
+      <!-- Stat Cards -->
       <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <StatCard title="总 Token" value={summary.total_tokens} unit="" />
-        <StatCard title="输入 Token" value={summary.input_tokens} unit="" />
-        <StatCard title="输出 Token" value={summary.output_tokens} unit="" />
-        <StatCard title="缓存 Token" value={summary.cache_tokens} unit="" />
-        <StatCard title="总费用" value={summary.cost_usd} unit="$" prefix={true} />
-        <StatCard title="请求次数" value={summary.call_count} unit="次" />
+        <StatCard title="总 Token" value={summary.total_tokens} unit="" trend={12.5} trendUp={true}
+          icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>' />
+        <StatCard title="输入 Token" value={summary.input_tokens} unit="" trend={5.2} trendUp={false}
+          icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>' />
+        <StatCard title="输出 Token" value={summary.output_tokens} unit="" trend={8.1} trendUp={true}
+          icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>' />
+        <StatCard title="缓存 Token" value={summary.cache_tokens} unit="" trend={20.3} trendUp={true}
+          icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M3 9h18"/></svg>' />
+        <StatCard title="总费用" value={summary.cost_usd} unit="$" prefix={true} trend={1.2} trendUp={true}
+          icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>' />
+        <StatCard title="请求次数" value={summary.call_count} unit="次" trend={3.0} trendUp={true}
+          icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>' />
       </div>
 
-      <!-- Token 用量趋势折线图：按 Agent + 按 Model -->
+      <!-- Trend Charts -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <TrendLine data={trendByAgent} title="按 Agent 的 Token 用量趋势" />
         <TrendLine data={trendByModel} title="按模型的 Token 用量趋势" />
       </div>
 
-      <!-- Agent Token 用量对比 -->
+      <!-- Stacked Bar -->
       <ComparisonChart breakdown={agentBreakdown} />
 
-      <!-- Agent饼图 + 模型条形图 -->
+      <!-- Pie + Model Bar -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <AgentPie breakdown={agentBreakdown} />
         <ModelBar breakdown={modelBreakdown} />
       </div>
 
-      <!-- 最近使用记录 -->
+      <!-- Usage Table -->
       {#if usage}
         <UsageTable
           items={usage.items}
@@ -253,16 +286,39 @@
         />
       {/if}
 
-      <!-- 模型费用定价 -->
+      <!-- Model Pricing (collapsible) -->
       <ModelPricing />
     </div>
   {/if}
-
-  <FilterBar
-    {agents}
-    {models}
-    selectedAgents={filter.agents}
-    selectedModels={filter.models}
-    onchange={handleFilterChange}
-  />
 </main>
+
+<style>
+  .header-bar {
+    border-bottom: 1px solid var(--border);
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+  }
+  .sse-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    animation: pulse-dot 2s infinite;
+  }
+  .sse-dot.connected {
+    background: var(--green);
+  }
+  .sse-dot.disconnected {
+    background: var(--red);
+    animation: none;
+  }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+</style>

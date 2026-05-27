@@ -1,3 +1,30 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root {
+    --bg: #0F172A;
+    --card: #1E293B;
+    --card-hover: #263548;
+    --border: #334155;
+    --primary: #6366F1;
+    --primary-hover: #818CF8;
+    --cyan: #22D3EE;
+    --green: #10B981;
+    --amber: #F59E0B;
+    --red: #EF4444;
+    --blue: #3B82F6;
+    --pink: #EC4899;
+    --purple: #8B5CF6;
+    --text: #F8FAFC;
+    --text-2: #94A3B8;
+    --text-3: #64748B;
+  }
+
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+}
