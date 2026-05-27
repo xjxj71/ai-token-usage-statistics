@@ -47,8 +47,12 @@ class HermesCollector(BaseCollector):
         closed_up_to_rowid: int = state.get("closed_up_to_rowid", 0)
         open_session_ids: list[str] = state.get("open_session_ids", [])
         finalized_ids: list[str] = state.get("finalized_ids", [])
-        # Last-known token snapshots for delta calculation
         last_tokens: dict[str, dict[str, int]] = state.get("last_tokens", {})
+
+        logger.info(
+            "Hermes: state loaded — closed_up_to=%d, open=%d, finalized=%d, last_tokens=%d",
+            closed_up_to_rowid, len(open_session_ids), len(finalized_ids), len(last_tokens),
+        )
 
         if not finalized_ids and closed_up_to_rowid > 0:
             logger.info("Hermes: migration — resetting watermark to repair stale snapshots")
@@ -67,7 +71,10 @@ class HermesCollector(BaseCollector):
 
         tmp_path = await self._copy_to_temp(db_path)
         if tmp_path is None:
+            logger.warning("Hermes: _copy_to_temp returned None for %s", db_path)
             return []
+
+        logger.info("Hermes: temp copy at %s", tmp_path)
 
         try:
             records, still_open, new_closed_up_to, new_finalized, new_last_tokens = await self._read_sessions(
@@ -128,7 +135,9 @@ class HermesCollector(BaseCollector):
 
             # Build query: new sessions (rowid past watermark) OR sessions
             # we're still tracking because they were open last cycle.
-            # Exclude finalized closed sessions to avoid redundant re-reads.
+            # Exclude finalized sessions ONLY if they are actually closed
+            # (ended_at IS NOT NULL).  A session that was once closed but
+            # reopened (ended_at reset to NULL) must NOT be excluded.
             conditions = ["rowid > ?"]
             params: list = [closed_up_to_rowid]
 
@@ -138,8 +147,9 @@ class HermesCollector(BaseCollector):
                 params += open_session_ids
 
             if finalized_ids:
+                # Only exclude finalized sessions that are truly closed
                 placeholders = ",".join("?" for _ in finalized_ids)
-                conditions.append(f"id NOT IN ({placeholders})")
+                conditions.append(f"NOT (id IN ({placeholders}) AND ended_at IS NOT NULL)")
                 params += finalized_ids
 
             query = f"""
@@ -157,6 +167,11 @@ class HermesCollector(BaseCollector):
             except aiosqlite.OperationalError as e:
                 logger.warning("Hermes DB query failed: %s", e)
                 return records, open_session_ids, closed_up_to_rowid, finalized_ids, last_tokens
+
+            logger.info(
+                "Hermes: query returned %d rows (conditions: %s)",
+                len(rows), len(conditions),
+            )
 
             still_open: list[str] = []
             max_closed_rowid = closed_up_to_rowid
@@ -177,6 +192,10 @@ class HermesCollector(BaseCollector):
                         new_finalized.append(session_id)
                 else:
                     still_open.append(session_id)
+                    # Session reopened — remove from finalized so it's
+                    # not excluded from future queries
+                    if session_id in new_finalized:
+                        new_finalized.remove(session_id)
 
                 # Current cumulative values from state.db
                 cur_input = row["input_tokens"] or 0
@@ -192,6 +211,15 @@ class HermesCollector(BaseCollector):
                     or cur_cr != prev.get("cache_read", 0)
                     or cur_cw != prev.get("cache_write", 0)
                 )
+
+                # Diagnostic: log first 3 sessions
+                if len(records) < 3:
+                    logger.info(
+                        "Hermes: session %s — cur=(%d,%d,%d) prev=(%d,%d,%d) changed=%s ended=%s",
+                        session_id[:20], cur_input, cur_output, cur_cr,
+                        prev.get("input", 0), prev.get("output", 0), prev.get("cache_read", 0),
+                        tokens_changed, ended_at is not None,
+                    )
 
                 # Update snapshot
                 new_last_tokens[session_id] = {
@@ -262,4 +290,8 @@ class HermesCollector(BaseCollector):
                     )
                 )
 
+        logger.info(
+            "Hermes: _read_sessions done — %d records, %d still_open, max_closed=%d",
+            len(records), len(still_open), max_closed_rowid,
+        )
         return records, still_open, max_closed_rowid, new_finalized, new_last_tokens
