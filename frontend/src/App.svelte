@@ -245,17 +245,17 @@
 
       <!-- Stat Cards -->
       <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <StatCard title="总 Token" value={summary.total_tokens} unit="" trend={12.5} trendUp={true}
+        <StatCard title="总 Token" value={summary.total_tokens} unit=""
           icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>' />
-        <StatCard title="输入 Token" value={summary.input_tokens} unit="" trend={5.2} trendUp={false}
+        <StatCard title="输入 Token" value={summary.input_tokens} unit=""
           icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>' />
-        <StatCard title="输出 Token" value={summary.output_tokens} unit="" trend={8.1} trendUp={true}
+        <StatCard title="输出 Token" value={summary.output_tokens} unit=""
           icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>' />
-        <StatCard title="缓存 Token" value={summary.cache_tokens} unit="" trend={20.3} trendUp={true}
+        <StatCard title="缓存 Token" value={summary.cache_tokens} unit=""
           icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M3 9h18"/></svg>' />
-        <StatCard title="总费用" value={summary.cost_usd} unit="$" prefix={true} trend={1.2} trendUp={true}
+        <StatCard title="总费用" value={summary.cost_usd} unit="$" prefix={true}
           icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>' />
-        <StatCard title="请求次数" value={summary.call_count} unit="次" trend={3.0} trendUp={true}
+        <StatCard title="请求次数" value={summary.call_count} unit="次"
           icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>' />
       </div>
 

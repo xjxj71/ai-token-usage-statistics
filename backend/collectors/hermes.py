@@ -5,7 +5,7 @@ import logging
 import os
 import shutil
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Sequence
 
@@ -227,9 +227,18 @@ class HermesCollector(BaseCollector):
                     else:
                         ts = datetime.now(timezone.utc).isoformat()
                 else:
-                    # Open — today's date so the upsert replaces the
-                    # previous poll's cumulative value correctly
-                    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00Z")
+                    # Open — use Beijing midnight (converted to UTC) so the
+                    # record falls within the dashboard's "today" query range,
+                    # which also uses Beijing midnight → UTC conversion.
+                    import zoneinfo
+                    try:
+                        local_tz = zoneinfo.ZoneInfo("Asia/Shanghai")
+                    except Exception:
+                        local_tz = timezone(timedelta(hours=8))
+                    now_local = datetime.now(local_tz)
+                    today_start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+                    today_start_utc = today_start_local.astimezone(timezone.utc)
+                    ts = today_start_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
 
                 records.append(
                     TokenRecord(
