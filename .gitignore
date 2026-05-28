@@ -1,13 +1,40 @@
+# Python
 __pycache__/
 *.pyc
 *.pyo
-.env
-.venv/
-node_modules/
-package-lock.json
-frontend/dist/
-data/*.db
 *.egg-info/
 .ruff_cache/
 .pytest_cache/
+
+# Virtual environments
+.venv/
+.venv-win/
+
+# Environment config
+.env
+
+# Node
+node_modules/
+package-lock.json
+
+# Build output
+frontend/dist/
+
+# Runtime data (local databases, collector state)
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/collector_state.json
+
+# IDE / editor
 .mcp.json
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary
+build_frontend.bat
+*.log

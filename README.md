@@ -1,5 +1,9 @@
 # AI Token Usage Statistics
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Svelte 5](https://img.shields.io/badge/Svelte-5-ff3e00.svg)](https://svelte.dev/)
+
 在 Windows / WSL 上运行的 Web 仪表盘，用于监控和可视化 WSL 中多个 AI 编程 Agent 的 Token 消耗与费用。
 
 ## 功能特性
@@ -7,8 +11,10 @@
 - **多 Agent 支持**：采集 Claude Code、Hermes、OpenClaw、OpenClaude 的 Token 用量
 - **实时仪表盘**：基于 SSE 推送更新，无需刷新页面
 - **费用估算**：内置各模型定价（YAML 配置，支持热更新），自动计算使用成本
+- **人民币显示**：所有费用以人民币（¥）显示，支持一键从 OpenRouter 获取最新定价
 - **丰富图表**：Agent Token 对比图、Agent 消耗占比饼图、模型分布条形图（ECharts）
 - **时间范围筛选**：今日 / 7 天 / 30 天 / 自定义区间
+- **分页与搜索**：使用记录和模型定价表支持分页（10/20/50 条）和搜索
 - **可扩展采集器**：实现 `BaseCollector` 即可接入新 Agent
 - **双环境运行**：Windows 原生部署（UNC 路径）和 WSL 内开发测试（自动检测）
 
@@ -94,7 +100,7 @@ npm run build      # 生产构建（由 FastAPI 托管）
 | `poll_interval_seconds` / `TOKEN_STAT_POLL_INTERVAL_SECONDS` | `5` | 采集器轮询间隔（秒） |
 | `db_path` / `TOKEN_STAT_DB_PATH` | `data/token_statistic.db` | 本地 SQLite 数据库路径 |
 | `TOKEN_STAT_HOST` | `127.0.0.1` | 服务绑定地址 |
-| `TOKEN_STAT_PORT` | `8000` | 服务端口 |
+| `TOKEN_STAT_PORT` | `8001` | 服务端口 |
 
 ### 数据源路径
 
@@ -124,21 +130,24 @@ npm run build      # 生产构建（由 FastAPI 托管）
 | GET | `/api/agents` | 获取已追踪的 Agent 列表 |
 | GET | `/api/models` | 获取模型列表及定价 |
 | GET | `/api/stream` | SSE 实时推送流 |
+| GET | `/api/pricing` | 获取所有模型定价 |
+| PUT | `/api/pricing/{model}` | 更新指定模型定价 |
+| POST | `/api/pricing/refresh` | 从 OpenRouter 一键更新所有模型定价 |
 
 ### 请求示例
 
 ```bash
 # 今日汇总（按北京时间 0 点起算）
-curl "http://localhost:8000/api/summary?range=today"
+curl "http://localhost:8001/api/summary?range=today"
 
 # 按 Agent 和模型筛选
-curl "http://localhost:8000/api/summary?range=7d&agent=claude-code&model=claude-sonnet-4-6"
+curl "http://localhost:8001/api/summary?range=7d&agent=claude-code&model=claude-sonnet-4-6"
 
 # 最近使用记录（支持 range 参数）
-curl "http://localhost:8000/api/usage?range=today&page=1&limit=50"
+curl "http://localhost:8001/api/usage?range=today&page=1&limit=50"
 
 # 不指定 range 时按 from/to 筛选
-curl "http://localhost:8000/api/usage?from=2026-05-01&to=2026-05-07"
+curl "http://localhost:8001/api/usage?from=2026-05-01&to=2026-05-07"
 ```
 
 > **时区说明**：`range=today`、`7d`、`30d` 均按本地时区（Asia/Shanghai）计算零点起止时间，数据库中存储的 timestamp 为 UTC 格式。前端同样使用本地日期生成 from/to 参数，确保跨时区一致性。
@@ -182,4 +191,4 @@ ruff check backend/ tests/
 
 ## 许可证
 
-私有项目，保留所有权利。
+[MIT License](LICENSE)
