@@ -7,7 +7,6 @@ Zero-intrusion: Claude Code writes session files natively — no hooks or config
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
 

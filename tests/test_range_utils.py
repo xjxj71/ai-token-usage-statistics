@@ -1,6 +1,6 @@
 """Tests for backend.api.range_utils."""
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 import pytest
 

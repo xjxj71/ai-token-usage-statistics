@@ -8,7 +8,6 @@ so the parsing logic is shared via :mod:`backend.collectors.jsonl_utils`.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
 

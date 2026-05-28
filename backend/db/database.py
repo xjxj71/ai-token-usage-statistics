@@ -1,7 +1,6 @@
 import asyncio
 
 import aiosqlite
-from pathlib import Path
 
 from backend.config import settings
 

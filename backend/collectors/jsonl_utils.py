@@ -6,7 +6,6 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Sequence
 
 from backend.db.models import TokenRecord
 from backend.pricing.model_pricing import calculate_cost

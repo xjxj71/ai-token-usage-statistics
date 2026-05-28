@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 import secrets
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse

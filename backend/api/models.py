@@ -8,10 +8,9 @@ from pydantic import BaseModel, Field
 
 from backend.db import database as db_module
 from backend.db.models import fetch_distinct_agents, fetch_distinct_models
+from backend.api.constants import IGNORED_MODELS, SUPPORTED_AGENTS
 
 logger = logging.getLogger(__name__)
-
-from backend.api.constants import IGNORED_MODELS, SUPPORTED_AGENTS
 
 router = APIRouter(tags=["models"])
 

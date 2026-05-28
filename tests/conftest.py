@@ -1,6 +1,5 @@
 """Shared test fixtures for the ai-token-usage-statistics project."""
 
-import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 

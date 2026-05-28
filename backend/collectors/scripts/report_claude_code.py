@@ -7,7 +7,6 @@
 安装：将此脚本放置于 ~/.claude/token-statistic/report_token.py
 """
 import json
-import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
