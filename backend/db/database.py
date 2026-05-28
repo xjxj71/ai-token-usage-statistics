@@ -33,9 +33,9 @@ CREATE TABLE IF NOT EXISTS model_pricing (
 CREATE INDEX IF NOT EXISTS idx_token_usage_ts    ON token_usage(timestamp);
 CREATE INDEX IF NOT EXISTS idx_token_usage_agent ON token_usage(agent);
 CREATE INDEX IF NOT EXISTS idx_token_usage_model ON token_usage(model);
-CREATE INDEX IF NOT EXISTS idx_token_usage_comp  ON token_usage(agent, model);
+CREATE INDEX IF NOT EXISTS idx_token_usage_comp  ON token_usage(timestamp, agent, model);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_token_usage_unique
-    ON token_usage(agent, session_id, model);
+    ON token_usage(timestamp, agent, session_id, model);
 """
 
 _db: aiosqlite.Connection | None = None

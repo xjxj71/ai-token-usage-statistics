@@ -297,19 +297,23 @@ class HermesCollector(BaseCollector):
                     )
                 )
 
-                # Timestamp: for open sessions with token changes,
-                # use current time so the dashboard shows activity at
-                # the correct hour (not the session creation time).
+                # Timestamp: round to the hour (floor) so that each hour
+                # gets its own cumulative snapshot.  The upsert key includes
+                # timestamp, so same-hour polls update the same record while
+                # different hours create new ones — preserving history.
                 started_at = row["started_at"]
                 now_utc = datetime.now(timezone.utc)
                 if ended_at is None:
-                    # Open session — use current time for latest activity
-                    ts = now_utc.isoformat()
+                    # Open session — round current time to hour
+                    hour_ts = now_utc.replace(minute=0, second=0, microsecond=0)
                 elif started_at:
-                    # Closed session — use creation time
-                    ts = datetime.fromtimestamp(started_at, tz=timezone.utc).isoformat()
+                    # Closed session — round creation time to hour
+                    hour_ts = datetime.fromtimestamp(started_at, tz=timezone.utc).replace(
+                        minute=0, second=0, microsecond=0
+                    )
                 else:
-                    ts = now_utc.isoformat()
+                    hour_ts = now_utc.replace(minute=0, second=0, microsecond=0)
+                ts = hour_ts.isoformat()
 
                 records.append(
                     TokenRecord(

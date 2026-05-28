@@ -102,8 +102,7 @@ async def upsert_records(db: aiosqlite.Connection, records: Sequence[TokenRecord
                 input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
                 cost_usd, raw_data)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(agent, session_id, model) DO UPDATE SET
-                timestamp            = excluded.timestamp,
+           ON CONFLICT(timestamp, agent, session_id, model) DO UPDATE SET
                 input_tokens         = excluded.input_tokens,
                 output_tokens        = excluded.output_tokens,
                 cache_read_tokens    = excluded.cache_read_tokens,
@@ -165,24 +164,30 @@ async def fetch_summary(
 
     if group_col == "agent":
         # Group by agent — model becomes a display value (empty string).
-        select_agent = "agent"
+        select_agent = "t.agent"
         select_model = "'' AS model"
-        group_clause = "agent"
+        group_clause = "t.agent"
     else:
         # Group by model — agent becomes a display value (empty string).
         select_agent = "'' AS agent"
-        select_model = "model"
-        group_clause = "model"
+        select_model = "t.model"
+        group_clause = "t.model"
 
     rows = await db.execute_fetchall(
         f"""SELECT {select_agent}, {select_model},
-               SUM(input_tokens) as input_tokens,
-               SUM(output_tokens) as output_tokens,
-               SUM(cache_read_tokens) as cache_read_tokens,
-               SUM(cache_write_tokens) as cache_write_tokens,
-               SUM(cost_usd) as cost_usd,
+               SUM(t.input_tokens) as input_tokens,
+               SUM(t.output_tokens) as output_tokens,
+               SUM(t.cache_read_tokens) as cache_read_tokens,
+               SUM(t.cache_write_tokens) as cache_write_tokens,
+               SUM(
+                   t.input_tokens      * COALESCE(p.input_price, 0)      / 1000000.0 +
+                   t.output_tokens     * COALESCE(p.output_price, 0)     / 1000000.0 +
+                   t.cache_read_tokens * COALESCE(p.cache_read_price, 0) / 1000000.0 +
+                   t.cache_write_tokens* COALESCE(p.cache_write_price,0) / 1000000.0
+               ) as cost_usd,
                COUNT(*) as call_count
-           FROM token_usage
+           FROM token_usage t
+           LEFT JOIN model_pricing p ON t.model = p.model
            {where_sql}
            GROUP BY {group_clause}
            ORDER BY cost_usd DESC""",
@@ -223,9 +228,18 @@ async def fetch_usage_page(
 
     offset = (page - 1) * limit
     rows = await db.execute_fetchall(
-        f"""SELECT * FROM token_usage
+        f"""SELECT t.id, t.timestamp, t.agent, t.model, t.session_id,
+                   t.input_tokens, t.output_tokens, t.cache_read_tokens, t.cache_write_tokens,
+                   t.raw_data,
+                   (t.input_tokens      * COALESCE(p.input_price, 0)      / 1000000.0 +
+                    t.output_tokens     * COALESCE(p.output_price, 0)     / 1000000.0 +
+                    t.cache_read_tokens * COALESCE(p.cache_read_price, 0) / 1000000.0 +
+                    t.cache_write_tokens* COALESCE(p.cache_write_price,0) / 1000000.0
+                   ) as cost_usd
+           FROM token_usage t
+           LEFT JOIN model_pricing p ON t.model = p.model
            {where_sql}
-           ORDER BY timestamp DESC
+           ORDER BY t.timestamp DESC
            LIMIT ? OFFSET ?""",
         params + [limit, offset],
     )
