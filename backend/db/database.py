@@ -1,8 +1,12 @@
 import asyncio
+import logging
+from datetime import datetime, timezone
 
 import aiosqlite
 
 from backend.config import settings
+
+logger = logging.getLogger(__name__)
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS token_usage (
@@ -69,20 +73,35 @@ async def close_db() -> None:
 
 
 async def _seed_pricing(db: aiosqlite.Connection) -> None:
-    from datetime import datetime, timezone
+    """Seed pricing from YAML.
 
+    Only inserts models that do NOT yet exist in the database.
+    Existing rows (including user-customized prices) are preserved.
+    """
     from backend.pricing.model_pricing import MODEL_PRICING, load_pricing
 
     # Ensure pricing is loaded from YAML
     if not MODEL_PRICING:
         load_pricing()
 
+    # Fetch existing models to avoid overwriting user customizations
+    rows = await db.execute_fetchall("SELECT model FROM model_pricing")
+    existing = {r["model"] for r in rows}
+
     now = datetime.now(timezone.utc).isoformat()
+    new_models = []
     for model, prices in MODEL_PRICING.items():
-        await db.execute(
-            """INSERT OR REPLACE INTO model_pricing
+        if model not in existing:
+            new_models.append((
+                model, prices["input"], prices["output"],
+                prices.get("cache_read", 0), prices.get("cache_write", 0), now,
+            ))
+
+    if new_models:
+        await db.executemany(
+            """INSERT INTO model_pricing
                (model, input_price, output_price, cache_read_price, cache_write_price, updated_at)
                VALUES (?, ?, ?, ?, ?, ?)""",
-            (model, prices["input"], prices["output"],
-             prices.get("cache_read", 0), prices.get("cache_write", 0), now),
+            new_models,
         )
+        logger.info("Seeded %d new models from YAML into pricing table", len(new_models))
