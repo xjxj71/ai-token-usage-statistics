@@ -1,4 +1,4 @@
-import type { SummaryResponse, UsageResponse, ModelInfo, TrendResponse } from "../types";
+import type { SummaryResponse, UsageResponse, ModelInfo, TrendResponse, CacheRatioResponse } from "../types";
 
 const BASE = "/api";
 const FETCH_TIMEOUT_MS = 15_000;
@@ -80,5 +80,12 @@ export async function fetchTrend(params: Record<string, string>): Promise<TrendR
   const qs = new URLSearchParams(params).toString();
   const res = await fetchWithTimeout(`${BASE}/trend${qs ? `?${qs}` : ""}`);
   if (!res.ok) throw new Error(`趋势数据请求失败: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchCacheRatio(params: Record<string, string>): Promise<CacheRatioResponse> {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetchWithTimeout(`${BASE}/cache-ratio${qs ? `?${qs}` : ""}`);
+  if (!res.ok) throw new Error(`缓存率数据请求失败: ${res.status}`);
   return res.json();
 }

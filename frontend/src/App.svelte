@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import type { SummaryResponse, UsageResponse, FilterState, TimeRange, TrendResponse } from "./types";
-  import { fetchSummary, fetchUsage, fetchAgents, fetchModels, fetchTrend, createEventSource } from "./api/client";
+  import type { SummaryResponse, UsageResponse, FilterState, TimeRange, TrendResponse, CacheRatioResponse } from "./types";
+  import { fetchSummary, fetchUsage, fetchAgents, fetchModels, fetchTrend, fetchCacheRatio, createEventSource } from "./api/client";
   import TimeRangeTabs from "./components/TimeRangeTabs.svelte";
   import StatCard from "./components/StatCard.svelte";
   import ComparisonChart from "./components/ComparisonChart.svelte";
@@ -11,12 +11,16 @@
   import UsageTable from "./components/UsageTable.svelte";
   import FilterBar from "./components/FilterBar.svelte";
   import ModelPricing from "./components/ModelPricing.svelte";
+  import CacheRatioChart from "./components/CacheRatioChart.svelte";
 
   let summary: SummaryResponse | null = $state(null);
   let agentBreakdown: SummaryResponse["breakdown"] = $state([]);
   let modelBreakdown: SummaryResponse["breakdown"] = $state([]);
   let trendByAgent: TrendResponse | null = $state(null);
   let trendByModel: TrendResponse | null = $state(null);
+  let cacheByAgent: CacheRatioResponse | null = $state(null);
+  let cacheByModel: CacheRatioResponse | null = $state(null);
+  let cacheByAgentModel: CacheRatioResponse | null = $state(null);
   let usage: UsageResponse | null = $state(null);
   let agents: string[] = $state([]);
   let models: string[] = $state([]);
@@ -101,18 +105,24 @@
     if (page !== undefined) currentPage = page;
     try {
       const params = buildParams();
-      const [agentSum, modelSum, trendAgent, trendModel, usg] = await Promise.all([
+      const [agentSum, modelSum, trendAgent, trendModel, usg, cacheAgent, cacheModel, cacheAM] = await Promise.all([
         fetchSummary({ ...params, group_by: "agent" }),
         fetchSummary({ ...params, group_by: "model" }),
         fetchTrend({ ...params, group_by: "agent", granularity: computeGranularity() }),
         fetchTrend({ ...params, group_by: "model", granularity: computeGranularity() }),
         fetchUsage({ ...params, page: String(currentPage), limit: String(pageSize) }),
+        fetchCacheRatio({ ...params, view: "by_agent" }),
+        fetchCacheRatio({ ...params, view: "by_model" }),
+        fetchCacheRatio({ ...params, view: "by_agent_model" }),
       ]);
       summary = agentSum;
       agentBreakdown = agentSum.breakdown;
       modelBreakdown = modelSum.breakdown;
       trendByAgent = trendAgent;
       trendByModel = trendModel;
+      cacheByAgent = cacheAgent;
+      cacheByModel = cacheModel;
+      cacheByAgentModel = cacheAM;
       usage = usg;
     } catch (e: any) {
       error = e.message || "数据加载失败";
@@ -250,7 +260,7 @@
       />
 
       <!-- Stat Cards -->
-      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
         <StatCard title="总 Token" value={summary.total_tokens} unit=""
           icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>' />
         <StatCard title="输入 Token" value={summary.input_tokens} unit=""
@@ -263,6 +273,8 @@
           icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>' />
         <StatCard title="请求次数" value={summary.call_count} unit="次"
           icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>' />
+        <StatCard title="缓存命中率" value={cacheByAgent ? cacheByAgent.overall_cache_ratio * 100 : 0} unit="%"
+          icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg>' />
       </div>
 
       <!-- Trend Charts -->
@@ -273,6 +285,13 @@
 
       <!-- Stacked Bar -->
       <ComparisonChart breakdown={agentBreakdown} />
+
+      <!-- Cache Ratio Analysis -->
+      <CacheRatioChart
+        byAgent={cacheByAgent?.items ?? []}
+        byModel={cacheByModel?.items ?? []}
+        byAgentModel={cacheByAgentModel?.items ?? []}
+      />
 
       <!-- Pie + Model Bar -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">

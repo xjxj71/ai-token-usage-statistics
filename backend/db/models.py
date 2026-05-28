@@ -328,3 +328,64 @@ async def fetch_trend(
         }
         for r in rows
     ]
+
+
+@dataclass(frozen=True)
+class CacheRatioRow:
+    agent: str
+    model: str
+    total_tokens: int
+    cache_read_tokens: int
+    cache_ratio: float  # 0.0 ~ 1.0
+
+
+async def fetch_cache_ratio(
+    db: aiosqlite.Connection,
+    agents: list[str] | None = None,
+    models: list[str] | None = None,
+    from_ts: str | None = None,
+    to_ts: str | None = None,
+    group_by: str = "agent",
+) -> list[CacheRatioRow]:
+    """Fetch cache hit ratio grouped by agent, model, or agent+model.
+
+    Cache ratio = cache_read_tokens / (input_tokens + cache_read_tokens + cache_write_tokens).
+    """
+    wheres, params = _build_where(agents, models, from_ts, to_ts)
+    where_sql = f"WHERE {' AND '.join(wheres)}" if wheres else ""
+
+    if group_by == "agent":
+        select_agent = "t.agent"
+        select_model = "'' AS model"
+        group_clause = "t.agent"
+    elif group_by == "model":
+        select_agent = "'' AS agent"
+        select_model = "t.model"
+        group_clause = "t.model"
+    else:  # agent_model
+        select_agent = "t.agent"
+        select_model = "t.model"
+        group_clause = "t.agent, t.model"
+
+    rows = await db.execute_fetchall(
+        f"""SELECT {select_agent}, {select_model},
+               SUM(t.input_tokens + t.output_tokens + t.cache_read_tokens + t.cache_write_tokens) as total_tokens,
+               SUM(t.cache_read_tokens) as cache_read_tokens
+           FROM token_usage t
+           {where_sql}
+           GROUP BY {group_clause}
+           HAVING total_tokens > 0
+           ORDER BY cache_read_tokens * 1.0 / total_tokens DESC""",
+        params,
+    )
+
+    return [
+        CacheRatioRow(
+            agent=r["agent"],
+            model=r["model"],
+            total_tokens=r["total_tokens"],
+            cache_read_tokens=r["cache_read_tokens"],
+            cache_ratio=round(r["cache_read_tokens"] / r["total_tokens"], 4) if r["total_tokens"] > 0 else 0.0,
+        )
+        for r in rows
+    ]

@@ -73,3 +73,16 @@ export interface TrendResponse {
   dates: string[];
   series: TrendSeries[];
 }
+
+export interface CacheRatioItem {
+  agent: string;
+  model: string;
+  total_tokens: number;
+  cache_read_tokens: number;
+  cache_ratio: number;
+}
+
+export interface CacheRatioResponse {
+  overall_cache_ratio: number;
+  items: CacheRatioItem[];
+}

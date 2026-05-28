@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from backend.api import models, stream, summary, trend, usage
+from backend.api import cache_ratio, models, stream, summary, trend, usage
 from backend.collectors.registry import start_polling, stop_polling
 from backend.config import settings
 from backend.db.database import close_db, init_db
@@ -67,6 +67,7 @@ def create_app() -> FastAPI:
     app.include_router(models.router, prefix="/api")
     app.include_router(stream.router, prefix="/api")
     app.include_router(trend.router, prefix="/api")
+    app.include_router(cache_ratio.router, prefix="/api")
 
     frontend_dist = settings.frontend_dist.resolve()
     if frontend_dist.exists():
