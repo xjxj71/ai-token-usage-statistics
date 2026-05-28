@@ -6,8 +6,7 @@
 
 ## 截图
 
-<!-- TODO: 添加仪表盘截图 -->
-<!-- ![Dashboard](docs/screenshot.png) -->
+![Dashboard](docs/ScreenShot.png)
 
 在 Windows / WSL 上运行的 Web 仪表盘，用于监控和可视化 WSL 中多个 AI 编程 Agent 的 Token 消耗与费用。
 
