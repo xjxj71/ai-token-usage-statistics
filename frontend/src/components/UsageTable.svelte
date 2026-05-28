@@ -7,12 +7,18 @@
     page: number;
     pageSize: number;
     onPageChange: (page: number) => void;
+    onPageSizeChange?: (size: number) => void;
     onExport?: () => void;
   }
 
-  let { items, total, page, pageSize, onPageChange, onExport }: Props = $props();
+  let { items, total, page, pageSize, onPageChange, onPageSizeChange, onExport }: Props = $props();
+
+  const PAGE_SIZES = [10, 20, 50];
 
   let searchQuery = $state("");
+
+  /** USD → CNY 汇率 */
+  const USD_TO_CNY = 7.25;
 
   function fmt(n: number): string {
     if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + "M";
@@ -79,6 +85,13 @@
     <h3 class="chart-title">使用记录</h3>
     <div class="flex items-center gap-3">
       <span class="text-xs text-[var(--text-3)]">共 {total} 条</span>
+      {#if onPageSizeChange}
+        <div class="page-size-group">
+          {#each PAGE_SIZES as size}
+            <button class="size-btn {pageSize === size ? 'active' : ''}" onclick={() => onPageSizeChange(size)}>{size}</button>
+          {/each}
+        </div>
+      {/if}
       <div class="search-box">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
         <input
@@ -126,7 +139,7 @@
             <td class="text-right text-[var(--text-2)]">
               {fmt(item.cache_read_tokens + item.cache_write_tokens)}
             </td>
-            <td class="text-right text-[var(--amber)]">${item.cost_usd.toFixed(4)}</td>
+            <td class="text-right text-[var(--amber)]">¥{(item.cost_usd * USD_TO_CNY).toFixed(2)}</td>
           </tr>
         {:else}
           <tr>
@@ -231,12 +244,38 @@
     border-color: var(--primary);
     color: var(--text);
   }
+  .page-size-group {
+    display: flex;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .size-btn {
+    padding: 3px 10px;
+    font-size: 12px;
+    border: none;
+    background: transparent;
+    color: var(--text-3);
+    cursor: pointer;
+    transition: all 0.15s;
+    border-right: 1px solid var(--border);
+  }
+  .size-btn:last-child {
+    border-right: none;
+  }
+  .size-btn.active {
+    background: var(--primary);
+    color: #fff;
+  }
+  .size-btn:hover:not(.active) {
+    background: rgba(99, 102, 241, 0.08);
+    color: var(--text);
+  }
   table {
     width: 100%;
     border-collapse: collapse;
   }
   th {
-    text-align: left;
     padding: 10px 16px;
     font-size: 12px;
     font-weight: 500;
@@ -244,6 +283,12 @@
     border-bottom: 1px solid var(--border);
     text-transform: uppercase;
     letter-spacing: 0.5px;
+  }
+  th.text-right {
+    text-align: right;
+  }
+  th:not(.text-right) {
+    text-align: left;
   }
   td {
     padding: 10px 16px;

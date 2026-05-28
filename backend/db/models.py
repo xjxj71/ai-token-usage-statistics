@@ -102,13 +102,14 @@ async def upsert_records(db: aiosqlite.Connection, records: Sequence[TokenRecord
                 input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
                 cost_usd, raw_data)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(timestamp, agent, session_id, model) DO UPDATE SET
-                input_tokens       = excluded.input_tokens,
-                output_tokens      = excluded.output_tokens,
-                cache_read_tokens  = excluded.cache_read_tokens,
-                cache_write_tokens = excluded.cache_write_tokens,
-                cost_usd           = excluded.cost_usd,
-                raw_data           = excluded.raw_data""",
+           ON CONFLICT(agent, session_id, model) DO UPDATE SET
+                timestamp            = excluded.timestamp,
+                input_tokens         = excluded.input_tokens,
+                output_tokens        = excluded.output_tokens,
+                cache_read_tokens    = excluded.cache_read_tokens,
+                cache_write_tokens   = excluded.cache_write_tokens,
+                cost_usd             = excluded.cost_usd,
+                raw_data             = excluded.raw_data""",
         [
             (
                 r.timestamp, r.agent, r.model, r.session_id,

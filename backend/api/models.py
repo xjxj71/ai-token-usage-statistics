@@ -120,3 +120,78 @@ async def update_pricing(model: str, body: PricingUpdate):
         "cache_write_price": body.cache_write_price,
         "updated_at": now,
     }
+
+
+@router.post("/pricing/refresh")
+async def refresh_pricing():
+    """从 OpenRouter API 一键获取最新模型定价，更新数据库。"""
+    import json as json_mod
+    import urllib.request
+    import urllib.error
+
+    db = await db_module.get_db()
+
+    # 获取当前数据库中已有的模型
+    existing_rows = await db.execute_fetchall("SELECT model FROM model_pricing")
+    existing_models = {r["model"] for r in existing_rows}
+
+    updated = 0
+    added = 0
+
+    try:
+        def _fetch():
+            req = urllib.request.Request(
+                "https://openrouter.ai/api/v1/models",
+                headers={"User-Agent": "ai-token-usage/1.0"},
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return json_mod.loads(resp.read().decode("utf-8"))
+
+        import asyncio
+        data = await asyncio.to_thread(_fetch)
+
+        models = data.get("data", [])
+        now = datetime.now(timezone.utc).isoformat()
+
+        for m in models:
+            model_id = m.get("id", "")
+            if not model_id:
+                continue
+
+            pricing = m.get("pricing", {})
+            if not pricing:
+                continue
+
+            # OpenRouter pricing 是每 token 价格，转换为每 M token
+            input_price = float(pricing.get("prompt", 0)) * 1_000_000
+            output_price = float(pricing.get("completion", 0)) * 1_000_000
+            cache_read_price = float(pricing.get("input_cache_read", 0)) * 1_000_000
+            cache_write_price = float(pricing.get("input_cache_write", 0)) * 1_000_000
+
+            if model_id in existing_models:
+                await db.execute(
+                    """UPDATE model_pricing
+                       SET input_price = ?, output_price = ?,
+                           cache_read_price = ?, cache_write_price = ?, updated_at = ?
+                       WHERE model = ?""",
+                    (input_price, output_price, cache_read_price, cache_write_price, now, model_id),
+                )
+                updated += 1
+            else:
+                await db.execute(
+                    """INSERT INTO model_pricing (model, input_price, output_price, cache_read_price, cache_write_price, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (model_id, input_price, output_price, cache_read_price, cache_write_price, now),
+                )
+                added += 1
+
+        await db.commit()
+
+    except urllib.error.URLError as e:
+        logger.error("OpenRouter API 请求失败: %s", e)
+        raise HTTPException(status_code=502, detail=f"OpenRouter API 请求失败: {str(e)}")
+    except Exception as e:
+        logger.error("刷新定价失败: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"刷新定价失败: {str(e)}")
+
+    return {"updated": updated, "added": added, "total": updated + added}

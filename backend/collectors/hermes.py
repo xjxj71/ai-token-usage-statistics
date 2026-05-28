@@ -50,9 +50,15 @@ class HermesCollector(BaseCollector):
         last_tokens: dict[str, dict[str, int]] = state.get("last_tokens", {})
         last_seen: dict[str, str] = state.get("last_seen", {})
 
+        # First-run detection: if last_tokens is empty, this is the first
+        # poll after a fresh start or state reset.  Do a SEED run that
+        # populates snapshots without writing records — prevents dumping
+        # all sessions into "today" on startup.
+        is_first_run = len(last_tokens) == 0
+
         logger.info(
-            "Hermes: state loaded — closed_up_to=%d, open=%d, finalized=%d, last_tokens=%d",
-            closed_up_to_rowid, len(open_session_ids), len(finalized_ids), len(last_tokens),
+            "Hermes: state loaded — closed_up_to=%d, open=%d, finalized=%d, last_tokens=%d, first_run=%s",
+            closed_up_to_rowid, len(open_session_ids), len(finalized_ids), len(last_tokens), is_first_run,
         )
 
         if not finalized_ids and closed_up_to_rowid > 0:
@@ -64,6 +70,12 @@ class HermesCollector(BaseCollector):
         ):
             logger.warning("Hermes: failed to copy state.db via wsl_copy")
             return []
+
+        # Also copy WAL and SHM sidecar files for fresh data
+        for suffix in ("-wal", "-shm"):
+            settings.wsl_copy_to_tmp(
+                f"/root/.hermes/state.db{suffix}", f"/tmp/hermes_state.db{suffix}"
+            )
 
         db_path = settings.hermes_db_path
         if not Path(db_path).exists():
@@ -80,6 +92,7 @@ class HermesCollector(BaseCollector):
         try:
             records, still_open, new_closed_up_to, new_finalized, new_last_tokens, new_last_seen = await self._read_sessions(
                 tmp_path, closed_up_to_rowid, open_session_ids, finalized_ids, last_tokens, last_seen,
+                seed_mode=is_first_run,
             )
         finally:
             Path(tmp_path).unlink(missing_ok=True)
@@ -99,11 +112,21 @@ class HermesCollector(BaseCollector):
         return records
 
     async def _copy_to_temp(self, db_path: str) -> str | None:
-        """Copy the UNC-accessible db to a local temp file for SQLite access."""
+        """Copy the UNC-accessible db to a local temp file for SQLite access.
+
+        SQLite WAL mode stores recent writes in a separate ``-wal`` file.
+        We must copy both the main db **and** the WAL/SHM sidecar files,
+        otherwise the temp copy will be missing the latest data.
+        """
         try:
             fd, tmp_path = tempfile.mkstemp(suffix=".db")
             os.close(fd)
             shutil.copy2(db_path, tmp_path)
+            # Copy WAL and SHM sidecar files if they exist
+            for suffix in ("-wal", "-shm"):
+                src_sidecar = db_path + suffix
+                if Path(src_sidecar).exists():
+                    shutil.copy2(src_sidecar, tmp_path + suffix)
             return tmp_path
         except OSError as e:
             logger.warning("Failed to copy hermes state.db: %s", e)
@@ -117,6 +140,7 @@ class HermesCollector(BaseCollector):
         finalized_ids: list[str],
         last_tokens: dict[str, dict[str, int]],
         last_seen: dict[str, str],
+        seed_mode: bool = False,
     ) -> tuple[list[TokenRecord], list[str], int, list[str], dict[str, dict[str, int]], dict[str, str]]:
         """Read sessions and produce token records.
 
@@ -131,6 +155,10 @@ class HermesCollector(BaseCollector):
         Staleness filter: open sessions with no token change in >24h
         are skipped to prevent old idle sessions from appearing in
         "today" dashboard.
+
+        Seed mode (first run): only populates last_tokens/last_seen
+        snapshots without writing records — prevents dumping all
+        sessions into "today" on startup.
 
         Returns:
             (records, still_open_ids, new_closed_up_to_rowid, finalized_ids, new_last_tokens, new_last_seen)
@@ -232,6 +260,10 @@ class HermesCollector(BaseCollector):
                 if tokens_changed:
                     new_last_seen[session_id] = datetime.now(timezone.utc).isoformat()
 
+                # Seed mode: only populate snapshots, don't write records
+                if seed_mode:
+                    continue
+
                 # Skip if nothing changed since last poll
                 if not tokens_changed:
                     continue
@@ -265,29 +297,19 @@ class HermesCollector(BaseCollector):
                     )
                 )
 
-                # Timestamp: closed sessions use started_at (fixed), open
-                # sessions use today's date so cumulative values appear in
-                # the correct "today" range when queried by the dashboard.
+                # Timestamp: for open sessions with token changes,
+                # use current time so the dashboard shows activity at
+                # the correct hour (not the session creation time).
                 started_at = row["started_at"]
-                if ended_at is not None:
-                    # Closed — stable timestamp
-                    if started_at:
-                        ts = datetime.fromtimestamp(started_at, tz=timezone.utc).isoformat()
-                    else:
-                        ts = datetime.now(timezone.utc).isoformat()
+                now_utc = datetime.now(timezone.utc)
+                if ended_at is None:
+                    # Open session — use current time for latest activity
+                    ts = now_utc.isoformat()
+                elif started_at:
+                    # Closed session — use creation time
+                    ts = datetime.fromtimestamp(started_at, tz=timezone.utc).isoformat()
                 else:
-                    # Open — use Beijing midnight (converted to UTC) so the
-                    # record falls within the dashboard's "today" query range,
-                    # which also uses Beijing midnight → UTC conversion.
-                    import zoneinfo
-                    try:
-                        local_tz = zoneinfo.ZoneInfo("Asia/Shanghai")
-                    except Exception:
-                        local_tz = timezone(timedelta(hours=8))
-                    now_local = datetime.now(local_tz)
-                    today_start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
-                    today_start_utc = today_start_local.astimezone(timezone.utc)
-                    ts = today_start_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+                    ts = now_utc.isoformat()
 
                 records.append(
                     TokenRecord(

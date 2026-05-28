@@ -23,8 +23,8 @@
   let loading = $state(true);
   let error = $state("");
   let currentPage = $state(1);
+  let pageSize = $state(50);
   let sseConnected = $state(true);
-  const PAGE_SIZE = 50;
 
   let filter: FilterState = $state({
     range: "today",
@@ -106,7 +106,7 @@
         fetchSummary({ ...params, group_by: "model" }),
         fetchTrend({ ...params, group_by: "agent", granularity: computeGranularity() }),
         fetchTrend({ ...params, group_by: "model", granularity: computeGranularity() }),
-        fetchUsage({ ...params, page: String(currentPage), limit: String(PAGE_SIZE) }),
+        fetchUsage({ ...params, page: String(currentPage), limit: String(pageSize) }),
       ]);
       summary = agentSum;
       agentBreakdown = agentSum.breakdown;
@@ -147,6 +147,12 @@
     loadData(page);
   }
 
+  function handlePageSizeChange(size: number) {
+    pageSize = size;
+    currentPage = 1;
+    loadData(1);
+  }
+
   async function handleExport() {
     try {
       const params = buildParams();
@@ -154,7 +160,7 @@
       if (!res.ok) throw new Error("导出失败");
       const data = await res.json();
 
-      const header = "时间,Agent,模型,输入Token,输出Token,缓存Token,费用(USD)";
+      const header = "时间,Agent,模型,输入Token,输出Token,缓存Token,费用(CNY)";
       const rows = data.items.map((r: any) =>
         [
           `"${r.timestamp}"`,
@@ -163,7 +169,7 @@
           r.input_tokens,
           r.output_tokens,
           r.cache_read_tokens + r.cache_write_tokens,
-          r.cost_usd.toFixed(6),
+          (r.cost_usd * 7.25).toFixed(4),
         ].join(",")
       );
       const csv = "\uFEFF" + header + "\n" + rows.join("\n");
@@ -253,7 +259,7 @@
           icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>' />
         <StatCard title="缓存 Token" value={summary.cache_tokens} unit=""
           icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M3 9h18"/></svg>' />
-        <StatCard title="总费用" value={summary.cost_usd} unit="$" prefix={true}
+        <StatCard title="总费用" value={summary.cost_usd * 7.25} unit="¥" prefix={true}
           icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>' />
         <StatCard title="请求次数" value={summary.call_count} unit="次"
           icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>' />
@@ -280,8 +286,9 @@
           items={usage.items}
           total={usage.total}
           page={usage.page}
-          pageSize={PAGE_SIZE}
+          {pageSize}
           onPageChange={handlePageChange}
+          onPageSizeChange={handlePageSizeChange}
           onExport={handleExport}
         />
       {/if}
