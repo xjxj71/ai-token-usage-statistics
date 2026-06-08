@@ -7,7 +7,7 @@ import logging
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
-from backend.collectors.registry import run_collection_cycle, is_polling_active
+from backend.collectors.registry import is_polling_active
 from backend.config import settings
 
 logger = logging.getLogger(__name__)
@@ -52,20 +52,12 @@ async def stream_events():
                     logger.error("SSE event generator error: %s", e, exc_info=True)
                     yield f"data: {json.dumps({'type': 'error', 'message': 'Internal server error'})}\n\n"
         else:
-            # No background polling — SSE endpoint triggers collection itself.
-            while True:
-                try:
-                    new_count = await run_collection_cycle()
-                    if new_count > 0:
-                        data = json.dumps({"type": "new_records", "count": new_count})
-                        yield f"data: {data}\n\n"
-                    else:
-                        yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
-                except Exception as e:
-                    logger.error("SSE collection error: %s", e, exc_info=True)
-                    yield f"data: {json.dumps({'type': 'error', 'message': 'Internal server error'})}\n\n"
-
-                await asyncio.sleep(settings.poll_interval_seconds)
+            # No background polling — let clients know collection is disabled
+            # to avoid concurrent collectors being triggered by every SSE
+            # connection simultaneously.
+            data = json.dumps({"type": "polling_disabled", "message": "Background collection is not running."})
+            yield f"data: {data}\n\n"
+            return
 
     return StreamingResponse(
         event_generator(),
