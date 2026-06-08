@@ -106,16 +106,16 @@ for /f "tokens=5" %%p in ('netstat -ano 2^>nul ^| findstr /c:":8001" ^| findstr 
     taskkill /pid %%p /f >nul 2>&1
 )
 
-:: Write temp launcher script
-set "TMP_BAT=%TEMP%\token-stat-backend.bat"
-echo @echo off > "%TMP_BAT%"
-echo cd /d "%PROJECT_DIR%" >> "%TMP_BAT%"
-echo "%VENV_DIR%\Scripts\python.exe" -m uvicorn backend.main:app --host 127.0.0.1 --port 8001 >> "%TMP_BAT%"
-echo pause >> "%TMP_BAT%"
+:: Write temp VBS launcher (completely hidden, no CMD window)
+set "TMP_VBS=%TEMP%\token-stat-backend.vbs"
+set "LOG_FILE=%PROJECT_DIR%\data\backend.log"
+echo Set ws = CreateObject("WScript.Shell") > "%TMP_VBS%"
+echo ws.Run "cmd /c cd /d ""%PROJECT_DIR%"" && ""%VENV_DIR%\Scripts\python.exe"" -m uvicorn backend.main:app --host 127.0.0.1 --port 8001 >> ""%LOG_FILE%"" 2>&1", 0, False >> "%TMP_VBS%"
 
-:: Start backend in new window
+:: Start backend (hidden window, logs to data/backend.log)
 echo         Starting backend (FastAPI :8001) ...
-start "TokenStat-Backend" /min "%TMP_BAT%"
+echo         Logs: data\backend.log
+wscript //nologo "%TMP_VBS%"
 
 :: Wait for backend
 echo         Waiting for backend ...
