@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import shlex
 import subprocess
 from pathlib import Path
@@ -55,6 +56,18 @@ class Settings(BaseSettings):
         if self.is_wsl:
             return "/tmp/hermes_state.db"
         return f"{self.wsl_root}\\tmp\\hermes_state.db"
+
+    @property
+    def hermes_win_db_path(self) -> str:
+        """Windows native Hermes state.db path.
+
+        Returns the standard ``%LOCALAPPDATA%\\hermes\\state.db`` path.
+        Empty string if LOCALAPPDATA is not set (non-Windows).
+        """
+        local = os.environ.get("LOCALAPPDATA", "")
+        if not local:
+            return ""
+        return os.path.join(local, "hermes", "state.db")
 
     @property
     def claude_projects_dir(self) -> str:

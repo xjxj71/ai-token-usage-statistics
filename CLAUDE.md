@@ -1,6 +1,6 @@
 # AI Token Usage Statistics
 
-Token usage tracking and analysis for AI coding assistants (Claude Code, OpenClaw, Hermes, OpenClaude).
+Token usage tracking and analysis for AI coding assistants (Claude Code, OpenClaw, Hermes, Hermes-Win, OpenClaude).
 
 ## Project Structure
 

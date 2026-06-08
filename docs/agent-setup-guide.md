@@ -8,7 +8,8 @@
 
 | Agent | 数据文件 | WSL 路径 | Windows UNC 路径 |
 |-------|---------|---------|-----------------|
-| Hermes | state.db (SQLite) | `/root/.hermes/state.db` → 复制到 `/tmp/hermes_state.db` | `\\wsl$\project-claude\tmp\hermes_state.db` |
+| Hermes (WSL) | state.db (SQLite) | `/root/.hermes/state.db` → 复制到 `/tmp/hermes_state.db` | `\\wsl$\project-claude\tmp\hermes_state.db` |
+| Hermes (Windows) | state.db (SQLite) | — | `%LOCALAPPDATA%\hermes\state.db`（Windows 本地，直接读取） |
 | Claude Code | session JSONL | `/home/claude/.claude/projects/**/*.jsonl` | `\\wsl$\project-claude\home\claude\.claude\projects\`（递归扫描） |
 | OpenClaw | sessions.json | `/root/.openclaw/agents/main/sessions/sessions.json` → 复制到 `/tmp/openclaw_sessions.json` | `\\wsl$\project-claude\tmp\openclaw_sessions.json` |
 | OpenClaude | session JSONL | — | `%USERPROFILE%\.openclaude\projects\**\*.jsonl`（Windows 本地，直接读取） |
@@ -119,6 +120,41 @@ sudo sqlite3 /root/.hermes/state.db "SELECT COUNT(*) FROM sessions;"
 
 # 检查采集副本
 ls /tmp/hermes_state.db
+```
+
+---
+
+## 2b. Hermes Windows（Nous Research — Windows 本地）
+
+### 无需配置
+
+Hermes 在 Windows 上运行时，`state.db` 存放在 `%LOCALAPPDATA%\hermes\` 目录下。采集器直接读取本地文件，无需 WSL 中转。
+
+### 数据位置
+
+- **源文件**：`%LOCALAPPDATA%\hermes\state.db`
+- **访问方式**：Windows 本地直接读取，无权限问题
+
+### 数据格式
+
+与 WSL 版 Hermes 完全相同的 SQLite `sessions` 表结构（见上方 Hermes WSL 章节）。
+
+### 工作原理
+
+`HermesWindowsCollector` 继承 `HermesCollector`，复用全部核心逻辑（双模式跟踪、staleness 过滤、upsert 等），仅重写数据源获取：
+
+1. 直接通过 `_copy_to_temp()` 将本地 `state.db` 复制到临时文件
+2. 读取临时副本的 `sessions` 表（与 WSL 版完全相同的查询）
+3. 以 agent 名称 `hermes-win` 写入数据库，与 `hermes`（WSL）完全隔离
+
+### 验证数据是否存在
+
+```cmd
+:: Windows CMD
+dir %LOCALAPPDATA%\hermes\state.db
+
+:: PowerShell
+Get-Item $env:LOCALAPPDATA\hermes\state.db
 ```
 
 ---
@@ -246,7 +282,8 @@ uvicorn backend.main:app --reload
 | Agent | 是否需要配置 | 数据来源 | 访问方式 |
 |-------|-------------|---------|---------|
 | Claude Code | 无 | `~/.claude/projects/**/*.jsonl` (JSONL) | 直接读取（claude 用户自有文件） |
-| Hermes | 无 | `/root/.hermes/state.db` (SQLite) | `wsl_copy_to_tmp()` 复制到 `/tmp/` 后读取 |
+| Hermes (WSL) | 无 | `/root/.hermes/state.db` (SQLite) | `wsl_copy_to_tmp()` 复制到 `/tmp/` 后读取 |
+| Hermes (Windows) | 无 | `%LOCALAPPDATA%\hermes\state.db` (SQLite) | Windows 本地直接读取 |
 | OpenClaw | 无 | `/root/.openclaw/agents/main/sessions/sessions.json` | `wsl_copy_to_tmp()` 复制到 `/tmp/` 后读取 |
 | OpenClaude | 无 | `%USERPROFILE%\.openclaude\projects\**\*.jsonl` (JSONL) | Windows 本地直接读取 |
 

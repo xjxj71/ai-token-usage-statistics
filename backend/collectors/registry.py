@@ -8,6 +8,7 @@ from backend.collectors.base import BaseCollector
 from backend.collectors.claude_code import ClaudeCodeCollector
 from backend.collectors.hanako import HanakoCollector
 from backend.collectors.hermes import HermesCollector
+from backend.collectors.hermes_win import HermesWindowsCollector
 from backend.collectors.openclaude import OpenClaudeCollector
 from backend.collectors.openclaw import OpenClawCollector
 from backend.config import settings
@@ -17,10 +18,11 @@ from backend.db.models import TokenRecord, insert_records, upsert_records
 
 def _notify_sse(total_new: int) -> None:
     """Notify SSE listeners that new records are available."""
+    if total_new <= 0:
+        return
     try:
         from backend.api.stream import notify_new_records
-        if total_new > 0:
-            notify_new_records()
+        notify_new_records()
     except Exception:
         logger.debug("SSE notification failed (stream module may not be loaded)", exc_info=True)
 
@@ -30,6 +32,7 @@ COLLECTORS: list[BaseCollector] = [
     ClaudeCodeCollector(),
     HanakoCollector(),
     HermesCollector(),
+    HermesWindowsCollector(),
     OpenClawCollector(),
     OpenClaudeCollector(),
 ]
@@ -72,13 +75,22 @@ async def _poll_loop() -> None:
         await asyncio.sleep(settings.poll_interval_seconds)
 
 
-def start_polling() -> None:
+def start_polling() -> bool:
+    """Start the background polling loop.
+
+    Returns True if the loop was started; False if it was already running.
+    """
     global _task
+    if _task is not None:
+        logger.warning("start_polling() called while polling is already active; ignoring duplicate start")
+        return False
     _task = asyncio.get_running_loop().create_task(_poll_loop())
+    return True
 
 
 def stop_polling() -> None:
     global _task
-    if _task is not None:
-        _task.cancel()
-        _task = None
+    if _task is None:
+        return
+    _task.cancel()
+    _task = None

@@ -38,11 +38,15 @@
     }
   }
 
+  /**
+   * Sort ASCENDING so ECharts renders the lowest ratio at the bottom
+   * and the highest at the top — no in-place reverse() needed, keeping
+   * the sorted array and the display indices in sync for tooltips.
+   */
   function buildAgentOption(data: CacheRatioItem[]) {
-    const sorted = [...data].sort((a, b) => b.cache_ratio - a.cache_ratio);
+    const sorted = [...data].sort((a, b) => a.cache_ratio - b.cache_ratio);
     const names = sorted.map((d) => d.agent || "未知");
     const ratios = sorted.map((d) => Math.round(d.cache_ratio * 1000) / 10);
-    const colors = sorted.map((d) => ratioColor(d.cache_ratio));
 
     return {
       backgroundColor: "transparent",
@@ -70,17 +74,17 @@
       },
       yAxis: {
         type: "category",
-        data: names.reverse(),
+        data: names,
         axisLine: { show: false },
         axisTick: { show: false },
         axisLabel: { color: "#94A3B8", fontSize: 12 },
       },
       series: [{
         type: "bar",
-        data: ratios.reverse().map((v, i) => ({
-          value: v,
+        data: sorted.map((d, i) => ({
+          value: ratios[i],
           itemStyle: {
-            color: colors.reverse()[i],
+            color: ratioColor(d.cache_ratio),
             borderRadius: [0, 6, 6, 0],
           },
         })),
@@ -97,10 +101,9 @@
   }
 
   function buildModelOption(data: CacheRatioItem[]) {
-    const sorted = [...data].sort((a, b) => b.cache_ratio - a.cache_ratio);
+    const sorted = [...data].sort((a, b) => a.cache_ratio - b.cache_ratio);
     const names = sorted.map((d) => d.model || "未知");
     const ratios = sorted.map((d) => Math.round(d.cache_ratio * 1000) / 10);
-    const colors = sorted.map((d) => ratioColor(d.cache_ratio));
 
     return {
       backgroundColor: "transparent",
@@ -128,17 +131,17 @@
       },
       yAxis: {
         type: "category",
-        data: names.reverse(),
+        data: names,
         axisLine: { show: false },
         axisTick: { show: false },
-        axisLabel: { color: "#94A3B8", fontSize: 11, width: 120, overflow: "truncate" },
+        axisLabel: { color: "#94A3B8", fontSize: 11, width: 140, overflow: "truncate" },
       },
       series: [{
         type: "bar",
-        data: ratios.reverse().map((v, i) => ({
-          value: v,
+        data: sorted.map((d, i) => ({
+          value: ratios[i],
           itemStyle: {
-            color: colors.reverse()[i],
+            color: ratioColor(d.cache_ratio),
             borderRadius: [0, 6, 6, 0],
           },
         })),
@@ -155,7 +158,7 @@
   }
 
   function buildAgentModelOption(data: CacheRatioItem[]) {
-    // Group by agent
+    // Group by agent (ascending by name for consistent order)
     const agentGroups = new Map<string, CacheRatioItem[]>();
     for (const item of data) {
       const key = item.agent || "未知";
@@ -163,22 +166,30 @@
       agentGroups.get(key)!.push(item);
     }
 
-    const agents = [...agentGroups.keys()];
+    const agents = [...agentGroups.keys()].sort();
     // Collect unique models across all agents
-    const allModels = [...new Set(data.map((d) => d.model || "未知"))];
+    const allModels = [...new Set(data.map((d) => d.model || "未知"))].sort();
     const MODEL_COLORS = ["#6366F1", "#22D3EE", "#F59E0B", "#10B981", "#EC4899", "#8B5CF6", "#F97316"];
 
     const series = allModels.map((modelName, mi) => ({
       name: modelName,
       type: "bar" as const,
+      stack: "cache",
       data: agents.map((agentName) => {
         const item = agentGroups.get(agentName)?.find((d) => (d.model || "未知") === modelName);
         return item ? Math.round(item.cache_ratio * 1000) / 10 : 0;
       }),
-      barWidth: "40%",
+      barWidth: "50%",
       itemStyle: {
         color: MODEL_COLORS[mi % MODEL_COLORS.length],
-        borderRadius: [0, 4, 4, 0],
+        borderRadius: mi === allModels.length - 1 ? [0, 4, 4, 0] : [0, 0, 0, 0],
+      },
+      label: {
+        show: allModels.length <= 5,
+        position: "insideRight" as const,
+        color: "#F8FAFC",
+        fontSize: 10,
+        formatter: (p: any) => p.value > 0 ? `${p.value}%` : "",
       },
     }));
 
@@ -215,7 +226,6 @@
       grid: { left: "3%", right: "4%", bottom: "3%", top: "14%", containLabel: true },
       xAxis: {
         type: "value",
-        max: 100,
         axisLabel: { color: "#64748B", fontSize: 11, formatter: (v: number) => `${v}%` },
         splitLine: { lineStyle: { color: "rgba(51,65,85,.5)" } },
       },
@@ -246,6 +256,19 @@
     }
   }
 
+  /** Dynamic chart height: more items → taller chart */
+  function getChartHeight(): string {
+    const data = getCurrentData();
+    if (!data?.length) return "320px";
+    if (activeTab === "agent_model") {
+      // Agent×model: need room for legend + grouped rows
+      const agents = new Set(data.map(d => d.agent || "未知")).size;
+      return `${Math.max(320, agents * 60 + 80)}px`;
+    }
+    // One row per item, min 320px
+    return `${Math.max(320, data.length * 44 + 60)}px`;
+  }
+
   $effect(() => {
     if (!chartEl) return;
     if (!chart) {
@@ -257,6 +280,7 @@
       return;
     }
     chart.setOption(getCurrentOption(), true);
+    chart.resize();
   });
 
   onMount(() => {
@@ -278,7 +302,7 @@
       <button class="tab-btn" class:active={activeTab === "agent_model"} onclick={() => activeTab = "agent_model"}>Agent × 模型</button>
     </div>
   </div>
-  <div bind:this={chartEl} class="chart-body" style="height:320px;"></div>
+  <div bind:this={chartEl} class="chart-body" style="height:{getChartHeight()}"></div>
 </div>
 
 <style>

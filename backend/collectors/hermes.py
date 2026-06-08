@@ -50,20 +50,39 @@ class HermesCollector(BaseCollector):
         last_tokens: dict[str, dict[str, int]] = state.get("last_tokens", {})
         last_seen: dict[str, str] = state.get("last_seen", {})
 
-        # First-run detection: if last_tokens is empty, this is the first
-        # poll after a fresh start or state reset.  Do a SEED run that
-        # populates snapshots without writing records — prevents dumping
-        # all sessions into "today" on startup.
-        is_first_run = len(last_tokens) == 0
+        # Fast-path: skip if source DB did not change since last poll.
+        # Use the platform-appropriate path for stat: UNC on Windows,
+        # native Linux path inside WSL.
+        if settings.is_wsl:
+            src_path = "/root/.hermes/state.db"
+        else:
+            src_path = f"{settings.wsl_root}\\root\\.hermes\\state.db"
 
-        logger.info(
-            "Hermes: state loaded — closed_up_to=%d, open=%d, finalized=%d, last_tokens=%d, first_run=%s",
-            closed_up_to_rowid, len(open_session_ids), len(finalized_ids), len(last_tokens), is_first_run,
-        )
+        src_stat = None
+        try:
+            src_stat = Path(src_path).stat()
+        except OSError as exc:
+            # Stat may fail if WSL distro is stopped or not installed.
+            # Don't bail out — fall through to try wsl_copy_to_tmp which
+            # uses wsl.exe and may still succeed.
+            logger.debug(
+                "Hermes: cannot stat source db at %s: %s", src_path, exc
+            )
 
-        if not finalized_ids and closed_up_to_rowid > 0:
-            logger.info("Hermes: migration — resetting watermark to repair stale snapshots")
-            closed_up_to_rowid = 0
+        if src_stat is not None:
+            prev_mtime = state.get("source_mtime")
+            prev_size = state.get("source_size")
+            if (
+                prev_mtime is not None
+                and prev_size is not None
+                and src_stat.st_mtime == prev_mtime
+                and src_stat.st_size == prev_size
+            ):
+                logger.debug(
+                    "Hermes: source db unchanged (mtime=%s), skipping poll",
+                    src_stat.st_mtime,
+                )
+                return []
 
         if not settings.wsl_copy_to_tmp(
             "/root/.hermes/state.db", "/tmp/hermes_state.db"
@@ -92,18 +111,28 @@ class HermesCollector(BaseCollector):
         try:
             records, still_open, new_closed_up_to, new_finalized, new_last_tokens, new_last_seen = await self._read_sessions(
                 tmp_path, closed_up_to_rowid, open_session_ids, finalized_ids, last_tokens, last_seen,
-                seed_mode=is_first_run,
             )
         finally:
             Path(tmp_path).unlink(missing_ok=True)
 
-        self._save_state({
-            "closed_up_to_rowid": new_closed_up_to,
-            "open_session_ids": still_open,
-            "finalized_ids": new_finalized,
-            "last_tokens": new_last_tokens,
-            "last_seen": new_last_seen,
-        })
+        # Try to get fresh stat from the copied file for next poll's fast-path.
+        # If stat originally failed (WSL down), use the copy's mtime/size instead.
+        try:
+            fresh_stat = Path(src_path).stat() if src_stat is not None else Path(db_path).stat()
+        except OSError:
+            fresh_stat = src_stat
+
+        self._save_state(
+            {
+                "closed_up_to_rowid": new_closed_up_to,
+                "open_session_ids": still_open,
+                "finalized_ids": new_finalized,
+                "last_tokens": new_last_tokens,
+                "last_seen": new_last_seen,
+                "source_mtime": fresh_stat.st_mtime if fresh_stat else None,
+                "source_size": fresh_stat.st_size if fresh_stat else None,
+            }
+        )
 
         logger.info(
             "Hermes: collected %d records (open: %d, closed_up_to: %d)",

@@ -38,6 +38,7 @@
 
   const agentColors: Record<string, string> = {
     hermes: "#6366F1",
+    "hermes-win": "#818CF8",
     "claude-code": "#8B5CF6",
     openclaw: "#10B981",
     openclaude: "#F59E0B",
