@@ -10,6 +10,8 @@ from backend.collectors.hanako import HanakoCollector
 from backend.collectors.hermes import HermesCollector
 from backend.collectors.hermes_win import HermesWindowsCollector
 from backend.collectors.openclaude import OpenClaudeCollector
+from backend.collectors.mimo_code import MimoCodeCollector
+from backend.collectors.open_code import OpenCodeCollector
 from backend.collectors.openclaw import OpenClawCollector
 from backend.config import settings
 from backend.db.database import get_db
@@ -35,6 +37,8 @@ COLLECTORS: list[BaseCollector] = [
     HermesWindowsCollector(),
     OpenClawCollector(),
     OpenClaudeCollector(),
+    MimoCodeCollector(),
+    OpenCodeCollector(),
 ]
 
 _task: asyncio.Task | None = None
