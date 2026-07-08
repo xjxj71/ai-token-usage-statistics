@@ -14,6 +14,7 @@
 
 - **多 Agent 支持**：采集 Claude Code、Hermes（WSL + Windows）、OpenClaw、OpenClaude、MimoCode、OpenCode 的 Token 用量
 - **实时仪表盘**：基于 SSE 推送更新，无需刷新页面
+- **套餐余量监控**：实时查询智谱 GLM Coding Plan、小米 MiMo Token Plan 的剩余用量（需提供浏览器 Cookie / Session Token）
 - **费用估算**：内置各模型定价（YAML 配置，支持热更新），自动计算使用成本
 - **人民币显示**：所有费用以人民币（¥）显示，支持一键从 OpenRouter 获取最新定价
 - **丰富图表**：Agent Token 对比图、Agent 消耗占比饼图、模型分布条形图（ECharts）
@@ -108,6 +109,8 @@ npm run build      # 生产构建（由 FastAPI 托管）
 | `db_path` / `TOKEN_STAT_DB_PATH` | `data/token_statistic.db` | 本地 SQLite 数据库路径 |
 | `TOKEN_STAT_HOST` | `127.0.0.1` | 服务绑定地址 |
 | `TOKEN_STAT_PORT` | `8001` | 服务端口 |
+| `TOKEN_STAT_ZHIPU_SESSION_TOKEN` | — | 智谱 Coding Plan 的 Session Token |
+| `TOKEN_STAT_XIAOMI_COOKIE` | — | 小米 MiMo Token Plan 的完整 Cookie |
 
 ### 数据源路径
 
@@ -146,6 +149,10 @@ npm run build      # 生产构建（由 FastAPI 托管）
 | GET | `/api/pricing` | 获取所有模型定价 |
 | PUT | `/api/pricing/{model}` | 更新指定模型定价 |
 | POST | `/api/pricing/refresh` | 从 OpenRouter 一键更新所有模型定价 |
+| GET | `/api/quota` | 获取所有已启用套餐的余量快照（带缓存） |
+| POST | `/api/quota/refresh` | 强制刷新套餐余量 |
+| GET | `/api/quota/providers` | 列出已配置的套餐 Provider 及启用状态 |
+| PUT | `/api/quota/config` | 更新套餐 Provider 配置（session token、套餐等级、启用开关） |
 
 ### 请求示例
 
@@ -175,15 +182,16 @@ ai-token-usage-statistics/
 │   ├── api/                 # REST + SSE 接口
 │   ├── collectors/          # 各 Agent 数据采集器
 │   ├── db/                  # SQLite 连接与表结构
-│   └── pricing/             # 模型定价与费用计算
+│   ├── pricing/             # 模型定价与费用计算
+│   └── quota/               # 套餐余量监控（Zhipu、Xiaomi）
 ├── frontend/
 │   └── src/
 │       ├── App.svelte       # 主应用组件
-│       ├── components/      # StatCard, TrendChart, AgentPie 等
+│       ├── components/      # StatCard, TrendChart, PlanQuotaCard 等
 │       ├── api/             # 请求封装 + SSE 客户端
 │       └── types/           # TypeScript 类型定义
 ├── tests/                   # pytest 测试用例
-├── config/                  # 模型定价 YAML 配置
+├── config/                  # 模型定价 YAML + 套餐 Provider 配置
 ├── scripts/                 # 工具脚本（费用重算等）
 ├── docs/                    # 设计文档、配置指南
 └── pyproject.toml           # Python 项目配置

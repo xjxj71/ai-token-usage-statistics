@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-07-08
+
+### Added
+- **套餐余量监控**：新增 `backend/quota/` 模块，支持查询大模型套餐剩余用量
+  - **智谱 GLM Coding Plan**：通过 `open.bigmodel.cn/api/biz/user/subscription/*` 接口查询 5 小时窗口 + 周额度
+  - **小米 MiMo Token Plan**：通过 `platform.xiaomimimo.com/api/v1/tokenPlan/*` 接口查询 Credits 用量
+  - Provider 模式架构，后续扩展新 Provider 只需实现 `QuotaProvider` 基类
+  - 无凭证时自动回退到本地估算（从 `token_usage` 表按模型聚合反推消耗）
+- **前端 PlanQuotaCard 组件**：顶部卡片区域展示套餐等级、进度条、到期时间、模型消耗系数
+  - 可折叠设置面板，支持在线配置启用/停用、切换套餐等级、填写 Session Token
+- **新增 API 端点**：`GET /api/quota`、`POST /api/quota/refresh`、`GET /api/quota/providers`、`PUT /api/quota/config`
+- **新增测试**：`tests/test_quota.py`（13 个单元/集成测试）
+- **配置文件**：`config/quota_providers.yaml`（含 Cookie 获取说明注释）
+
+### Notes
+- 智谱和小米均无公开 API Key 查询余量接口，需从浏览器 Network 面板复制完整 Cookie（含 HttpOnly 的 serviceToken）
+
 ## [0.3.0] - 2026-06-08
 
 ### Added

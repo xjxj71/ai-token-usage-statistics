@@ -6,11 +6,25 @@ Token usage tracking and analysis for AI coding assistants (Claude Code, OpenCla
 
 ```
 ai-token-usage-statistics/
-├── collectors/          # Data collectors for each AI tool
-├── frontend/           # React dashboard (Vite + TypeScript)
-├── api/                # FastAPI backend
-├── data/               # SQLite databases (gitignored)
-└── docs/               # Documentation
+├── backend/
+│   ├── main.py              # FastAPI 应用入口
+│   ├── config.py            # pydantic-settings 配置
+│   ├── api/                 # REST + SSE 接口
+│   ├── collectors/          # 各 Agent 数据采集器
+│   ├── db/                  # SQLite 连接与表结构
+│   ├── pricing/             # 模型定价与费用计算
+│   └── quota/               # 套餐余量监控（Zhipu、Xiaomi）
+├── frontend/
+│   └── src/
+│       ├── App.svelte       # 主应用组件
+│       ├── components/      # StatCard, TrendChart, PlanQuotaCard 等
+│       ├── api/             # 请求封装 + SSE 客户端
+│       └── types/           # TypeScript 类型定义
+├── tests/                   # pytest 测试用例
+├── config/                  # 模型定价 YAML + 套餐 Provider 配置
+├── scripts/                 # 工具脚本（费用重算等）
+├── docs/                    # 设计文档、配置指南
+└── pyproject.toml           # Python 项目配置
 ```
 
 ## Quick Start
@@ -18,7 +32,7 @@ ai-token-usage-statistics/
 ```bash
 # Backend
 pip install -e .
-python -m uvicorn api.main:app --reload
+python -m uvicorn backend.main:app --reload
 
 # Frontend
 cd frontend && npm install && npm run dev
@@ -29,7 +43,14 @@ cd frontend && npm install && npm run dev
 - `npm run dev` - Start frontend dev server
 - `npm run build` - Build frontend
 - `pytest` - Run Python tests
-- `npm test` - Run frontend tests
+
+## 套餐余量监控
+
+支持查询大模型套餐剩余用量，当前支持：
+- **智谱 GLM Coding Plan**（Lite/Pro/Max，5小时窗口 + 周额度）
+- **小米 MiMo Token Plan**（Lite/Standard/Pro/Max，月度 Credits）
+
+配置方式：编辑 `config/quota_providers.yaml`，或在前端"设置"面板中填写。
 
 ---
 

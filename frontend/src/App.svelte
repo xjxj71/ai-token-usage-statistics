@@ -12,6 +12,7 @@
   import FilterBar from "./components/FilterBar.svelte";
   import ModelPricing from "./components/ModelPricing.svelte";
   import CacheRatioChart from "./components/CacheRatioChart.svelte";
+  import PlanQuotaCard from "./components/PlanQuotaCard.svelte";
 
   let summary: SummaryResponse | null = $state(null);
   let agentBreakdown: SummaryResponse["breakdown"] = $state([]);
@@ -203,11 +204,9 @@
     const es = createEventSource(() => {
       loadData();
       sseConnected = true;
-    });
-
-    es.onerror = () => {
+    }, () => {
       sseConnected = false;
-    };
+    });
 
     return () => es.close();
   });
@@ -250,6 +249,9 @@
     </div>
   {:else if summary}
     <div class="px-6 pt-2 pb-6 space-y-6">
+      <!-- Plan Quota Monitor -->
+      <PlanQuotaCard />
+
       <!-- Agent Filter Tags -->
       <FilterBar
         {agents}

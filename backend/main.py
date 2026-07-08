@@ -5,11 +5,12 @@ import secrets
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from backend.api import cache_ratio, models, stream, summary, trend, usage
+from backend.api import cache_ratio, models, quota, stream, summary, trend, usage
 from backend.collectors.registry import start_polling, stop_polling
 from backend.config import settings
 from backend.db.database import close_db, init_db
@@ -28,6 +29,17 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="AI Token 用量统计", version="0.1.0", lifespan=lifespan)
+
+    # Cross-origin access for the Svelte frontend.  In production this
+    # should be locked to the actual domain; wide-open here because the
+    # dashboard is often served from a different port during development.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     # Global exception handler — prevents stack traces leaking to clients
     # Excludes HTTPException so FastAPI returns correct status codes (404, 422, etc.)
@@ -68,6 +80,7 @@ def create_app() -> FastAPI:
     app.include_router(stream.router, prefix="/api")
     app.include_router(trend.router, prefix="/api")
     app.include_router(cache_ratio.router, prefix="/api")
+    app.include_router(quota.router, prefix="/api")
 
     frontend_dist = settings.frontend_dist.resolve()
     if frontend_dist.exists():

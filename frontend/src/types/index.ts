@@ -86,3 +86,51 @@ export interface CacheRatioResponse {
   overall_cache_ratio: number;
   items: CacheRatioItem[];
 }
+
+// ── Quota Monitoring ──────────────────────────────────────
+
+export interface QuotaWindow {
+  used: number;
+  total: number;
+  remaining: number;
+  ratio: number;
+  unit: string;
+  reset_at: string | null;
+}
+
+export interface ModelMultiplier {
+  model: string;
+  peak: number;
+  off_peak: number;
+  peak_hours: string;
+}
+
+export interface QuotaSnapshot {
+  provider: string;
+  display_name: string;
+  plan_name: string;
+  plan_type: string;
+  main_window: QuotaWindow | null;
+  extra_windows: QuotaWindow[];
+  balance: number | null;
+  free_balance: number | null;
+  model_multipliers: ModelMultiplier[];
+  expires_at: string | null;
+  auto_renew: boolean | null;
+  fetched_at: string;
+  source: string; // "api" | "estimate" | "error"
+  error: string | null;
+}
+
+export interface QuotaResponse {
+  items: QuotaSnapshot[];
+  total: number;
+}
+
+export interface ProviderInfo {
+  provider_id: string;
+  display_name: string;
+  enabled: boolean;
+  has_credential: boolean;
+  plan_type: string;
+}

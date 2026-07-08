@@ -1,0 +1,11 @@
+providers:
+  zhipu:
+    enabled: true
+    plan_type: max
+    session_token: 863c9913afbd4f6fb4e204528f4f1eb3.EwZS7q3hfZWORguU
+  xiaomi:
+    enabled: true
+    plan_type: standard
+    session_token: cookie-preferences=%7B%22analytical%22%3Atrue%2C%22functional%22%3Atrue%7D;
+      api-platform_serviceToken="yVHEDQlNiFT1WavLtPFne1ouWnCOnW52h4DsBTpf1dHspgQZNJraGk3lHr2YAnC5Z/zLDu0MzrOjD+/jPcgA37coXqc+hJNCiOBfQglMTG0BLOUdZkdckd/NbMYvnYraU5dWHL8B+OBPw1hNbGP4Q/Zkba2k5o5cRTAMaUGytuCBP1KsYCdFJWkECQor5aY5ovchC8ZbeYnCHFJFdgBaR0R92slySIadGxh9cpauq8FBa4UdxG4rVKnRwLUQLM2S0GxZXYGIoPOmZmMM3uKDVSPpwtTuJP3pkHWAykYSkG7Bsp32JcyTtKR+vZ3XE+4PiBbl4BM6pFVX5IWrImjw6S90I8Nb0yyZztnJTC7GMSw=";
+      userId=10792162; api-platform_slh="EUJuP4Hk+1WcpRCzo814i4Ie+bg="; api-platform_ph="WWbg3trbL9OgaYFiJ5BAhA=="
