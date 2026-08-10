@@ -24,6 +24,7 @@ data/*.db
 data/*.db-wal
 data/*.db-shm
 data/collector_state.json
+data/*.png
 
 # IDE / editor
 .mcp.json
@@ -37,3 +38,9 @@ Thumbs.db
 # Temporary
 build_frontend.bat
 *.log
+
+# Agent tools
+.mimocode/
+.claude/settings.local.json
+backend/collectors/.hermes-tmp.*
+prototype-dashboard.html
