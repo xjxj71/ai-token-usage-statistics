@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     # Optional API key for authentication. If empty, auth is disabled.
     api_key: str = ""
 
+    # CORS allowed origins. Comma-separated list, or "*" for all (dev only).
+    cors_origins: str = "*"
+
+    # Exchange rate for USD to CNY display (configurable).
+    usd_to_cny_rate: float = 7.25
+
     frontend_dist: Path = Path("frontend/dist")
 
     model_config = {"env_prefix": "TOKEN_STAT_"}

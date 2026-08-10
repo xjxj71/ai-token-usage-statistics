@@ -9,8 +9,13 @@
     cache_write_price: number;
   }
 
+  interface Props {
+    usdToCnyRate?: number;
+  }
+
+  let { usdToCnyRate = 7.25 }: Props = $props();
+
   const BASE = "/api";
-  const USD_TO_CNY = 7.25;
   const PAGE_SIZES = [10, 20, 50];
 
   let pricingData: PricingItem[] = $state([]);
@@ -69,10 +74,10 @@
   function startEdit(item: PricingItem) {
     editingModel = item.model;
     editForm = {
-      input_price: +(item.input_price * USD_TO_CNY).toFixed(2),
-      output_price: +(item.output_price * USD_TO_CNY).toFixed(2),
-      cache_read_price: +(item.cache_read_price * USD_TO_CNY).toFixed(2),
-      cache_write_price: +(item.cache_write_price * USD_TO_CNY).toFixed(2),
+      input_price: +(item.input_price * usdToCnyRate).toFixed(2),
+      output_price: +(item.output_price * usdToCnyRate).toFixed(2),
+      cache_read_price: +(item.cache_read_price * usdToCnyRate).toFixed(2),
+      cache_write_price: +(item.cache_write_price * usdToCnyRate).toFixed(2),
     };
     saveMsg = null;
   }
@@ -88,10 +93,10 @@
     try {
       const encoded = encodeURIComponent(model);
       const usdForm = {
-        input_price: +(editForm.input_price / USD_TO_CNY).toFixed(6),
-        output_price: +(editForm.output_price / USD_TO_CNY).toFixed(6),
-        cache_read_price: +(editForm.cache_read_price / USD_TO_CNY).toFixed(6),
-        cache_write_price: +(editForm.cache_write_price / USD_TO_CNY).toFixed(6),
+        input_price: +(editForm.input_price / usdToCnyRate).toFixed(6),
+        output_price: +(editForm.output_price / usdToCnyRate).toFixed(6),
+        cache_read_price: +(editForm.cache_read_price / usdToCnyRate).toFixed(6),
+        cache_write_price: +(editForm.cache_write_price / usdToCnyRate).toFixed(6),
       };
       const res = await fetch(`${BASE}/pricing/${encoded}`, {
         method: "PUT",
@@ -138,7 +143,7 @@
   }
 
   function toCNY(usd: number): string {
-    return (usd * USD_TO_CNY).toFixed(2);
+    return (usd * usdToCnyRate).toFixed(2);
   }
 
   onMount(() => {

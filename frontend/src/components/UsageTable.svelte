@@ -6,19 +6,17 @@
     total: number;
     page: number;
     pageSize: number;
+    usdToCnyRate?: number;
     onPageChange: (page: number) => void;
     onPageSizeChange?: (size: number) => void;
     onExport?: () => void;
   }
 
-  let { items, total, page, pageSize, onPageChange, onPageSizeChange, onExport }: Props = $props();
+  let { items, total, page, pageSize, usdToCnyRate = 7.25, onPageChange, onPageSizeChange, onExport }: Props = $props();
 
   const PAGE_SIZES = [10, 20, 50];
 
   let searchQuery = $state("");
-
-  /** USD → CNY 汇率 */
-  const USD_TO_CNY = 7.25;
 
   function fmt(n: number): string {
     if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + "M";
@@ -51,12 +49,14 @@
     hermes: { bg: "rgba(99,102,241,.2)", text: "#818CF8" },
     "claude-code": { bg: "rgba(139,92,246,.2)", text: "#A78BFA" },
     openclaw: { bg: "rgba(16,185,129,.2)", text: "#34D399" },
-    openclaude: { bg: "rgba(245,158,11,.2)", text: "#FBBF24" },
     hanako: { bg: "rgba(236,72,153,.2)", text: "#F472B6" },
+    openclaude: { bg: "rgba(245,158,11,.2)", text: "#FBBF24" },
   };
 
   function getAgentColor(agent: string) {
-    return agentColors[agent] || { bg: "rgba(99,102,241,.2)", text: "#818CF8" };
+    return (
+      agentColors[agent] || { bg: "rgba(99,102,241,.2)", text: "#818CF8" }
+    );
   }
 
   function pageNumbers(): number[] {
@@ -139,7 +139,7 @@
             <td class="text-right text-[var(--text-2)]">
               {fmt(item.cache_read_tokens + item.cache_write_tokens)}
             </td>
-            <td class="text-right text-[var(--amber)]">¥{(item.cost_usd * USD_TO_CNY).toFixed(2)}</td>
+            <td class="text-right text-[var(--amber)]">¥{(item.cost_usd * usdToCnyRate).toFixed(2)}</td>
           </tr>
         {:else}
           <tr>

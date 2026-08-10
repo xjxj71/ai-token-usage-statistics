@@ -81,6 +81,15 @@ async def get_agents():
     return [a for a in agents if a in SUPPORTED_AGENTS]
 
 
+@router.get("/config")
+async def get_config():
+    """返回前端需要的配置信息（汇率等）。"""
+    from backend.config import settings
+    return {
+        "usd_to_cny_rate": settings.usd_to_cny_rate,
+    }
+
+
 class PricingUpdate(BaseModel):
     input_price: float = Field(ge=0)
     output_price: float = Field(ge=0)

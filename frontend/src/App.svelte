@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { SummaryResponse, UsageResponse, FilterState, TimeRange, TrendResponse, CacheRatioResponse } from "./types";
-  import { fetchSummary, fetchUsage, fetchAgents, fetchModels, fetchTrend, fetchCacheRatio, createEventSource } from "./api/client";
+  import { fetchSummary, fetchUsage, fetchAgents, fetchModels, fetchTrend, fetchCacheRatio, createEventSource, fetchConfig } from "./api/client";
   import TimeRangeTabs from "./components/TimeRangeTabs.svelte";
   import StatCard from "./components/StatCard.svelte";
   import ComparisonChart from "./components/ComparisonChart.svelte";
@@ -30,6 +30,7 @@
   let currentPage = $state(1);
   let pageSize = $state(50);
   let sseConnected = $state(true);
+  let usdToCnyRate = $state(7.25); // Default, will be updated from config
 
   let filter: FilterState = $state({
     range: "today",
@@ -180,7 +181,7 @@
           r.input_tokens,
           r.output_tokens,
           r.cache_read_tokens + r.cache_write_tokens,
-          (r.cost_usd * 7.25).toFixed(4),
+          (r.cost_usd * usdToCnyRate).toFixed(4),
         ].join(",")
       );
       const csv = "\uFEFF" + header + "\n" + rows.join("\n");
@@ -197,9 +198,19 @@
     }
   }
 
+  async function loadConfig() {
+    try {
+      const config = await fetchConfig();
+      usdToCnyRate = config.usd_to_cny_rate;
+    } catch {
+      // Use default rate if config fetch fails
+    }
+  }
+
   onMount(() => {
     loadData();
     loadMeta();
+    loadConfig();
 
     const es = createEventSource(() => {
       loadData();
@@ -271,7 +282,7 @@
           icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>' />
         <StatCard title="缓存 Token" value={summary.cache_tokens} unit=""
           icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M3 9h18"/></svg>' />
-        <StatCard title="总费用" value={summary.cost_usd * 7.25} unit="¥" prefix={true}
+        <StatCard title="总费用" value={summary.cost_usd * usdToCnyRate} unit="¥" prefix={true}
           icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>' />
         <StatCard title="请求次数" value={summary.call_count} unit="次"
           icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>' />
@@ -308,6 +319,7 @@
           total={usage.total}
           page={usage.page}
           {pageSize}
+          {usdToCnyRate}
           onPageChange={handlePageChange}
           onPageSizeChange={handlePageSizeChange}
           onExport={handleExport}
@@ -315,7 +327,7 @@
       {/if}
 
       <!-- Model Pricing (collapsible) -->
-      <ModelPricing />
+      <ModelPricing {usdToCnyRate} />
     </div>
   {/if}
 </main>

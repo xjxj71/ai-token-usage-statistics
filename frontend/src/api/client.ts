@@ -110,6 +110,12 @@ export async function fetchProviders(): Promise<ProviderInfo[]> {
   return (await res.json()) as ProviderInfo[];
 }
 
+export async function fetchConfig(): Promise<{ usd_to_cny_rate: number }> {
+  const res = await fetchWithTimeout(`${BASE}/config`);
+  if (!res.ok) throw new Error(`配置请求失败: ${res.status}`);
+  return (await res.json()) as { usd_to_cny_rate: number };
+}
+
 export async function updateProviderConfig(
   provider: string,
   config: Partial<{ enabled: boolean; plan_type: string; session_token: string }>,

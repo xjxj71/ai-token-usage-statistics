@@ -3,10 +3,21 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# Date format validation pattern (YYYY-MM-DD)
+_DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _validate_date_format(date_str: str, param_name: str) -> str:
+    """Validate date string format (YYYY-MM-DD) and return it, or raise ValueError."""
+    if not _DATE_PATTERN.match(date_str):
+        raise ValueError(f"Invalid {param_name} format: '{date_str}'. Expected YYYY-MM-DD.")
+    return date_str
 
 
 def resolve_range(
@@ -43,6 +54,8 @@ def resolve_range(
         start = today_start_utc - timedelta(days=30)
         return _fmt_z(start), _fmt_z(now_utc)
     elif range_key == "custom" and from_date and to_date:
+        _validate_date_format(from_date, "from")
+        _validate_date_format(to_date, "to")
         return from_date, to_date
     else:
         return _fmt_z(today_start_utc), _fmt_z(now_utc)

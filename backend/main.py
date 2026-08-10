@@ -30,12 +30,12 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(title="AI Token 用量统计", version="0.1.0", lifespan=lifespan)
 
-    # Cross-origin access for the Svelte frontend.  In production this
-    # should be locked to the actual domain; wide-open here because the
-    # dashboard is often served from a different port during development.
+    # Cross-origin access for the Svelte frontend.
+    # In production, set TOKEN_STAT_CORS_ORIGINS to the actual domain(s).
+    origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

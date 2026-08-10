@@ -109,6 +109,8 @@ npm run build      # 生产构建（由 FastAPI 托管）
 | `db_path` / `TOKEN_STAT_DB_PATH` | `data/token_statistic.db` | 本地 SQLite 数据库路径 |
 | `TOKEN_STAT_HOST` | `127.0.0.1` | 服务绑定地址 |
 | `TOKEN_STAT_PORT` | `8001` | 服务端口 |
+| `TOKEN_STAT_CORS_ORIGINS` | `*` | CORS 允许的来源（逗号分隔，生产环境请设置为实际域名） |
+| `TOKEN_STAT_USD_TO_CNY_RATE` | `7.25` | 美元兑人民币汇率（用于前端费用显示） |
 | `TOKEN_STAT_ZHIPU_SESSION_TOKEN` | — | 智谱 Coding Plan 的 Session Token |
 | `TOKEN_STAT_XIAOMI_COOKIE` | — | 小米 MiMo Token Plan 的完整 Cookie |
 
@@ -145,6 +147,7 @@ npm run build      # 生产构建（由 FastAPI 托管）
 | GET | `/api/usage` | 分页查询使用记录 |
 | GET | `/api/agents` | 获取已追踪的 Agent 列表 |
 | GET | `/api/models` | 获取模型列表及定价 |
+| GET | `/api/config` | 获取前端配置（汇率等） |
 | GET | `/api/stream` | SSE 实时推送流 |
 | GET | `/api/pricing` | 获取所有模型定价 |
 | PUT | `/api/pricing/{model}` | 更新指定模型定价 |
