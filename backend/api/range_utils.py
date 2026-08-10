@@ -6,6 +6,8 @@ import logging
 import re
 from datetime import UTC, datetime, timedelta, timezone
 
+from fastapi import HTTPException
+
 logger = logging.getLogger(__name__)
 
 # Date format validation pattern (YYYY-MM-DD)
@@ -13,9 +15,12 @@ _DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def _validate_date_format(date_str: str, param_name: str) -> str:
-    """Validate date string format (YYYY-MM-DD) and return it, or raise ValueError."""
+    """Validate date string format (YYYY-MM-DD) and return it, or raise HTTPException."""
     if not _DATE_PATTERN.match(date_str):
-        raise ValueError(f"Invalid {param_name} format: '{date_str}'. Expected YYYY-MM-DD.")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid {param_name} format: '{date_str}'. Expected YYYY-MM-DD.",
+        )
     return date_str
 
 
