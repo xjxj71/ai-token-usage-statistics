@@ -1,13 +1,32 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, replace as dataclass_replace
-from datetime import datetime, timezone
-from typing import Sequence
+from collections.abc import Sequence
+from dataclasses import dataclass
+from dataclasses import replace as dataclass_replace
+from datetime import UTC, datetime
 
 import aiosqlite
 
 logger = logging.getLogger(__name__)
+
+
+_VALID_GROUP_BY = {"agent", "model", "agent_model"}
+
+
+def _validate_group_by(group_by: str) -> str:
+    """Normalize and validate group_by to prevent SQL injection.
+
+    The DB layer assembles the GROUP BY clause as a raw identifier, so it
+    must never be interpolated from untrusted input.  Only the supported
+    values are allowed; anything else falls back to ``"agent"`` to keep
+    existing behaviour while remaining safe.
+    """
+    normalized = group_by.strip().lower()
+    if normalized not in _VALID_GROUP_BY:
+        logger.warning("Invalid group_by=%r; falling back to 'agent'", group_by)
+        return "agent"
+    return normalized
 
 
 @dataclass(frozen=True)
@@ -50,7 +69,7 @@ async def _ensure_models_in_pricing(db: aiosqlite.Connection, models: set[str]) 
     new_models = models_lower - existing
 
     if new_models:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         await db.executemany(
             """INSERT INTO model_pricing
                (model, input_price, output_price, cache_read_price, cache_write_price, updated_at)
@@ -157,12 +176,12 @@ async def fetch_summary(
     to_ts: str | None = None,
     group_by: str = "agent",
 ) -> list[SummaryRow]:
+    group_by = _validate_group_by(group_by)
+
     wheres, params = _build_where(agents, models, from_ts, to_ts)
     where_sql = f"WHERE {' AND '.join(wheres)}" if wheres else ""
 
-    group_col = group_by if group_by in ("agent", "model") else "agent"
-
-    if group_col == "agent":
+    if group_by == "agent":
         # Group by agent — model becomes a display value (empty string).
         select_agent = "t.agent"
         select_model = "'' AS model"
@@ -290,6 +309,8 @@ async def fetch_trend(
 
     Returns rows with: date, name (agent or model), total_tokens.
     """
+    group_by = _validate_group_by(group_by)
+
     wheres, params = _build_where(agents, models, from_ts, to_ts)
 
     group_col = "agent" if group_by == "agent" else "model"

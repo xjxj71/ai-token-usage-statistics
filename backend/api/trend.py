@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Query
 
@@ -31,10 +30,10 @@ def _generate_slots(from_ts: str, to_ts: str, granularity: str) -> list[str]:
         except (ValueError, TypeError):
             pass
         try:
-            return datetime.strptime(ts, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            return datetime.strptime(ts, "%Y-%m-%d").replace(tzinfo=UTC)
         except (ValueError, TypeError):
             pass
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
     start = _parse_iso(from_ts).astimezone(SHANGHAI)
     end = _parse_iso(to_ts).astimezone(SHANGHAI)
@@ -109,10 +108,10 @@ def _pivot(rows: list[dict], granularity: str, from_ts: str, to_ts: str) -> dict
 @router.get("/trend")
 async def get_trend(
     range_key: str = Query("30d", alias="range"),
-    from_date: Optional[str] = Query(None, alias="from"),
-    to_date: Optional[str] = Query(None, alias="to"),
-    agent: Optional[str] = Query(None),
-    model: Optional[str] = Query(None),
+    from_date: str | None = Query(None, alias="from"),
+    to_date: str | None = Query(None, alias="to"),
+    agent: str | None = Query(None),
+    model: str | None = Query(None),
     group_by: str = Query("agent", pattern="^(agent|model)$"),
     granularity: str = Query("day", pattern="^(day|hour)$"),
 ):

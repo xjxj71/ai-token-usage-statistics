@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from backend.db.models import TokenRecord
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 _MS_EPOCH_THRESHOLD = 1e12
 
 
-def parse_timestamp(ts: str | int | float) -> datetime:
+def parse_timestamp(ts: str | float) -> datetime:
     """Parse a timestamp — handles ISO strings, second/millisecond epoch ints.
 
     Falls back to epoch on failure with a warning log.
@@ -24,12 +24,12 @@ def parse_timestamp(ts: str | int | float) -> datetime:
     if isinstance(ts, (int, float)):
         if ts > _MS_EPOCH_THRESHOLD:
             ts = ts / 1000.0
-        return datetime.fromtimestamp(ts, tz=timezone.utc)
+        return datetime.fromtimestamp(ts, tz=UTC)
     try:
         return datetime.fromisoformat(str(ts))
     except (ValueError, TypeError):
         logger.debug("Failed to parse timestamp: %s", ts)
-        return datetime(1970, 1, 1, tzinfo=timezone.utc)
+        return datetime(1970, 1, 1, tzinfo=UTC)
 
 
 def parse_jsonl_line(line: str) -> dict | None:

@@ -22,8 +22,7 @@ import json
 import logging
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone, timedelta
-from typing import Any
+from datetime import UTC, datetime, timedelta
 
 from backend.db import database as db_module
 from backend.quota.base import (
@@ -78,7 +77,7 @@ class ZhipuQuotaProvider(QuotaProvider):
 
         try:
             return await self._fetch_api(token)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.warning("Zhipu API fetch failed, falling back to estimate: %s", exc)
             snapshot = await self._estimate()
             snapshot.error = str(exc)
@@ -129,7 +128,7 @@ class ZhipuQuotaProvider(QuotaProvider):
         usage_data: dict,
         balance_data: dict,
     ) -> QuotaSnapshot:
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
 
         # --- Plan info ---
         plan_name = "Unknown"
@@ -217,14 +216,14 @@ class ZhipuQuotaProvider(QuotaProvider):
         calls).  We estimate prompts by counting GLM model calls and
         dividing by 15.
         """
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
         limits = _PLAN_LIMITS.get(self.plan_type, _PLAN_LIMITS["pro"])
         avg_calls_per_prompt = 15  # official estimate
 
         try:
             db = await db_module.get_db()
             # 5h window: count GLM model calls.
-            five_h_ago = (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat()
+            five_h_ago = (datetime.now(UTC) - timedelta(hours=5)).isoformat()
             rows = await db.execute_fetchall(
                 """SELECT COUNT(*) as cnt
                    FROM token_usage
@@ -237,7 +236,7 @@ class ZhipuQuotaProvider(QuotaProvider):
             estimated_5h = calls_5h / avg_calls_per_prompt
 
             # Weekly window: 7 days.
-            week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+            week_ago = (datetime.now(UTC) - timedelta(days=7)).isoformat()
             rows = await db.execute_fetchall(
                 """SELECT COUNT(*) as cnt
                    FROM token_usage
@@ -248,7 +247,7 @@ class ZhipuQuotaProvider(QuotaProvider):
             )
             calls_weekly = float(rows[0]["cnt"]) if rows else 0.0
             estimated_weekly = calls_weekly / avg_calls_per_prompt
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.warning("Zhipu local estimate failed: %s", exc)
             estimated_5h = 0.0
             estimated_weekly = 0.0

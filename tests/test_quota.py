@@ -2,11 +2,10 @@
 
 import pytest
 
-from backend.quota.base import QuotaWindow, QuotaSnapshot, ModelMultiplier
-from backend.quota.zhipu import ZhipuQuotaProvider, _PLAN_LIMITS
-from backend.quota.xiaomi import XiaomiQuotaProvider, _PLAN_LIMITS_MONTHLY
+from backend.quota.base import QuotaSnapshot, QuotaWindow
 from backend.quota.registry import get_registry
-
+from backend.quota.xiaomi import _PLAN_LIMITS_MONTHLY, XiaomiQuotaProvider
+from backend.quota.zhipu import _PLAN_LIMITS, ZhipuQuotaProvider
 
 # ── Dataclass unit tests ────────────────────────────────────────
 
@@ -139,7 +138,7 @@ async def test_quota_config_update(client):
 
     # Verify it's now enabled
     res = await client.get("/api/quota/providers")
-    zhipu = [p for p in res.json() if p["provider_id"] == "zhipu"][0]
+    zhipu = next(p for p in res.json() if p["provider_id"] == "zhipu")
     assert zhipu["enabled"] is True
 
     # Clean up — disable it

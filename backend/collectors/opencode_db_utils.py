@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from backend.db.models import TokenRecord
@@ -23,7 +23,7 @@ def _parse_timestamp_ms(ts_ms: int | None) -> str:
     if not ts_ms:
         return ""
     try:
-        dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc)
+        dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=UTC)
         return dt.isoformat()
     except (ValueError, OSError):
         return ""

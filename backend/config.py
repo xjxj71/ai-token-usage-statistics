@@ -5,6 +5,7 @@ import os
 import shlex
 import subprocess
 from pathlib import Path
+
 from pydantic_settings import BaseSettings
 
 logger = logging.getLogger(__name__)
@@ -44,7 +45,7 @@ class Settings(BaseSettings):
         try:
             import platform
             return "microsoft" in platform.uname().release.lower()
-        except Exception:
+        except Exception:  # noqa: BLE001
             return False
 
     @property
@@ -136,13 +137,14 @@ class Settings(BaseSettings):
                 [
                     "wsl.exe", "-u", self.wsl_user_root, "-d", self.wsl_distro, "--",
                     "bash", "-c",
-                    f"chown -R {safe_user}:{safe_user} {safe_dir} "
-                    f"&& chmod -R a+rX {safe_dir}",
+                    (f"chown -R {safe_user}:{safe_user} {safe_dir} "
+                     f"&& chmod -R a+rX {safe_dir}"),
                 ],
                 capture_output=True,
                 text=True,
                 errors="replace",
                 timeout=30,
+                check=False,
             )
             if result.returncode != 0:
                 logger.warning(
@@ -184,6 +186,7 @@ class Settings(BaseSettings):
                 text=True,
                 errors="replace",
                 timeout=30,
+                check=False,
             )
             if result.returncode != 0:
                 logger.warning(

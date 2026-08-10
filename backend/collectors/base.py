@@ -4,7 +4,7 @@ import json
 import os
 import tempfile
 from abc import ABC, abstractmethod
-from typing import Sequence
+from collections.abc import Sequence
 
 from backend.config import settings
 from backend.db.models import TokenRecord
@@ -42,9 +42,25 @@ class BaseCollector(ABC):
         all_state[self.name] = state
         content = json.dumps(all_state, indent=2, ensure_ascii=False)
 
-        # Atomic write: write to a temp file in the same directory, then replace.
+        # Atomic write with stale-tmp cleanup.
+        #
+        # Concurrency risk: if multiple writers race, one .tmp can be
+        # left behind when a second writer reads-and-replaces the first.
+        # We defensively remove stale .tmp files owned by this collector
+        # before creating the new one, so no orphan .tmp can mislead a
+        # future reader into loading partial JSON.
+        prefix = f".collector_state_{self.name}_"
+        try:
+            for stale in path.parent.glob(f"{prefix}*.tmp"):
+                try:
+                    stale.unlink()
+                except OSError:
+                    pass
+        except OSError:
+            pass
+
         fd, tmp_path = tempfile.mkstemp(
-            dir=str(path.parent), prefix=".collector_state_", suffix=".tmp"
+            dir=str(path.parent), prefix=prefix, suffix=".tmp"
         )
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -53,7 +69,6 @@ class BaseCollector(ABC):
                 os.fsync(f.fileno())
             os.replace(tmp_path, str(path))
         except Exception:
-            # Clean up temp file on failure
             try:
                 os.unlink(tmp_path)
             except OSError:

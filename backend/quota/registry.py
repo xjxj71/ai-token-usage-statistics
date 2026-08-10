@@ -9,7 +9,7 @@ TTL to avoid hammering upstream APIs.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -42,8 +42,8 @@ def _ensure_providers_registered() -> None:
     if _PROVIDERS:
         return
     # Import side-effect: registers class in _PROVIDERS
-    from backend.quota.zhipu import ZhipuQuotaProvider
     from backend.quota.xiaomi import XiaomiQuotaProvider
+    from backend.quota.zhipu import ZhipuQuotaProvider
 
     _PROVIDERS[ZhipuQuotaProvider.provider_id] = ZhipuQuotaProvider
     _PROVIDERS[XiaomiQuotaProvider.provider_id] = XiaomiQuotaProvider
@@ -75,7 +75,7 @@ def _load_config() -> dict[str, dict[str, Any]]:
                 for key, val in providers.items():
                     if isinstance(val, dict):
                         config[key] = val
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to load %s: %s", _CONFIG_YAML, exc)
 
     # Environment-variable overrides.
@@ -149,7 +149,7 @@ class QuotaRegistry:
             self.reload()
 
         snapshots: list[QuotaSnapshot] = []
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         for pid, provider in self._instances.items():
             if not provider.enabled:
@@ -166,7 +166,7 @@ class QuotaRegistry:
             try:
                 snap = await provider.fetch_quota()
             except Exception as exc:
-                logger.error("Provider %s fetch_quota raised: %s", pid, exc, exc_info=True)
+                logger.exception("Provider %s fetch_quota raised", pid)
                 snap = QuotaSnapshot(
                     provider=pid,
                     display_name=getattr(provider, "display_name", pid),

@@ -47,7 +47,7 @@ def create_app() -> FastAPI:
     async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         if isinstance(exc, (HTTPException, StarletteHTTPException)):
             raise exc
-        logger.error("Unhandled exception on %s %s: %s", request.method, request.url.path, exc, exc_info=True)
+        logger.error("Unhandled exception on %s %s: %s", request.method, request.url.path, exc)
         return JSONResponse(
             status_code=500,
             content={"detail": "Internal server error"},

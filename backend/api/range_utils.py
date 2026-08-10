@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +21,8 @@ def _validate_date_format(date_str: str, param_name: str) -> str:
 
 def resolve_range(
     range_key: str,
-    from_date: Optional[str],
-    to_date: Optional[str],
+    from_date: str | None,
+    to_date: str | None,
     tz_name: str = "Asia/Shanghai",
 ) -> tuple[str, str]:
     """Resolve a range key to (from_ts, to_ts) ISO strings.
@@ -34,7 +33,7 @@ def resolve_range(
     import zoneinfo
     try:
         local_tz = zoneinfo.ZoneInfo(tz_name)
-    except Exception:
+    except Exception:  # noqa: BLE001
         logger.debug("Failed to load timezone %s, falling back to UTC+8", tz_name)
         local_tz = timezone(timedelta(hours=8))
 
@@ -42,8 +41,8 @@ def resolve_range(
     today_start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
 
     # Convert to UTC for DB comparison (timestamps are stored in UTC with Z suffix)
-    today_start_utc = today_start_local.astimezone(timezone.utc)
-    now_utc = now_local.astimezone(timezone.utc)
+    today_start_utc = today_start_local.astimezone(UTC)
+    now_utc = now_local.astimezone(UTC)
 
     if range_key == "today":
         return _fmt_z(today_start_utc), _fmt_z(now_utc)

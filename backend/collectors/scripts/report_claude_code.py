@@ -8,9 +8,8 @@
 """
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-
 
 OUTPUT_DIR = Path.home() / ".claude" / "token-statistic"
 
@@ -42,7 +41,7 @@ def main():
             "cache_creation_input_tokens": data.get("cache_creation_input_tokens", 0),
         }
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     record = {
         "timestamp": now.isoformat(),

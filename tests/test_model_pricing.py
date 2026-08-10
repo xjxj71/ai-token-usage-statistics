@@ -1,6 +1,6 @@
 import pytest
 
-from backend.pricing.model_pricing import calculate_cost, MODEL_PRICING, load_pricing
+from backend.pricing.model_pricing import MODEL_PRICING, calculate_cost, load_pricing
 
 
 @pytest.mark.unit

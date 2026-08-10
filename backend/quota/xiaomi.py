@@ -22,8 +22,7 @@ import json
 import logging
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone, timedelta
-from typing import Any
+from datetime import UTC, datetime, timedelta
 
 from backend.db import database as db_module
 from backend.quota.base import (
@@ -87,7 +86,7 @@ class XiaomiQuotaProvider(QuotaProvider):
         if cookie:
             try:
                 return await self._fetch_api(cookie)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 logger.warning("Xiaomi API fetch failed, falling back to estimate: %s", exc)
                 snapshot = await self._estimate()
                 snapshot.error = str(exc)
@@ -117,7 +116,7 @@ class XiaomiQuotaProvider(QuotaProvider):
         plan_data: dict,
         usage_data: dict,
     ) -> QuotaSnapshot:
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
 
         # --- Plan detail ---
         # Real response: {"code":0,"data":{"planCode":"standard","planName":"Standard",
@@ -193,13 +192,13 @@ class XiaomiQuotaProvider(QuotaProvider):
 
     async def _estimate(self) -> QuotaSnapshot:
         """Estimate Credits consumption from local ``token_usage`` table."""
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
         total_credits = float(_PLAN_LIMITS_MONTHLY.get(self.plan_type, _PLAN_LIMITS_MONTHLY["pro"]))
 
         try:
             db = await db_module.get_db()
             # Current billing period: last 30 days (simplified).
-            period_start = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+            period_start = (datetime.now(UTC) - timedelta(days=30)).isoformat()
             rows = await db.execute_fetchall(
                 """SELECT model,
                           SUM(input_tokens) as input_tokens,
@@ -233,7 +232,7 @@ class XiaomiQuotaProvider(QuotaProvider):
                     + cache_write * rate_miss  # cache writes count as input
                     + out * rate_out
                 )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.warning("Xiaomi local estimate failed: %s", exc)
             used_credits = 0.0
 

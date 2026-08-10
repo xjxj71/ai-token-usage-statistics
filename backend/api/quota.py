@@ -17,7 +17,7 @@ import yaml
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from backend.quota.base import QuotaSnapshot, QuotaWindow, ModelMultiplier
+from backend.quota.base import ModelMultiplier, QuotaSnapshot, QuotaWindow
 from backend.quota.registry import get_registry
 
 logger = logging.getLogger(__name__)
@@ -134,9 +134,9 @@ async def update_provider_config(body: ProviderConfigUpdate):
     raw: dict[str, Any] = {}
     if _CONFIG_YAML.exists():
         try:
-            with open(_CONFIG_YAML, "r", encoding="utf-8") as f:
+            with open(_CONFIG_YAML, "r", encoding="utf-8") as f:  # noqa: ASYNC230
                 raw = yaml.safe_load(f) or {}
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to read %s: %s", _CONFIG_YAML, exc)
 
     providers = raw.setdefault("providers", {})
@@ -161,9 +161,9 @@ async def update_provider_config(body: ProviderConfigUpdate):
     # Persist to YAML.
     _CONFIG_YAML.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with open(_CONFIG_YAML, "w", encoding="utf-8") as f:
+        with open(_CONFIG_YAML, "w", encoding="utf-8") as f:  # noqa: ASYNC230
             yaml.dump(raw, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         logger.error("Failed to write %s: %s", _CONFIG_YAML, exc)
         raise HTTPException(status_code=500, detail=f"Failed to persist config: {exc}")
 

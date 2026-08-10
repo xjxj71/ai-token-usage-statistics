@@ -5,9 +5,9 @@ import logging
 import os
 import shutil
 import tempfile
-from datetime import datetime, timedelta, timezone
+from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Sequence
 
 import aiosqlite
 
@@ -251,8 +251,7 @@ class HermesCollector(BaseCollector):
 
                 # Track session lifecycle
                 if ended_at is not None:
-                    if row_id > max_closed_rowid:
-                        max_closed_rowid = row_id
+                    max_closed_rowid = max(max_closed_rowid, row_id)
                     if session_id not in new_finalized:
                         new_finalized.append(session_id)
                 else:
@@ -287,7 +286,7 @@ class HermesCollector(BaseCollector):
 
                 # Track last time tokens actually changed
                 if tokens_changed:
-                    new_last_seen[session_id] = datetime.now(timezone.utc).isoformat()
+                    new_last_seen[session_id] = datetime.now(UTC).isoformat()
 
                 # Seed mode: only populate snapshots, don't write records
                 if seed_mode:
@@ -306,7 +305,7 @@ class HermesCollector(BaseCollector):
                     if last_seen_str:
                         try:
                             last_seen_dt = datetime.fromisoformat(last_seen_str)
-                            if datetime.now(timezone.utc) - last_seen_dt > timedelta(hours=24):
+                            if datetime.now(UTC) - last_seen_dt > timedelta(hours=24):
                                 logger.info(
                                     "Hermes: skipping stale session %s (last seen %s)",
                                     session_id[:20], last_seen_str[:19],
@@ -331,13 +330,13 @@ class HermesCollector(BaseCollector):
                 # timestamp, so same-hour polls update the same record while
                 # different hours create new ones — preserving history.
                 started_at = row["started_at"]
-                now_utc = datetime.now(timezone.utc)
+                now_utc = datetime.now(UTC)
                 if ended_at is None:
                     # Open session — round current time to hour
                     hour_ts = now_utc.replace(minute=0, second=0, microsecond=0)
                 elif started_at:
                     # Closed session — round creation time to hour
-                    hour_ts = datetime.fromtimestamp(started_at, tz=timezone.utc).replace(
+                    hour_ts = datetime.fromtimestamp(started_at, tz=UTC).replace(
                         minute=0, second=0, microsecond=0
                     )
                 else:
@@ -359,7 +358,7 @@ class HermesCollector(BaseCollector):
                             {
                                 "_row_id": row_id,
                                 "ended": ended_at is not None,
-                                "last_seen": datetime.now(timezone.utc).isoformat(),
+                                "last_seen": datetime.now(UTC).isoformat(),
                             },
                             ensure_ascii=False,
                         ),

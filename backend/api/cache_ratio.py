@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, Query
 
@@ -18,10 +17,10 @@ router = APIRouter(tags=["cache-ratio"])
 @router.get("/cache-ratio")
 async def get_cache_ratio(
     range_key: str = Query("today", alias="range"),
-    from_date: Optional[str] = Query(None, alias="from"),
-    to_date: Optional[str] = Query(None, alias="to"),
-    agent: Optional[str] = Query(None),
-    model: Optional[str] = Query(None),
+    from_date: str | None = Query(None, alias="from"),
+    to_date: str | None = Query(None, alias="to"),
+    agent: str | None = Query(None),
+    model: str | None = Query(None),
     view: str = Query("by_agent", pattern="^(by_agent|by_model|by_agent_model)$"),
 ):
     """缓存命中率统计接口。

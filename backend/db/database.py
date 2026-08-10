@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import aiosqlite
 
@@ -88,7 +88,7 @@ async def _seed_pricing(db: aiosqlite.Connection) -> None:
     rows = await db.execute_fetchall("SELECT model FROM model_pricing")
     existing = {r["model"] for r in rows}
 
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     new_models = []
     for model, prices in MODEL_PRICING.items():
         if model not in existing:

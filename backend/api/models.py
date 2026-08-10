@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from backend.api.constants import IGNORED_MODELS, SUPPORTED_AGENTS
 from backend.db import database as db_module
 from backend.db.models import fetch_distinct_agents, fetch_distinct_models
-from backend.api.constants import IGNORED_MODELS, SUPPORTED_AGENTS
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +109,7 @@ async def update_pricing(model: str, body: PricingUpdate):
     if not row:
         raise HTTPException(status_code=404, detail=f"模型 '{model}' 不存在")
 
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     await db.execute(
         """UPDATE model_pricing
            SET input_price = ?, output_price = ?,
@@ -134,8 +134,8 @@ async def update_pricing(model: str, body: PricingUpdate):
 async def refresh_pricing():
     """从 OpenRouter API 一键获取最新模型定价，更新数据库。"""
     import json as json_mod
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     db = await db_module.get_db()
 
@@ -159,7 +159,7 @@ async def refresh_pricing():
         data = await asyncio.to_thread(_fetch)
 
         models = data.get("data", [])
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
 
         for m in models:
             model_id = m.get("id", "")
@@ -197,9 +197,9 @@ async def refresh_pricing():
 
     except urllib.error.URLError as e:
         logger.error("OpenRouter API 请求失败: %s", e)
-        raise HTTPException(status_code=502, detail=f"OpenRouter API 请求失败: {str(e)}")
-    except Exception as e:
-        logger.error("刷新定价失败: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"刷新定价失败: {str(e)}")
+        raise HTTPException(status_code=502, detail=f"OpenRouter API 请求失败: {e!s}")
+    except Exception:
+        logger.exception("刷新定价失败")
+        raise HTTPException(status_code=500, detail="刷新定价失败")
 
     return {"updated": updated, "added": added, "total": updated + added}

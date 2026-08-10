@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from backend.collectors.base import BaseCollector
 from backend.collectors.jsonl_utils import parse_timestamp
@@ -213,7 +213,7 @@ class HanakoCollector(BaseCollector):
                 continue
 
             try:
-                with open(fpath, "r", encoding="utf-8") as f:
+                with open(fpath, "r", encoding="utf-8") as f:  # noqa: ASYNC230
                     if start_pos > 0:
                         f.seek(start_pos)
 
@@ -239,11 +239,15 @@ class HanakoCollector(BaseCollector):
                 logger.warning("Hanako: failed to read %s: %s", fpath, e)
                 continue
 
-        if records:
-            self._save_state({
-                "last_timestamp": max_ts_str,
+        # Always persist position watermarks even without new records:
+        # this preserves file truncation resets and prevents re-scanning
+        # already-consumed files.
+        self._save_state(
+            {
+                "last_timestamp": max_ts_str or last_ts_str,
                 "file_positions": new_positions,
-            })
+            }
+        )
 
         logger.info("Hanako: collected %d new records", len(records))
         return records

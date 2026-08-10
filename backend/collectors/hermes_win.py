@@ -15,8 +15,8 @@ independent collector state files.  No cross-contamination.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from backend.collectors.hermes import HermesCollector
 from backend.config import settings

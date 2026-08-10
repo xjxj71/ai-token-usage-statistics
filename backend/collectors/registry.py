@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Sequence
+from collections.abc import Sequence
 
 from backend.collectors.base import BaseCollector
 from backend.collectors.claude_code import ClaudeCodeCollector
 from backend.collectors.hanako import HanakoCollector
 from backend.collectors.hermes import HermesCollector
 from backend.collectors.hermes_win import HermesWindowsCollector
-from backend.collectors.openclaude import OpenClaudeCollector
 from backend.collectors.mimo_code import MimoCodeCollector
 from backend.collectors.open_code import OpenCodeCollector
+from backend.collectors.openclaude import OpenClaudeCollector
 from backend.collectors.openclaw import OpenClawCollector
 from backend.config import settings
 from backend.db.database import get_db
@@ -63,8 +63,8 @@ async def run_collection_cycle() -> int:
                     await insert_records(db, records)
                 total_new += len(records)
                 logger.info("Collected %d records from %s", len(records), collector.name)
-        except Exception as e:
-            logger.error("Collector %s failed: %s", collector.name, e, exc_info=True)
+        except Exception:
+            logger.exception("Collector %s failed", collector.name)
 
     return total_new
 
@@ -74,8 +74,8 @@ async def _poll_loop() -> None:
         try:
             total_new = await run_collection_cycle()
             _notify_sse(total_new)
-        except Exception as e:
-            logger.error("Collection cycle error: %s", e, exc_info=True)
+        except Exception:
+            logger.exception("Collection cycle error")
         await asyncio.sleep(settings.poll_interval_seconds)
 
 

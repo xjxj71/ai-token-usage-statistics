@@ -5,8 +5,8 @@ from unittest.mock import patch
 import pytest
 
 from backend.collectors.claude_code import ClaudeCodeCollector
+from backend.collectors.jsonl_utils import build_token_record, parse_jsonl_line, parse_timestamp
 from backend.collectors.openclaw import OpenClawCollector
-from backend.collectors.jsonl_utils import parse_timestamp, build_token_record, parse_jsonl_line
 
 
 @pytest.fixture
@@ -70,9 +70,11 @@ class TestOpenClawCollector:
         with patch("backend.collectors.openclaw.settings") as mock_settings:
             mock_settings.wsl_copy_to_tmp.return_value = True
             mock_settings.openclaw_sessions_path = str(session_file)
-            with patch.object(collector, "_load_state", return_value={}):
-                with patch.object(collector, "_save_state"):
-                    records = await collector.collect()
+            with (
+                patch.object(collector, "_load_state", return_value={}),
+                patch.object(collector, "_save_state"),
+            ):
+                records = await collector.collect()
 
         assert len(records) == 1
         assert records[0].agent == "openclaw"
@@ -98,9 +100,11 @@ class TestOpenClawCollector:
         with patch("backend.collectors.openclaw.settings") as mock_settings:
             mock_settings.wsl_copy_to_tmp.return_value = True
             mock_settings.openclaw_sessions_path = str(session_file)
-            with patch.object(collector, "_load_state", return_value={"last_timestamp": "2025-05-02T00:00:00Z"}):
-                with patch.object(collector, "_save_state"):
-                    records = await collector.collect()
+            with (
+                patch.object(collector, "_load_state", return_value={"last_timestamp": "2025-05-02T00:00:00Z"}),
+                patch.object(collector, "_save_state"),
+            ):
+                records = await collector.collect()
 
         assert len(records) == 0
 

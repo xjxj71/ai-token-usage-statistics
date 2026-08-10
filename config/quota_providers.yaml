@@ -7,5 +7,5 @@ providers:
     enabled: true
     plan_type: standard
     session_token: cookie-preferences=%7B%22analytical%22%3Atrue%2C%22functional%22%3Atrue%7D;
-      api-platform_serviceToken="yVHEDQlNiFT1WavLtPFne1ouWnCOnW52h4DsBTpf1dHspgQZNJraGk3lHr2YAnC5Z/zLDu0MzrOjD+/jPcgA37coXqc+hJNCiOBfQglMTG0BLOUdZkdckd/NbMYvnYraU5dWHL8B+OBPw1hNbGP4Q/Zkba2k5o5cRTAMaUGytuCBP1KsYCdFJWkECQor5aY5ovchC8ZbeYnCHFJFdgBaR0R92slySIadGxh9cpauq8FBa4UdxG4rVKnRwLUQLM2S0GxZXYGIoPOmZmMM3uKDVSPpwtTuJP3pkHWAykYSkG7Bsp32JcyTtKR+vZ3XE+4PiBbl4BM6pFVX5IWrImjw6S90I8Nb0yyZztnJTC7GMSw=";
-      userId=10792162; api-platform_slh="EUJuP4Hk+1WcpRCzo814i4Ie+bg="; api-platform_ph="WWbg3trbL9OgaYFiJ5BAhA=="
+      api-platform_serviceToken="yVHEDQlNiFT1WavLtPFne1ouWnCOnW52h4DsBTpf1dHspgQZNJraGk3lHr2YAnC5Z/zLDu0MzrOjD+/jPcgA37coXqc+hJNCiOBfQglMTG0BLOUdZkdckd/NbMYvnYra+NLKX0OUmsf1C27vkI0/DJkqmapPtIMqeHRYZISEC4xZSkLjPZhPVBikqfgWUozJ1z7f5r5zHfup2ad1IsLdAyM/Vxrl/kp0tpwhkWz1ZW9eJRcBtw/SiP9eUF81amdBBGHF0HEwxboackzm/bGc7LymKfuwz0PM6IWeSiBYdb8EcTp9rtZKZgm6owALQwF3XOISc/VUDc4bGTeqakKLBu3A+N1p94stB+eeKi9cPPk=";
+      userId=10792162; api-platform_slh="p697Lpyct6DWxOWQ2fW7RK/fROM="; api-platform_ph="cUcZ0ujPrtl9uvLn3/uLVg=="

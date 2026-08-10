@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import Optional
 
 from fastapi import APIRouter, Query
 
@@ -16,11 +15,11 @@ router = APIRouter(tags=["usage"])
 async def get_usage(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=500),
-    agent: Optional[str] = Query(None),
-    model: Optional[str] = Query(None),
-    range_key: Optional[str] = Query(None, alias="range"),
-    from_date: Optional[str] = Query(None, alias="from"),
-    to_date: Optional[str] = Query(None, alias="to"),
+    agent: str | None = Query(None),
+    model: str | None = Query(None),
+    range_key: str | None = Query(None, alias="range"),
+    from_date: str | None = Query(None, alias="from"),
+    to_date: str | None = Query(None, alias="to"),
 ):
     db = await db_module.get_db()
 

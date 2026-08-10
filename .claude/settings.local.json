@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(gh search *)",
+      "Bash(command -v gh)",
+      "Bash(curl *)",
+      "Bash(python3 -c ' *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git remote *)",
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(netstat -tlnp)",
+      "Bash(npx vite *)"
+    ]
+  }
+}

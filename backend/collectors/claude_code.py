@@ -7,8 +7,8 @@ Zero-intrusion: Claude Code writes session files natively — no hooks or config
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from backend.collectors.base import BaseCollector
 from backend.collectors.jsonl_utils import parse_timestamp, scan_jsonl_directory
@@ -47,11 +47,16 @@ class ClaudeCodeCollector(BaseCollector):
             include_metadata=True,
         )
 
-        if records:
-            self._save_state({
-                "last_timestamp": max_ts_str,
+        # Always persist position watermarks even if no new records were
+        # produced. Otherwise a truncated/replaced file with start_pos=0
+        # would lose its reset on the next poll and re-read the same
+        # content on every cycle.
+        self._save_state(
+            {
+                "last_timestamp": max_ts_str or last_ts_str,
                 "file_positions": new_positions,
-            })
+            }
+        )
 
         logger.info("Claude Code: collected %d new records", len(records))
         return records

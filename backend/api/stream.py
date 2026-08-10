@@ -29,7 +29,7 @@ async def _wait_for_notification(timeout: float) -> bool:
         await asyncio.wait_for(_new_records_event.wait(), timeout=timeout)
         _new_records_event.clear()
         return True
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return False
 
 
@@ -48,8 +48,8 @@ async def stream_events():
                         yield f"data: {data}\n\n"
                     else:
                         yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
-                except Exception as e:
-                    logger.error("SSE event generator error: %s", e, exc_info=True)
+                except Exception:
+                    logger.exception("SSE event generator error")
                     yield f"data: {json.dumps({'type': 'error', 'message': 'Internal server error'})}\n\n"
         else:
             # No background polling — let clients know collection is disabled

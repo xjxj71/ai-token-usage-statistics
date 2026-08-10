@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Token 用量统计 - 仪表盘原型</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<style>
+  :root {
+    --bg: #0F172A;
+    --card: #1E293B;
+    --border: #334155;
+    --primary: #6366F1;
+    --cyan: #22D3EE;
+    --green: #10B981;
+    --amber: #F59E0B;
+    --red: #EF4444;
+    --blue: #3B82F6;
+    --text: #F8FAFC;
+    --text-2: #94A3B8;
+    --text-3: #64748B;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif; background: var(--bg); color: var(--text); }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .card-sm { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .tag { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 9999px; font-size: 13px; cursor: pointer; transition: all .2s; border: 1px solid var(--border); background: transparent; color: var(--text-2); }
+  .tag:hover { border-color: var(--primary); color: var(--text); }
+  .tag.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .tab { padding: 8px 16px; border-radius: 8px; font-size: 13px; cursor: pointer; transition: all .2s; background: transparent; color: var(--text-2); border: none; }
+  .tab:hover { color: var(--text); background: rgba(99,102,241,.15); }
+  .tab.active { background: var(--primary); color: #fff; }
+  .trend-up { color: var(--green); }
+  .trend-down { color: var(--red); }
+  @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.4} }
+  .pulse-dot { width:8px; height:8px; border-radius:50%; background:var(--green); animation: pulse-dot 2s infinite; }
+  .chart-container { width:100%; height:320px; }
+  .btn { padding: 8px 16px; border-radius: 8px; font-size: 13px; cursor: pointer; transition: all .2s; }
+  .btn-primary { background: var(--primary); color: #fff; border: none; }
+  .btn-primary:hover { opacity: .85; }
+  .btn-ghost { background: transparent; color: var(--text-2); border: 1px solid var(--border); }
+  .btn-ghost:hover { border-color: var(--primary); color: var(--text); }
+  input[type="text"] { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; color: var(--text); font-size: 13px; outline: none; transition: border .2s; }
+  input[type="text"]:focus { border-color: var(--primary); }
+  input[type="text"]::placeholder { color: var(--text-3); }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; padding: 10px 14px; font-size: 12px; color: var(--text-3); border-bottom: 1px solid var(--border); text-transform: uppercase; letter-spacing: .5px; }
+  td { padding: 10px 14px; font-size: 13px; border-bottom: 1px solid rgba(51,65,85,.4); }
+  tr:hover td { background: rgba(99,102,241,.06); }
+  .badge { display:inline-block; padding:2px 10px; border-radius:9999px; font-size:11px; font-weight:600; }
+  .badge-hermes { background:rgba(99,102,241,.2); color:#818CF8; }
+  .badge-claude { background:rgba(139,92,246,.2); color:#A78BFA; }
+  .badge-openclaw { background:rgba(16,185,129,.2); color:#34D399; }
+  .badge-openclaude { background:rgba(245,158,11,.2); color:#FBBF24; }
+  .badge-hanako { background:rgba(236,72,153,.2); color:#F472B6; }
+  .collapsible-header { cursor:pointer; display:flex; align-items:center; justify-content:space-between; padding:16px 20px; }
+  .collapsible-header svg { transition: transform .3s; }
+  .collapsible-header.open svg { transform: rotate(180deg); }
+  .collapsible-body { overflow:hidden; transition: max-height .3s ease; }
+  .input-edit { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:4px 10px; color:var(--text); font-size:13px; width:100px; text-align:right; }
+  .page-btn { width:32px; height:32px; display:inline-flex; align-items:center; justify-content:center; border-radius:6px; font-size:13px; cursor:pointer; transition:all .2s; border:1px solid var(--border); background:transparent; color:var(--text-2); }
+  .page-btn:hover { border-color:var(--primary); color:var(--text); }
+  .page-btn.active { background:var(--primary); border-color:var(--primary); color:#fff; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- Header -->
+<header style="border-bottom:1px solid var(--border); padding:16px 24px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
+  <div style="display:flex; align-items:center; gap:12px;">
+    <div style="display:flex; align-items:center; gap:8px;">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+      <h1 style="font-size:18px; font-weight:700;">AI Token 用量统计</h1>
+    </div>
+    <div style="display:flex; align-items:center; gap:6px; margin-left:8px;">
+      <div class="pulse-dot"></div>
+      <span style="font-size:11px; color:var(--text-3);">实时连接</span>
+    </div>
+  </div>
+  <div style="display:flex; gap:4px; background:var(--card); border-radius:10px; padding:4px; border:1px solid var(--border);">
+    <button class="tab active" onclick="switchTab(this)">今日</button>
+    <button class="tab" onclick="switchTab(this)">7 天</button>
+    <button class="tab" onclick="switchTab(this)">30 天</button>
+    <button class="tab" onclick="switchTab(this)">自定义</button>
+  </div>
+</header>
+
+<!-- Agent filter tags -->
+<div style="padding:12px 24px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+  <span style="font-size:12px; color:var(--text-3); margin-right:4px;">Agent:</span>
+  <button class="tag active" onclick="toggleTag(this)">hermes</button>
+  <button class="tag active" onclick="toggleTag(this)">claude-code</button>
+  <button class="tag active" onclick="toggleTag(this)">openclaw</button>
+  <button class="tag" onclick="toggleTag(this)">openclaude</button>
+  <button class="tag" onclick="toggleTag(this)">hanako</button>
+</div>
+
+<main style="padding:0 24px 48px;">
+  <!-- Stat Cards -->
+  <div style="display:grid; grid-template-columns:repeat(6,1fr); gap:14px; margin-bottom:24px;" id="stat-grid">
+  </div>
+
+  <!-- Trend Charts -->
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:24px;">
+    <div class="card"><h3 style="font-size:14px; font-weight:600; margin-bottom:12px;">按 Agent 的 Token 用量趋势</h3><div id="trendAgent" class="chart-container"></div></div>
+    <div class="card"><h3 style="font-size:14px; font-weight:600; margin-bottom:12px;">按模型的 Token 用量趋势</h3><div id="trendModel" class="chart-container"></div></div>
+  </div>
+
+  <!-- Stacked Bar -->
+  <div class="card" style="margin-bottom:24px;"><h3 style="font-size:14px; font-weight:600; margin-bottom:12px;">Agent Token 对比（堆叠柱状图）</h3><div id="stackedBar" class="chart-container"></div></div>
+
+  <!-- Pie + Model Bar -->
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:24px;">
+    <div class="card"><h3 style="font-size:14px; font-weight:600; margin-bottom:12px;">Agent 占比（环形图）</h3><div id="agentPie" class="chart-container"></div></div>
+    <div class="card"><h3 style="font-size:14px; font-weight:600; margin-bottom:12px;">Model 分布</h3><div id="modelBar" class="chart-container"></div></div>
+  </div>
+
+  <!-- Usage Table -->
+  <div class="card" style="margin-bottom:24px;">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:8px;">
+      <h3 style="font-size:14px; font-weight:600;">使用记录</h3>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <input type="text" placeholder="搜索 Agent / 模型..." id="searchInput" oninput="filterTable()" style="width:220px;">
+        <button class="btn btn-ghost" onclick="exportCSV()">导出 CSV</button>
+      </div>
+    </div>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>时间</th><th>Agent</th><th>模型</th><th>输入 Token</th><th>输出 Token</th><th>缓存 Token</th><th>费用 (USD)</th>
+          </tr>
+        </thead>
+        <tbody id="usageBody"></tbody>
+      </table>
+    </div>
+    <div id="pagination" style="display:flex; align-items:center; justify-content:center; gap:6px; margin-top:16px;"></div>
+  </div>
+
+  <!-- Model Pricing Collapsible -->
+  <div class="card" style="padding:0; overflow:hidden;">
+    <div class="collapsible-header" onclick="togglePricing(this)">
+      <h3 style="font-size:14px; font-weight:600;">模型定价管理</h3>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+    </div>
+    <div class="collapsible-body" id="pricingBody" style="max-height:0;">
+      <div style="padding:0 20px 20px;">
+        <table>
+          <thead>
+            <tr><th>模型</th><th>输入价格 ($/1M)</th><th>输出价格 ($/1M)</th><th>缓存读取 ($/1M)</th><th>缓存写入 ($/1M)</th><th>操作</th></tr>
+          </thead>
+          <tbody id="pricingTable"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+// ========== DATA ==========
+const AGENTS = ['hermes','claude-code','openclaw','openclaude','hanako'];
+const MODELS = ['gpt-4o','claude-sonnet-4','deepseek-v3','glm-4-flash','qwen-plus'];
+const COLORS = ['#6366F1','#8B5CF6','#10B981','#F59E0B','#EC4899','#22D3EE'];
+const CHART_COLORS = ['#6366F1','#22D3EE','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#3B82F6'];
+
+const statData = [
+  {title:'总 Token', value:1234567, unit:'', icon:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6366F1" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>', trend:12.5, up:true},
+  {title:'输入 Token', value:890000, unit:'', icon:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22D3EE" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>', trend:5.2, up:false},
+  {title:'输出 Token', value:340000, unit:'', icon:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>', trend:8.1, up:true},
+  {title:'缓存 Token', value:42000, unit:'', icon:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M3 9h18"/></svg>', trend:20.3, up:true},
+  {title:'总费用', value:12.50, unit:'$', prefix:true, icon:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>', trend:1.2, up:true},
+  {title:'请求次数', value:256, unit:'次', icon:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8B5CF6" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>', trend:3.0, up:true},
+];
+
+function fmt(n){
+  if(n>=1e8) return (n/1e8).toFixed(2)+'亿';
+  if(n>=1e4) return (n/1e4).toFixed(1)+'万';
+  return n.toLocaleString();
+}
+
+// Render stat cards
+const sg = document.getElementById('stat-grid');
+statData.forEach(s=>{
+  const arrow = s.up
+    ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="3"><path d="M12 19V5M5 12l7-7 7 7"/></svg>'
+    : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="3"><path d="M12 5v14M5 12l7 7 7-7"/></svg>';
+  const cls = s.up?'trend-up':'trend-down';
+  const val = s.prefix ? '$'+s.value.toFixed(2) : fmt(s.value)+' '+s.unit;
+  sg.innerHTML += `<div class="card-sm" style="transition:transform .2s;" onmouseenter="this.style.transform='translateY(-2px)'" onmouseleave="this.style.transform='none'">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">${s.icon}<span style="font-size:12px;color:var(--text-3);">${s.title}</span></div>
+    <div style="font-size:22px;font-weight:700;margin-bottom:6px;">${val}</div>
+    <div style="display:flex;align-items:center;gap:4px;" class="${cls}">${arrow}<span style="font-size:11px;">${s.up?'+':'-'}${s.trend}%</span></div>
+  </div>`;
+});
+
+// ========== CHARTS ==========
+const chartTheme = {backgroundColor:'transparent', textStyle:{color:'#94A3B8',fontFamily:'"PingFang SC","Microsoft YaHei",sans-serif'}};
+
+// Trend: Agent
+const trendAgentData = {
+  dates: ['05-21','05-22','05-23','05-24','05-25','05-26','05-27'],
+  series: [
+    {name:'hermes',data:[120000,145000,138000,162000,178000,155000,190000]},
+    {name:'claude-code',data:[85000,92000,88000,95000,110000,105000,118000]},
+    {name:'openclaw',data:[30000,28000,35000,32000,29000,38000,42000]},
+    {name:'openclaude',data:[5000,4200,6000,5500,7000,6800,8000]},
+    {name:'hanako',data:[2000,1800,2200,3000,2800,3500,4000]},
+  ]
+};
+
+function makeTrendOpt(data, title){
+  return {
+    ...chartTheme,
+    tooltip:{trigger:'axis',backgroundColor:'#1E293B',borderColor:'#334155',textStyle:{color:'#F8FAFC',fontSize:12}},
+    legend:{top:0,right:0,textStyle:{color:'#94A3B8',fontSize:11}},
+    grid:{top:30,right:16,bottom:24,left:60},
+    xAxis:{type:'category',data:data.dates,axisLine:{lineStyle:{color:'#334155'}},axisTick:{show:false},axisLabel:{color:'#64748B',fontSize:11}},
+    yAxis:{type:'value',splitLine:{lineStyle:{color:'rgba(51,65,85,.5)'}},axisLabel:{color:'#64748B',fontSize:11,formatter:v=>{if(v>=1e4)return(v/1e4)+'万';return v}}},
+    series:data.series.map((s,i)=>({
+      name:s.name,type:'line',smooth:true,data:s.data,
+      lineStyle:{width:2,color:CHART_COLORS[i]},
+      itemStyle:{color:CHART_COLORS[i]},
+      areaStyle:{color:{type:'linear',x:0,y:0,x2:0,y2:1,colorStops:[{offset:0,color:CHART_COLORS[i]+'40'},{offset:1,color:CHART_COLORS[i]+'05'}]}},
+      symbol:'circle',symbolSize:5,
+    }))
+  };
+}
+
+echarts.init(document.getElementById('trendAgent'),null,chartTheme).setOption(makeTrendOpt(trendAgentData,'Agent'));
+const trendModelData = {
+  dates: trendAgentData.dates,
+  series:[
+    {name:'gpt-4o',data:[90000,95000,102000,110000,115000,108000,125000]},
+    {name:'claude-sonnet-4',data:[60000,68000,65000,72000,80000,75000,88000]},
+    {name:'deepseek-v3',data:[40000,38000,45000,42000,40000,48000,52000]},
+    {name:'glm-4-flash',data:[20000,22000,18000,25000,28000,24000,30000]},
+    {name:'qwen-plus',data:[15000,14000,16000,13000,17000,15000,18000]},
+  ]
+};
+echarts.init(document.getElementById('trendModel'),null,chartTheme).setOption(makeTrendOpt(trendModelData,'Model'));
+
+// Stacked Bar
+const stackedData = {
+  agents: ['hermes','claude-code','openclaw','openclaude','hanako'],
+  input:  [890000, 620000, 210000, 45000, 22000],
+  output: [280000, 190000, 85000,  18000, 9000],
+  cache:  [64000,  42000,  25000,  5000,  2000],
+};
+echarts.init(document.getElementById('stackedBar'),null,chartTheme).setOption({
+  ...chartTheme,
+  tooltip:{trigger:'axis',axisPointer:{type:'shadow'},backgroundColor:'#1E293B',borderColor:'#334155',textStyle:{color:'#F8FAFC',fontSize:12},
+    formatter:p=>{let s=p[0].name+'<br/>';p.forEach(i=>{s+=i.marker+' '+i.seriesName+': '+fmt(i.value)+'<br/>';});return s;}
+  },
+  legend:{top:0,right:0,textStyle:{color:'#94A3B8',fontSize:11}},
+  grid:{top:30,right:16,bottom:24,left:60},
+  xAxis:{type:'category',data:stackedData.agents,axisLine:{lineStyle:{color:'#334155'}},axisTick:{show:false},axisLabel:{color:'#64748B',fontSize:11}},
+  yAxis:{type:'value',splitLine:{lineStyle:{color:'rgba(51,65,85,.5)'}},axisLabel:{color:'#64748B',fontSize:11,formatter:v=>{if(v>=1e4)return(v/1e4)+'万';return v}}},
+  series:[
+    {name:'输入',type:'bar',stack:'total',data:stackedData.input,itemStyle:{color:'#6366F1',borderRadius:[0,0,0,0]},barWidth:'40%'},
+    {name:'输出',type:'bar',stack:'total',data:stackedData.output,itemStyle:{color:'#22D3EE'}},
+    {name:'缓存',type:'bar',stack:'total',data:stackedData.cache,itemStyle:{color:'#F59E0B',borderRadius:[4,4,0,0]}},
+  ]
+});
+
+// Agent Pie (donut)
+const agentPieData = [
+  {name:'hermes',value:1234000},
+  {name:'claude-code',value:852000},
+  {name:'openclaw',value:320000},
+  {name:'openclaude',value:68000},
+  {name:'hanako',value:33000},
+];
+echarts.init(document.getElementById('agentPie'),null,chartTheme).setOption({
+  ...chartTheme,
+  tooltip:{trigger:'item',backgroundColor:'#1E293B',borderColor:'#334155',textStyle:{color:'#F8FAFC',fontSize:12},
+    formatter:p=>{return p.name+': '+fmt(p.value)+' ('+p.percent+'%)';}
+  },
+  series:[{
+    type:'pie',radius:['45%','72%'],center:['50%','52%'],
+    label:{color:'#94A3B8',fontSize:11,formatter:'{b}\n{d}%'},
+    labelLine:{lineStyle:{color:'#334155'}},
+    data:agentPieData.map((d,i)=>({...d,itemStyle:{color:CHART_COLORS[i]}})),
+    emphasis:{itemStyle:{shadowBlur:20,shadowColor:'rgba(0,0,0,.3)'}},
+  }]
+});
+
+// Model Bar (horizontal)
+const modelBarData = [
+  {name:'gpt-4o',value:535000},
+  {name:'claude-sonnet-4',value:408000},
+  {name:'deepseek-v3',value:263000},
+  {name:'glm-4-flash',value:147000},
+  {name:'qwen-plus',value:98000},
+];
+echarts.init(document.getElementById('modelBar'),null,chartTheme).setOption({
+  ...chartTheme,
+  tooltip:{trigger:'axis',axisPointer:{type:'shadow'},backgroundColor:'#1E293B',borderColor:'#334155',textStyle:{color:'#F8FAFC',fontSize:12}},
+  grid:{top:8,right:40,bottom:8,left:110},
+  xAxis:{type:'value',splitLine:{lineStyle:{color:'rgba(51,65,85,.5)'}},axisLabel:{color:'#64748B',fontSize:11,formatter:v=>{if(v>=1e4)return(v/1e4)+'万';return v}}},
+  yAxis:{type:'category',data:modelBarData.map(d=>d.name).reverse(),axisLine:{show:false},axisTick:{show:false},axisLabel:{color:'#94A3B8',fontSize:12}},
+  series:[{
+    type:'bar',data:modelBarData.map(d=>d.value).reverse(),barWidth:'50%',
+    itemStyle:{borderRadius:[0,6,6,0],color:{type:'linear',x:0,y:0,x2:1,y2:0,colorStops:[{offset:0,color:'#6366F1'},{offset:1,color:'#22D3EE'}]}},
+    label:{show:true,position:'right',color:'#94A3B8',fontSize:11,formatter:p=>fmt(p.value)},
+  }]
+});
+
+// ========== USAGE TABLE ==========
+const usageRecords = [];
+const now = new Date();
+for(let i=0;i<35;i++){
+  const t = new Date(now - i*3600*1000*(Math.random()*3+1));
+  const agent = AGENTS[Math.floor(Math.random()*3)]; // mostly first 3
+  const model = MODELS[Math.floor(Math.random()*MODELS.length)];
+  const inp = Math.floor(Math.random()*50000+5000);
+  const out = Math.floor(Math.random()*20000+2000);
+  const cache = Math.floor(Math.random()*5000);
+  const cost = (inp*3+out*15+cache*0.3)/1e6;
+  usageRecords.push({
+    time: t.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'}),
+    agent, model, input:inp, output:out, cache, cost
+  });
+}
+
+let currentPage = 1;
+const PAGE_SIZE = 10;
+let filteredRecords = [...usageRecords];
+
+function badgeClass(agent){
+  const m={'hermes':'hermes','claude-code':'claude','openclaw':'openclaw','openclaude':'openclaude','hanako':'hanako'};
+  return 'badge-'+(m[agent]||'hermes');
+}
+
+function renderTable(){
+  const start = (currentPage-1)*PAGE_SIZE;
+  const pageData = filteredRecords.slice(start, start+PAGE_SIZE);
+  const body = document.getElementById('usageBody');
+  body.innerHTML = pageData.map(r=>`<tr>
+    <td style="color:var(--text-2)">${r.time}</td>
+    <td><span class="badge ${badgeClass(r.agent)}">${r.agent}</span></td>
+    <td>${r.model}</td>
+    <td>${fmt(r.input)}</td>
+    <td>${fmt(r.output)}</td>
+    <td>${fmt(r.cache)}</td>
+    <td style="color:var(--amber)">$${r.cost.toFixed(4)}</td>
+  </tr>`).join('');
+
+  // Pagination
+  const totalPages = Math.ceil(filteredRecords.length/PAGE_SIZE);
+  const pag = document.getElementById('pagination');
+  let html = '';
+  if(currentPage>1) html += `<button class="page-btn" onclick="goPage(${currentPage-1})">&lt;</button>`;
+  for(let i=1;i<=totalPages;i++){
+    if(i===1||i===totalPages||Math.abs(i-currentPage)<=1){
+      html += `<button class="page-btn ${i===currentPage?'active':''}" onclick="goPage(${i})">${i}</button>`;
+    } else if(Math.abs(i-currentPage)===2){
+      html += '<span style="color:var(--text-3);padding:0 4px;">...</span>';
+    }
+  }
+  if(currentPage<totalPages) html += `<button class="page-btn" onclick="goPage(${currentPage+1})">&gt;</button>`;
+  pag.innerHTML = html;
+}
+
+function goPage(p){currentPage=p;renderTable();}
+
+function filterTable(){
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  filteredRecords = q ? usageRecords.filter(r=>r.agent.includes(q)||r.model.includes(q)) : [...usageRecords];
+  currentPage=1;
+  renderTable();
+}
+
+function exportCSV(){
+  const header='时间,Agent,模型,输入Token,输出Token,缓存Token,费用(USD)';
+  const rows=filteredRecords.map(r=>`"${r.time}",${r.agent},${r.model},${r.input},${r.output},${r.cache},${r.cost.toFixed(6)}`);
+  const csv='\uFEFF'+header+'\n'+rows.join('\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download='token-export.csv';a.click();URL.revokeObjectURL(url);
+}
+
+renderTable();
+
+// ========== MODEL PRICING ==========
+const pricingData = [
+  {model:'gpt-4o',input:2.50,output:10.00,cache_read:1.25,cache_write:2.50},
+  {model:'claude-sonnet-4',input:3.00,output:15.00,cache_read:0.30,cache_write:3.75},
+  {model:'deepseek-v3',input:0.27,output:1.10,cache_read:0.07,cache_write:0.27},
+  {model:'glm-4-flash',input:0.10,output:0.10,cache_read:0.01,cache_write:0.10},
+  {model:'qwen-plus',input:0.80,output:2.40,cache_read:0.40,cache_write:0.80},
+];
+
+const pt = document.getElementById('pricingTable');
+pt.innerHTML = pricingData.map(p=>`<tr>
+  <td style="font-weight:600">${p.model}</td>
+  <td><input class="input-edit" type="text" value="${p.input.toFixed(2)}"></td>
+  <td><input class="input-edit" type="text" value="${p.output.toFixed(2)}"></td>
+  <td><input class="input-edit" type="text" value="${p.cache_read.toFixed(2)}"></td>
+  <td><input class="input-edit" type="text" value="${p.cache_write.toFixed(2)}"></td>
+  <td><button class="btn btn-primary" style="padding:4px 12px;font-size:12px;" onclick="this.textContent='已保存';setTimeout(()=>this.textContent='保存',1000)">保存</button></td>
+</tr>`).join('');
+
+// ========== INTERACTIONS ==========
+function switchTab(el){
+  el.parentElement.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+}
+
+function toggleTag(el){el.classList.toggle('active');}
+
+function togglePricing(header){
+  header.classList.toggle('open');
+  const body = document.getElementById('pricingBody');
+  body.style.maxHeight = header.classList.contains('open') ? body.scrollHeight+'px' : '0';
+}
+
+// Resize charts
+window.addEventListener('resize',()=>{document.querySelectorAll('.chart-container').forEach(c=>{const inst=echarts.getInstanceByDom(c);if(inst)inst.resize();});});
+</script>
+</body>
+</html>

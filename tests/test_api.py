@@ -3,7 +3,6 @@ import pytest
 from backend.db import database as db_module
 from backend.db.models import TokenRecord, insert_records
 
-
 # ── Auth middleware tests ────────────────────────────────────────
 
 

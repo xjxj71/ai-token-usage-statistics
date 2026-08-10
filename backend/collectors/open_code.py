@@ -6,8 +6,8 @@ Reads token usage from OpenCode's SQLite database at ~/.local/share/opencode/ope
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from backend.collectors.base import BaseCollector
 from backend.collectors.opencode_db_utils import extract_token_records

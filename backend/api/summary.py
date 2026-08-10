@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, Query
 
@@ -59,10 +58,10 @@ def _aggregate_rows(rows: list[SummaryRow], group_by: str = "agent") -> dict:
 @router.get("/summary")
 async def get_summary(
     range_key: str = Query("today", alias="range"),
-    from_date: Optional[str] = Query(None, alias="from"),
-    to_date: Optional[str] = Query(None, alias="to"),
-    agent: Optional[str] = Query(None),
-    model: Optional[str] = Query(None),
+    from_date: str | None = Query(None, alias="from"),
+    to_date: str | None = Query(None, alias="to"),
+    agent: str | None = Query(None),
+    model: str | None = Query(None),
     group_by: str = Query("agent", pattern="^(agent|model)$"),
 ):
     db = await db_module.get_db()
