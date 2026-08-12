@@ -21,8 +21,7 @@ jobs:
         run: pip install ruff==0.16.2
 
       - name: Run ruff
-        run: ruff check backend/ tests/ --output-format=github --no-fix 2>&1 || true
-          echo "Ruff check completed"
+        run: ruff check backend/ tests/ --output-format=github --no-fix
 
   test:
     runs-on: ubuntu-latest
