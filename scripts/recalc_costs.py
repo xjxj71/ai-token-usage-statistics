@@ -15,7 +15,7 @@ from pathlib import Path
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 
-from backend.pricing.model_pricing import load_pricing, MODEL_PRICING
+from backend.pricing.model_pricing import load_pricing
 
 
 def recalc(db_path: str, dry_run: bool = False) -> None:
