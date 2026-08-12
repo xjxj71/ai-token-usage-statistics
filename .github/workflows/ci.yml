@@ -21,7 +21,7 @@ jobs:
         run: pip install ruff==0.16.2
 
       - name: Run ruff
-        run: ruff check backend/ tests/
+        run: ruff check backend/ tests/ --output-format=concise
 
   test:
     runs-on: ubuntu-latest
