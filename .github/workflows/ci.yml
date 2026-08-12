@@ -23,7 +23,7 @@ jobs:
       - name: Run ruff
         run: |
           echo "Running ruff check..."
-          ruff check backend/ tests/ --output-format=github --no-fix
+          ruff check backend/ tests/ --output-format=github --no-fix 2>&1
           EXIT_CODE=$?
           echo "Ruff check completed with exit code: $EXIT_CODE"
           exit $EXIT_CODE
