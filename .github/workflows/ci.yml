@@ -24,7 +24,9 @@ jobs:
         run: ruff --version
 
       - name: Run ruff
-        run: ruff check backend/ tests/ --output-format=concise --no-fix
+        run: |
+          ruff check backend/ tests/ --output-format=concise --no-fix
+          echo "Ruff exit code: $?"
 
   test:
     runs-on: ubuntu-latest
