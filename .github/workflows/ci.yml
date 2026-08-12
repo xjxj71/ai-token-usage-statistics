@@ -24,7 +24,9 @@ jobs:
         run: |
           echo "Running ruff check..."
           ruff check backend/ tests/ --output-format=github --no-fix
-          echo "Ruff check completed with exit code: $?"
+          EXIT_CODE=$?
+          echo "Ruff check completed with exit code: $EXIT_CODE"
+          exit $EXIT_CODE
 
   test:
     runs-on: ubuntu-latest
