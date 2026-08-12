@@ -21,7 +21,10 @@ jobs:
         run: pip install ruff==0.16.2
 
       - name: Run ruff
-        run: ruff check backend/ tests/ --output-format=github --no-fix
+        run: |
+          echo "Running ruff check..."
+          ruff check backend/ tests/ --output-format=github --no-fix
+          echo "Ruff check completed with exit code: $?"
 
   test:
     runs-on: ubuntu-latest
