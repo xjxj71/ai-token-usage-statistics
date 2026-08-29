@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets
 from contextlib import asynccontextmanager
@@ -10,10 +11,22 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from backend.api import cache_ratio, models, quota, stream, summary, trend, usage
+from backend.api import (
+    cache_ratio,
+    maintenance,
+    models,
+    quota,
+    report,
+    sessions,
+    stream,
+    summary,
+    trend,
+    usage,
+)
 from backend.collectors.registry import start_polling, stop_polling
 from backend.config import settings
 from backend.db.database import close_db, init_db
+from backend.maintenance import start_maintenance, stop_maintenance
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +35,22 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     await init_db()
     start_polling()
+    start_maintenance()
+
+    # Warm the exchange-rate cache in the background; failures fall back to
+    # the configured static rate, so nothing needs to be awaited or surfaced.
+    from backend.exchange_rate import get_rate
+
+    async def _warm_rate() -> None:
+        try:
+            await get_rate()
+        except Exception:  # warm-up only; reads fall back to the static rate
+            logger.debug("Exchange rate warm-up failed", exc_info=True)
+
+    warmup_task = asyncio.create_task(_warm_rate())
     yield
+    warmup_task.cancel()
+    stop_maintenance()
     stop_polling()
     await close_db()
 
@@ -76,11 +104,14 @@ def create_app() -> FastAPI:
 
     app.include_router(summary.router, prefix="/api")
     app.include_router(usage.router, prefix="/api")
+    app.include_router(sessions.router, prefix="/api")
     app.include_router(models.router, prefix="/api")
     app.include_router(stream.router, prefix="/api")
     app.include_router(trend.router, prefix="/api")
     app.include_router(cache_ratio.router, prefix="/api")
     app.include_router(quota.router, prefix="/api")
+    app.include_router(report.router, prefix="/api")
+    app.include_router(maintenance.router, prefix="/api")
 
     frontend_dist = settings.frontend_dist.resolve()
     if frontend_dist.exists():

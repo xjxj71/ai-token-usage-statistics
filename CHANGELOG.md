@@ -8,7 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
-- **ZCode 采集器**：监控 ZCode CLI 的 Token 用量。读取 `~/.zcode/cli/db/db.sqlite` 的 `model_usage` 表（每次模型请求一行），零侵入、无需配置
+- **项目维度分析**：新增 `token_usage.project` 列（取会话工作目录最后一段），`/api/summary?group_by=project` 聚合 + 前端"项目消耗分布"条形图 + FilterBar 项目多选筛选 + `/api/projects` 端点（数据来自 claude-code / openclaude / zcode）
+- **思考 Token 统计**：新增 `token_usage.reasoning_tokens` 列（zcode / opencode / mimocode 采集），第 8 张统计卡、使用记录"思考"列、CSV 导出、会话与摘要中的思考 Token 汇总
+- **会话明细钻取**：新增 `GET /api/sessions`（按 Agent×会话聚合，含项目/模型/Token/费用）与 `/api/usage?session_id=` 过滤；前端"会话明细"表点击行内展开查看该会话每条请求
+- **环比对比**：`range_utils.previous_window()` 计算等长上一周期；`/api/summary?compare=true` 返回 `previous` 总量；统计卡显示"较上期"涨跌角标（费用卡下降=绿色）
+- **汇率自动获取**：新增 `backend/exchange_rate.py`（open.er-api.com，12h 缓存 + `data/exchange_rate.json` 持久化 + 静态值回退）；`/api/config` 返回生效汇率与来源，`POST /api/config/exchange-rate/refresh` 强制刷新；页眉展示汇率 + 刷新按钮
+- **用量报告**：新增 `GET /api/report`（消耗概览 + 环比 + Top Agent/模型/项目 + 套餐余量 + Markdown 文本）；前端 ReportCard 折叠面板，支持一键复制
+- **数据保留与备份**：新增 `backend/maintenance.py` 与 `usage_daily` 归档表
+  - 保留策略：超期明细先按 天×Agent×模型×项目 聚合进 `usage_daily` 再删除；summary/trend/cache-ratio/distinct 查询自动 UNION 归档数据，历史趋势与汇总不丢失
+  - 备份：SQLite 在线备份到 `data/backups/`（每日自动 + 手动），保留最新 N 个，支持列表/下载/删除
+  - 新端点：`GET/PUT /api/config/data`、`POST /api/maintenance/cleanup`、`POST /api/backup`、`GET /api/backups`、`GET/DELETE /api/backups/{name}`
+  - 前端"数据管理"面板：保留天数/备份策略设置、立即清理、立即备份、备份列表
+  - 环境变量：`TOKEN_STAT_RETENTION_DAYS` / `TOKEN_STAT_BACKUP_KEEP` / `TOKEN_STAT_AUTO_BACKUP`
+- **数据库迁移机制**：`init_db` 内置 `PRAGMA user_version` 迁移——自动补列（project / reasoning_tokens）、建 `usage_daily` 与会话索引，并为历史记录从 `raw_data` 一次性回填
+- 共享守卫提取到 `backend/api/deps.py`（`require_local_or_key`），quota 配置、汇率刷新、备份/清理接口共用
+- ZCode 采集器：监控 ZCode CLI 的 Token 用量。读取 `~/.zcode/cli/db/db.sqlite` 的 `model_usage` 表（每次模型请求一行），零侵入、无需配置
   - WAL 快照读取：复制主库 + WAL 副本后查询，不干扰正在写入的 ZCode 进程
   - 以 `completed_at` 为水位，进行中的请求在完成后自动补收；子代理（Explore 等）与后台请求计入 `zcode` 名下
   - 新增 `glm-5.3` 定价条目（估算值，可在前端定价表中调整）

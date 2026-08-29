@@ -14,10 +14,16 @@
 
 - **多 Agent 支持**：采集 Claude Code、Hermes（WSL + Windows）、OpenClaw、OpenClaude、MimoCode、OpenCode、ZCode 的 Token 用量
 - **实时仪表盘**：基于 SSE 推送更新，无需刷新页面
+- **项目维度分析**：按工作目录统计各项目（repo）的 Token 消耗与费用，支持项目筛选（数据来自 claude-code / openclaude / zcode 的会话目录）
+- **思考 Token 统计**：单独统计推理模型的思考（reasoning）Token，覆盖 zcode / opencode / mimocode
+- **会话明细钻取**：会话级汇总列表，点击行内展开查看该会话的每条请求明细
+- **环比对比**：统计卡展示较上一周期（今日→昨日同时段、7 天→前 7 天）的涨跌
+- **用量报告**：一键生成日报/周报（消耗概览、Top Agent/模型/项目、套餐余量），支持复制 Markdown
 - **套餐余量监控**：实时查询智谱 GLM Coding Plan、小米 MiMo Token Plan 的剩余用量（需提供浏览器 Cookie / Session Token）
 - **费用估算**：内置各模型定价（YAML 配置，支持热更新），自动计算使用成本
-- **人民币显示**：所有费用以人民币（¥）显示，支持一键从 OpenRouter 获取最新定价
-- **丰富图表**：Agent Token 对比图、Agent 消耗占比饼图、模型分布条形图（ECharts）
+- **人民币显示**：所有费用以人民币（¥）显示，汇率支持自动获取（含刷新按钮），支持一键从 OpenRouter 获取最新定价
+- **数据管理**：明细保留策略（超期数据先按天聚合归档再删除，趋势与汇总历史永久保留）+ SQLite 自动/手动备份
+- **丰富图表**：Agent Token 对比图、Agent 消耗占比饼图、模型/项目分布条形图、缓存命中率分析（ECharts）
 - **时间范围筛选**：今日 / 7 天 / 30 天 / 自定义区间
 - **分页与搜索**：使用记录和模型定价表支持分页（10/20/50 条）和搜索
 - **可扩展采集器**：实现 `BaseCollector` 即可接入新 Agent
@@ -104,15 +110,18 @@ npm run build      # 生产构建（由 FastAPI 托管）
 | 变量 / 配置项 | 默认值 | 说明 |
 |--------------|--------|------|
 | `wsl_distro` / `TOKEN_STAT_WSL_DISTRO` | `project-claude` | WSL 发行版名称 |
-| `wsl_user_accessible` | `claude` | UNC 可访问的 WSL 用户（数据可通过 UNC 读取） |
-| `wsl_user_root` | `root` | root 权限用户（用于通过 `wsl.exe -u root -- cp` 复制 /root/ 下的数据） |
+| `wsl_user_accessible` / `TOKEN_STAT_WSL_DISTRO` | `claude` | UNC 可访问的 WSL 用户（数据可通过 UNC 读取） |
+| `wsl_user_root` / `TOKEN_STAT_WSL_USER_ROOT` | `root` | root 权限用户（用于通过 `wsl.exe -u root -- cp` 复制 /root/ 下的数据） |
 | `poll_interval_seconds` / `TOKEN_STAT_POLL_INTERVAL_SECONDS` | `5` | 采集器轮询间隔（秒） |
 | `db_path` / `TOKEN_STAT_DB_PATH` | `data/token_statistic.db` | 本地 SQLite 数据库路径 |
 | `TOKEN_STAT_HOST` | `127.0.0.1` | 服务绑定地址 |
 | `TOKEN_STAT_PORT` | `8001` | 服务端口 |
 | `TOKEN_STAT_API_KEY` | 空 | API 鉴权密钥；为空时只允许本机访问。设置后所有 `/api/` 请求需携带 `X-API-Key` 请求头 |
 | `TOKEN_STAT_CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | CORS 允许的来源（逗号分隔，生产环境请设置为实际域名） |
-| `TOKEN_STAT_USD_TO_CNY_RATE` | `7.25` | 美元兑人民币汇率（用于前端费用显示） |
+| `TOKEN_STAT_USD_TO_CNY_RATE` | `7.25` | 汇率回退值（实时汇率自动拉取失败、且无上次成功值时使用） |
+| `TOKEN_STAT_RETENTION_DAYS` | `0` | 明细保留天数（`0` = 永久保留）。超期明细先按天聚合进 `usage_daily` 再删除；也可在前端"数据管理"面板在线修改 |
+| `TOKEN_STAT_BACKUP_KEEP` | `10` | 备份文件保留个数 |
+| `TOKEN_STAT_AUTO_BACKUP` | `true` | 是否每日自动备份到 `data/backups/` |
 | `TOKEN_STAT_ZHIPU_SESSION_TOKEN` | — | 智谱 Coding Plan 的 Session Token |
 | `TOKEN_STAT_XIAOMI_COOKIE` | — | 小米 MiMo Token Plan 的完整 Cookie |
 
@@ -149,11 +158,15 @@ npm run build      # 生产构建（由 FastAPI 托管）
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/summary` | 汇总统计，含按 Agent/模型/日期的明细 |
-| GET | `/api/usage` | 分页查询使用记录 |
+| GET | `/api/summary` | 汇总统计，含按 Agent/模型/项目的明细；`compare=true` 附带上一周期总量 |
+| GET | `/api/usage` | 分页查询使用记录（支持 `session_id`、`project` 过滤） |
+| GET | `/api/sessions` | 会话级汇总列表（按 Agent × 会话聚合，分页） |
 | GET | `/api/agents` | 获取已追踪的 Agent 列表 |
+| GET | `/api/projects` | 获取出现过的项目名列表（供筛选） |
 | GET | `/api/models` | 获取模型列表及定价 |
-| GET | `/api/config` | 获取前端配置（汇率等） |
+| GET | `/api/config` | 获取前端配置（生效汇率及来源） |
+| POST | `/api/config/exchange-rate/refresh` | 强制刷新实时汇率（仅本机或携带 API Key） |
+| GET | `/api/report` | 用量报告（汇总 + 环比 + Top 榜 + 套餐余量 + Markdown 文本） |
 | GET | `/api/stream` | SSE 实时推送流 |
 | GET | `/api/pricing` | 获取所有模型定价 |
 | PUT | `/api/pricing/{model}` | 更新指定模型定价 |
@@ -162,6 +175,13 @@ npm run build      # 生产构建（由 FastAPI 托管）
 | POST | `/api/quota/refresh` | 强制刷新套餐余量 |
 | GET | `/api/quota/providers` | 列出已配置的套餐 Provider 及启用状态 |
 | PUT | `/api/quota/config` | 更新套餐 Provider 配置（session token、套餐等级、启用开关） |
+| GET | `/api/config/data` | 获取数据管理设置（保留天数、备份策略） |
+| PUT | `/api/config/data` | 更新数据管理设置（仅本机或携带 API Key） |
+| POST | `/api/maintenance/cleanup` | 立即执行一次数据保留清理（仅本机或携带 API Key） |
+| POST | `/api/backup` | 立即创建数据库备份（仅本机或携带 API Key） |
+| GET | `/api/backups` | 列出备份文件 |
+| GET | `/api/backups/{name}` | 下载备份文件 |
+| DELETE | `/api/backups/{name}` | 删除备份文件（仅本机或携带 API Key） |
 
 ### 请求示例
 
@@ -188,16 +208,18 @@ ai-token-usage-statistics/
 ├── backend/
 │   ├── main.py              # FastAPI 应用入口
 │   ├── config.py            # pydantic-settings 配置
-│   ├── api/                 # REST + SSE 接口
+│   ├── exchange_rate.py     # USD→CNY 汇率（自动获取 + 缓存 + 回退）
+│   ├── maintenance.py       # 数据保留（聚合归档）与备份
+│   ├── api/                 # REST + SSE 接口（summary/usage/sessions/report/maintenance 等）
 │   ├── collectors/          # 各 Agent 数据采集器
-│   ├── db/                  # SQLite 连接与表结构
+│   ├── db/                  # SQLite 连接、表结构与迁移
 │   ├── pricing/             # 模型定价与费用计算
 │   └── quota/               # 套餐余量监控（Zhipu、Xiaomi）
 ├── frontend/
 │   └── src/
 │       ├── App.svelte       # 主应用组件
-│       ├── components/      # StatCard, TrendChart, PlanQuotaCard 等
-│       ├── api/             # 请求封装 + SSE 客户端
+│       ├── components/      # StatCard, ProjectBar, SessionTable, ReportCard, DataManagement 等
+│       ├── api/             # 请求封装 + SSE 客户端 + 参数构造
 │       └── types/           # TypeScript 类型定义
 ├── tests/                   # pytest 测试用例
 ├── config/                  # 模型定价 YAML + 套餐 Provider 配置
@@ -205,6 +227,12 @@ ai-token-usage-statistics/
 ├── docs/                    # 设计文档、配置指南
 └── pyproject.toml           # Python 项目配置
 ```
+
+### 数据保留与备份说明
+
+- **保留策略**：`retention_days > 0` 时，超过保留期的使用明细会先按 天×Agent×模型×项目 聚合进 `usage_daily` 表再删除。趋势图、汇总统计、缓存率分析会自动 UNION 归档数据，**完整历史不丢失**；只有"使用记录 / 会话明细"超过保留期后不可见。归档后修改模型定价仍会影响历史费用显示（按归档的 token 数重算）。
+- **备份**：每日自动（可关）+ 手动备份，存放在 `data/backups/`，保留最新 N 个。**恢复方法**：停止后端服务，用备份文件替换 `data/token_statistic.db`，重新启动即可。
+- **旧库升级**：首次启动新版本时自动执行迁移——为历史记录从 `raw_data` 回填 `project`（取会话工作目录最后一段）与 `reasoning_tokens` 列，无需手动操作。
 
 ## 测试
 

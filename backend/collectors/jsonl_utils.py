@@ -7,7 +7,7 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
-from backend.db.models import TokenRecord
+from backend.db.models import TokenRecord, project_from_cwd
 from backend.pricing.model_pricing import calculate_cost
 
 logger = logging.getLogger(__name__)
@@ -83,6 +83,7 @@ def build_token_record(
 
     cost = calculate_cost(model, input_tokens, output_tokens, cache_read, cache_write)
 
+    cwd = data.get("cwd", "")
     raw_data = ""
     if include_metadata:
         meta = {
@@ -93,7 +94,7 @@ def build_token_record(
             "isSidechain": data.get("isSidechain", False),
             "agentId": data.get("agentId", ""),
             "slug": data.get("slug", ""),
-            "cwd": data.get("cwd", ""),
+            "cwd": cwd,
             "gitBranch": data.get("gitBranch", ""),
         }
         raw_data = json.dumps(meta, ensure_ascii=False)
@@ -103,6 +104,7 @@ def build_token_record(
         agent=agent_name,
         model=model,
         session_id=data.get("sessionId", ""),
+        project=project_from_cwd(cwd),
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         cache_read_tokens=cache_read,

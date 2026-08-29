@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, Query
 
 from backend.api.constants import IGNORED_MODELS
-from backend.api.range_utils import resolve_range
+from backend.api.range_utils import previous_window, resolve_range
 from backend.db import database as db_module
 from backend.db.models import SummaryRow, fetch_summary
 
@@ -14,21 +14,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["summary"])
 
 
-def _aggregate_rows(rows: list[SummaryRow], group_by: str = "agent") -> dict:
-    # 仅在按模型分组时过滤掉无意义的模型
-    # 按 agent 分组时 model 字段为空字符串，不应被过滤
-    if group_by == "model":
-        clean_rows = [r for r in rows if r.model.lower() not in IGNORED_MODELS]
-    else:
-        clean_rows = rows
-
-    # 汇总统计仍基于全部数据（包含被过滤的模型）
+def _totals(rows: list[SummaryRow]) -> dict:
+    """Sum a group of rows into the top-level totals shape (no breakdown)."""
     total_input = sum(r.input_tokens for r in rows)
     total_output = sum(r.output_tokens for r in rows)
     total_cache_read = sum(r.cache_read_tokens for r in rows)
     total_cache_write = sum(r.cache_write_tokens for r in rows)
-    total_cost = sum(r.cost_usd for r in rows)
-    total_calls = sum(r.call_count for r in rows)
+    total_reasoning = sum(r.reasoning_tokens for r in rows)
 
     return {
         "total_tokens": total_input + total_output + total_cache_read + total_cache_write,
@@ -37,22 +29,39 @@ def _aggregate_rows(rows: list[SummaryRow], group_by: str = "agent") -> dict:
         "cache_read_tokens": total_cache_read,
         "cache_write_tokens": total_cache_write,
         "cache_tokens": total_cache_read + total_cache_write,
-        "cost_usd": round(total_cost, 6),
-        "call_count": total_calls,
-        "breakdown": [
-            {
-                "agent": r.agent,
-                "model": r.model,
-                "input_tokens": r.input_tokens,
-                "output_tokens": r.output_tokens,
-                "cache_read_tokens": r.cache_read_tokens,
-                "cache_write_tokens": r.cache_write_tokens,
-                "cost_usd": r.cost_usd,
-                "call_count": r.call_count,
-            }
-            for r in clean_rows
-        ],
+        "reasoning_tokens": total_reasoning,
+        "cost_usd": round(sum(r.cost_usd for r in rows), 6),
+        "call_count": sum(r.call_count for r in rows),
     }
+
+
+def _aggregate_rows(rows: list[SummaryRow], group_by: str = "agent") -> dict:
+    # 仅在按模型分组时过滤掉无意义的模型；按项目分组时过滤无目录数据的记录
+    # （其他分组模式下这些字段为空字符串，不应被过滤）
+    if group_by == "model":
+        clean_rows = [r for r in rows if r.model.lower() not in IGNORED_MODELS]
+    elif group_by == "project":
+        clean_rows = [r for r in rows if r.project]
+    else:
+        clean_rows = rows
+
+    # 汇总统计仍基于全部数据（包含被过滤的模型）
+    result = _totals(rows)
+    result["breakdown"] = [
+        {
+            "agent": r.agent,
+            "model": r.model,
+            "project": r.project,
+            "input_tokens": r.input_tokens,
+            "output_tokens": r.output_tokens,
+            "cache_read_tokens": r.cache_read_tokens,
+            "cache_write_tokens": r.cache_write_tokens,
+            "cost_usd": r.cost_usd,
+            "call_count": r.call_count,
+        }
+        for r in clean_rows
+    ]
+    return result
 
 
 @router.get("/summary")
@@ -62,21 +71,40 @@ async def get_summary(
     to_date: str | None = Query(None, alias="to"),
     agent: str | None = Query(None),
     model: str | None = Query(None),
-    group_by: str = Query("agent", pattern="^(agent|model)$"),
+    project: str | None = Query(None),
+    group_by: str = Query("agent", pattern="^(agent|model|project)$"),
+    compare: bool = Query(False),
 ):
     db = await db_module.get_db()
     from_ts, to_ts = resolve_range(range_key, from_date, to_date)
 
     agents = agent.split(",") if agent else None
     models = model.split(",") if model else None
+    projects = project.split(",") if project else None
 
     rows = await fetch_summary(
         db,
         agents=agents,
         models=models,
+        projects=projects,
         from_ts=from_ts,
         to_ts=to_ts,
         group_by=group_by,
     )
+    result = _aggregate_rows(rows, group_by=group_by)
 
-    return _aggregate_rows(rows, group_by=group_by)
+    # 环比：等长的上一周期总量（今日→昨日同时段，7d→前 7 天……）
+    if compare:
+        prev_from, prev_to = previous_window(from_ts, to_ts)
+        prev_rows = await fetch_summary(
+            db,
+            agents=agents,
+            models=models,
+            projects=projects,
+            from_ts=prev_from,
+            to_ts=prev_to,
+            group_by=group_by,
+        )
+        result["previous"] = _totals(prev_rows)
+
+    return result

@@ -4,19 +4,23 @@
   interface Props {
     agents: string[];
     models: string[];
+    projects: string[];
     selectedAgents: string[];
     selectedModels: string[];
-    onchange: (agents: string[], models: string[]) => void;
+    selectedProjects: string[];
+    onchange: (agents: string[], models: string[], projects: string[]) => void;
   }
 
-  let { agents, models, selectedAgents, selectedModels, onchange }: Props = $props();
+  let { agents, models, projects, selectedAgents, selectedModels, selectedProjects, onchange }: Props = $props();
 
   let showModels = $state(false);
+  let showProjects = $state(false);
   let containerEl: HTMLDivElement | undefined = $state();
 
   function handleClickOutside(e: MouseEvent) {
     if (containerEl && !containerEl.contains(e.target as Node)) {
       showModels = false;
+      showProjects = false;
     }
   }
 
@@ -29,11 +33,18 @@
     const next = selectedAgents.includes(agent)
       ? selectedAgents.filter((a) => a !== agent)
       : [...selectedAgents, agent];
-    onchange(next, selectedModels);
+    onchange(next, selectedModels, selectedProjects);
+  }
+
+  function toggleProject(project: string) {
+    const next = selectedProjects.includes(project)
+      ? selectedProjects.filter((p) => p !== project)
+      : [...selectedProjects, project];
+    onchange(selectedAgents, selectedModels, next);
   }
 
   function clearFilters() {
-    onchange([], []);
+    onchange([], [], []);
   }
 
   const agentColors: Record<string, string> = {
@@ -65,7 +76,36 @@
       </button>
     {/each}
 
-    {#if selectedAgents.length > 0 || selectedModels.length > 0}
+    {#if projects.length > 0}
+      <div class="project-select">
+        <button class="project-toggle" onclick={() => (showProjects = !showProjects)}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+          项目{selectedProjects.length > 0 ? ` · ${selectedProjects.length} 项` : ""}
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        {#if showProjects}
+          <div class="project-dropdown">
+            {#each projects as project}
+              <label class="project-option">
+                <input
+                  type="checkbox"
+                  checked={selectedProjects.includes(project)}
+                  onchange={() => toggleProject(project)}
+                />
+                <span class="truncate" title={project}>{project}</span>
+              </label>
+            {/each}
+            {#if selectedProjects.length > 0}
+              <button class="project-clear" onclick={() => onchange(selectedAgents, selectedModels, [])}>
+                清除项目筛选
+              </button>
+            {/if}
+          </div>
+        {/if}
+      </div>
+    {/if}
+
+    {#if selectedAgents.length > 0 || selectedModels.length > 0 || selectedProjects.length > 0}
       <button class="clear-btn" onclick={clearFilters}>
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
         清除
@@ -125,6 +165,76 @@
   }
   .clear-btn:hover {
     border-color: var(--red);
+    color: var(--red);
+  }
+  .project-select {
+    position: relative;
+    margin-left: 4px;
+  }
+  .project-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 9999px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-2);
+  }
+  .project-toggle:hover,
+  .project-toggle:focus {
+    border-color: var(--amber);
+    color: var(--text);
+  }
+  .project-dropdown {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 50;
+    min-width: 220px;
+    max-height: 280px;
+    overflow-y: auto;
+    padding: 8px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .project-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--text-2);
+    cursor: pointer;
+  }
+  .project-option:hover {
+    background: rgba(99, 102, 241, 0.12);
+    color: var(--text);
+  }
+  .project-option input {
+    accent-color: var(--amber);
+  }
+  .project-clear {
+    margin-top: 6px;
+    padding: 6px 8px;
+    border: none;
+    border-top: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-3);
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+  }
+  .project-clear:hover {
     color: var(--red);
   }
 </style>

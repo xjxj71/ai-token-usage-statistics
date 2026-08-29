@@ -14,9 +14,16 @@ A web dashboard for monitoring and visualizing token consumption and costs of mu
 
 - **Multi-Agent Support**: Collects token usage from Claude Code, Hermes (WSL + Windows), OpenClaw, OpenClaude, MimoCode, OpenCode, and ZCode
 - **Real-time Dashboard**: SSE-based push updates, no page refresh needed
+- **Project Analytics**: Token usage and cost per project (repo), derived from session working directories (claude-code / openclaude / zcode), with project filtering
+- **Reasoning Tokens**: Reasoning (thinking) tokens tracked separately for zcode / opencode / mimocode
+- **Session Drill-down**: Session-level aggregates with click-to-expand per-request details
+- **Period Comparison**: Stat cards show deltas vs the previous period (today→yesterday same time, 7d→prior 7d)
+- **Usage Report**: One-click daily/weekly report (overview, Top agents/models/projects, plan quota) with Markdown copy
+- **Quota Monitoring**: Live remaining quota for Zhipu GLM Coding Plan and Xiaomi MiMo Token Plan (requires browser cookie / session token)
 - **Cost Estimation**: Built-in model pricing (YAML config with hot-reload), automatic cost calculation
-- **CNY Display**: All costs displayed in Chinese Yuan (CNY), one-click pricing refresh from OpenRouter
-- **Rich Charts**: Agent token comparison, agent consumption pie chart, model distribution bar chart (ECharts)
+- **CNY Display**: All costs displayed in Chinese Yuan (CNY) with auto-fetched exchange rate (plus manual refresh), one-click pricing refresh from OpenRouter
+- **Data Management**: Retention policy (raw details archived into daily aggregates before deletion — trend/summary history is preserved forever) and SQLite backups (daily auto + manual)
+- **Rich Charts**: Agent token comparison, agent consumption pie chart, model/project distribution bar charts, cache hit-ratio analysis (ECharts)
 - **Time Range Filtering**: Today / 7 days / 30 days / custom range
 - **Pagination & Search**: Usage records and model pricing tables support pagination (10/20/50) and search
 - **Extensible Collectors**: Implement `BaseCollector` to integrate new agents
@@ -111,6 +118,10 @@ Configure via environment variables or `config.py` (prefix `TOKEN_STAT_`):
 | `TOKEN_STAT_PORT` | `8001` | Server port |
 | `TOKEN_STAT_API_KEY` | empty | API auth key; when empty only local access is allowed. When set, all `/api/` requests must send an `X-API-Key` header |
 | `TOKEN_STAT_CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | CORS allowed origins (comma-separated; set to your real domain in production) |
+| `TOKEN_STAT_USD_TO_CNY_RATE` | `7.25` | Fallback exchange rate (used only when the live rate fetch fails and no previous value exists) |
+| `TOKEN_STAT_RETENTION_DAYS` | `0` | Days to keep raw usage details (`0` = forever). Older details are aggregated into `usage_daily` then deleted; editable in the Data Management panel |
+| `TOKEN_STAT_BACKUP_KEEP` | `10` | Number of backup files to keep |
+| `TOKEN_STAT_AUTO_BACKUP` | `true` | Daily automatic backup into `data/backups/` |
 | `TOKEN_STAT_ZHIPU_SESSION_TOKEN` | — | Zhipu Coding Plan session token |
 | `TOKEN_STAT_XIAOMI_COOKIE` | — | Xiaomi MiMo Token Plan full cookie |
 
@@ -147,14 +158,30 @@ See [Agent Setup Guide](docs/agent-setup-guide.md) for details.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/summary` | Summary statistics, with Agent/model/date breakdowns |
-| GET | `/api/usage` | Paginated usage records |
+| GET | `/api/summary` | Summary statistics with agent/model/project breakdowns; `compare=true` adds previous-period totals |
+| GET | `/api/usage` | Paginated usage records (supports `session_id` and `project` filters) |
+| GET | `/api/sessions` | Session-level aggregates (grouped by agent × session, paginated) |
 | GET | `/api/agents` | List of tracked agents |
+| GET | `/api/projects` | List of known project names (for filtering) |
 | GET | `/api/models` | Model list with pricing |
+| GET | `/api/config` | Frontend config (effective exchange rate and its source) |
+| POST | `/api/config/exchange-rate/refresh` | Force refresh the live exchange rate (local or API key only) |
+| GET | `/api/report` | Usage report (totals + comparison + top lists + quota + Markdown text) |
 | GET | `/api/stream` | SSE real-time push stream |
 | GET | `/api/pricing` | All model pricing |
 | PUT | `/api/pricing/{model}` | Update specific model pricing |
 | POST | `/api/pricing/refresh` | One-click refresh all model pricing from OpenRouter |
+| GET | `/api/quota` | Quota snapshots for all enabled providers (cached) |
+| POST | `/api/quota/refresh` | Force refresh quota |
+| GET | `/api/quota/providers` | List configured quota providers and enabled state |
+| PUT | `/api/quota/config` | Update provider config (session token, plan type, enabled) |
+| GET | `/api/config/data` | Data management settings (retention, backups) |
+| PUT | `/api/config/data` | Update data management settings (local or API key only) |
+| POST | `/api/maintenance/cleanup` | Run the retention pass now (local or API key only) |
+| POST | `/api/backup` | Create a database backup now (local or API key only) |
+| GET | `/api/backups` | List backup files |
+| GET | `/api/backups/{name}` | Download a backup file |
+| DELETE | `/api/backups/{name}` | Delete a backup file (local or API key only) |
 
 ### Request Examples
 
@@ -181,22 +208,31 @@ ai-token-usage-statistics/
 ├── backend/
 │   ├── main.py              # FastAPI application entry
 │   ├── config.py            # pydantic-settings configuration
-│   ├── api/                 # REST + SSE endpoints
+│   ├── exchange_rate.py     # USD→CNY rate (live fetch + cache + fallback)
+│   ├── maintenance.py       # Data retention (daily archiving) and backups
+│   ├── api/                 # REST + SSE endpoints (summary/usage/sessions/report/maintenance, etc.)
 │   ├── collectors/          # Agent data collectors
-│   ├── db/                  # SQLite connection and schema
-│   └── pricing/             # Model pricing and cost calculation
+│   ├── db/                  # SQLite connection, schema and migrations
+│   ├── pricing/             # Model pricing and cost calculation
+│   └── quota/               # Plan quota monitoring (Zhipu, Xiaomi)
 ├── frontend/
 │   └── src/
 │       ├── App.svelte       # Main application component
-│       ├── components/      # StatCard, TrendChart, AgentPie, etc.
-│       ├── api/             # API client + SSE client
+│       ├── components/      # StatCard, ProjectBar, SessionTable, ReportCard, DataManagement, etc.
+│       ├── api/             # API client + SSE client + query params
 │       └── types/           # TypeScript type definitions
 ├── tests/                   # pytest test cases
-├── config/                  # Model pricing YAML config
+├── config/                  # Model pricing YAML + quota provider config
 ├── scripts/                 # Utility scripts (cost recalculation, etc.)
 ├── docs/                    # Design docs, setup guides
 └── pyproject.toml           # Python project config
 ```
+
+### Data Retention & Backups
+
+- **Retention**: when `retention_days > 0`, raw usage records older than the window are first aggregated into `usage_daily` (per day × agent × model × project) and then deleted. Trend charts, summaries, and cache-ratio analysis automatically UNION the archived data, so **full history is preserved** — only raw "usage records / session details" become invisible past the window. Editing model prices still recalculates historical costs from the archived token counts.
+- **Backups**: daily automatic (optional) + manual, stored in `data/backups/`, keeping the newest N files. **To restore**: stop the backend, replace `data/token_statistic.db` with a backup file, and restart.
+- **Upgrading an existing database**: the first start after upgrading runs a migration automatically — historical records get `project` (last segment of the session working directory) and `reasoning_tokens` backfilled from `raw_data`. No manual steps needed.
 
 ## Testing
 

@@ -24,7 +24,7 @@ from pathlib import Path
 from backend.collectors.base import BaseCollector
 from backend.collectors.sqlite_utils import copy_sqlite_with_wal, remove_sqlite_temp
 from backend.config import settings
-from backend.db.models import TokenRecord
+from backend.db.models import TokenRecord, project_from_cwd
 from backend.pricing.model_pricing import calculate_cost
 
 logger = logging.getLogger(__name__)
@@ -122,10 +122,12 @@ def extract_model_usage(
                 agent=agent_name,
                 model=model,
                 session_id=row["session_id"] or "",
+                project=project_from_cwd(row["directory"]),
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 cache_read_tokens=cache_read,
                 cache_write_tokens=cache_write,
+                reasoning_tokens=row["reasoning_tokens"] or 0,
                 cost_usd=round(cost, 6),
                 raw_data=raw,
             )

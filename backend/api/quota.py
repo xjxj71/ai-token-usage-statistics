@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import secrets
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +18,7 @@ import yaml
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from backend.config import settings
+from backend.api.deps import require_local_or_key as _require_local_or_key
 from backend.quota.base import ModelMultiplier, QuotaSnapshot, QuotaWindow
 from backend.quota.registry import get_registry
 
@@ -123,28 +122,6 @@ class ProviderConfigUpdate(BaseModel):
     enabled: bool | None = None
     plan_type: str | None = None
     session_token: str | None = None
-
-
-def _require_local_or_key(request: Request) -> None:
-    """Guard for endpoints that persist credentials.
-
-    Writing provider session tokens is sensitive: when the server is reached
-    from a non-loopback address, a valid API key must be configured and
-    supplied. Loopback requests (the normal local dashboard case) are allowed
-    without a key so the flow keeps working when no key is configured.
-    """
-    client_host = request.client.host if request.client else ""
-    if client_host in ("127.0.0.1", "::1", "localhost"):
-        return
-    api_key = request.headers.get("X-API-Key") or ""
-    if settings.api_key and secrets.compare_digest(api_key, settings.api_key):
-        return
-    raise HTTPException(
-        status_code=403,
-        detail=(
-            "该接口仅允许本机访问，或需配置 TOKEN_STAT_API_KEY 并携带 X-API-Key 请求头"
-        ),
-    )
 
 
 @router.put("/quota/config")

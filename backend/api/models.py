@@ -3,12 +3,17 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from backend.api.constants import IGNORED_MODELS, SUPPORTED_AGENTS
+from backend.api.deps import require_local_or_key
 from backend.db import database as db_module
-from backend.db.models import fetch_distinct_agents, fetch_distinct_models
+from backend.db.models import (
+    fetch_distinct_agents,
+    fetch_distinct_models,
+    fetch_distinct_projects,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -71,12 +76,37 @@ async def get_agents():
     return [a for a in agents if a in SUPPORTED_AGENTS]
 
 
+@router.get("/projects")
+async def get_projects():
+    """返回出现过的项目名（来自会话工作目录，仅部分 Agent 提供该数据）。"""
+    db = await db_module.get_db()
+    return await fetch_distinct_projects(db)
+
+
 @router.get("/config")
 async def get_config():
     """返回前端需要的配置信息（汇率等）。"""
-    from backend.config import settings
+    from backend.exchange_rate import get_rate
+
+    info = await get_rate()
     return {
-        "usd_to_cny_rate": settings.usd_to_cny_rate,
+        "usd_to_cny_rate": info.rate,
+        "rate_source": info.source,
+        "rate_updated_at": info.fetched_at or None,
+    }
+
+
+@router.post("/config/exchange-rate/refresh")
+async def refresh_exchange_rate(request: Request):
+    """强制刷新 USD→CNY 汇率（仅本机或携带有效 API Key）。"""
+    from backend.exchange_rate import get_rate
+
+    require_local_or_key(request)
+    info = await get_rate(force=True)
+    return {
+        "usd_to_cny_rate": info.rate,
+        "rate_source": info.source,
+        "rate_updated_at": info.fetched_at or None,
     }
 
 

@@ -37,7 +37,8 @@
       ? items.filter(
           (i) =>
             i.agent.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            i.model.toLowerCase().includes(searchQuery.toLowerCase())
+            i.model.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            (i.project ?? "").toLowerCase().includes(searchQuery.toLowerCase())
         )
       : items
   );
@@ -118,8 +119,10 @@
           <th>时间</th>
           <th>Agent</th>
           <th>模型</th>
+          <th>项目</th>
           <th class="text-right">输入</th>
           <th class="text-right">输出</th>
+          <th class="text-right">思考</th>
           <th class="text-right">缓存</th>
           <th class="text-right">费用</th>
         </tr>
@@ -135,8 +138,10 @@
               </span>
             </td>
             <td class="text-[var(--text-2)]">{item.model}</td>
+            <td class="text-[var(--text-2)]">{item.project || "—"}</td>
             <td class="text-right text-[var(--text-2)]">{fmt(item.input_tokens)}</td>
             <td class="text-right text-[var(--text-2)]">{fmt(item.output_tokens)}</td>
+            <td class="text-right text-[var(--text-2)]">{fmt(item.reasoning_tokens ?? 0)}</td>
             <td class="text-right text-[var(--text-2)]">
               {fmt(item.cache_read_tokens + item.cache_write_tokens)}
             </td>
@@ -144,7 +149,7 @@
           </tr>
         {:else}
           <tr>
-            <td colspan="7" class="empty-row">
+            <td colspan="9" class="empty-row">
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
               <span>暂无使用记录</span>
             </td>

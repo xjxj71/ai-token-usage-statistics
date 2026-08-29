@@ -1,4 +1,4 @@
-import type { SummaryResponse, UsageResponse, ModelInfo, TrendResponse, CacheRatioResponse, QuotaResponse, ProviderInfo } from "../types";
+import type { SummaryResponse, UsageResponse, ModelInfo, TrendResponse, CacheRatioResponse, QuotaResponse, ProviderInfo, SessionsResponse, ReportResponse } from "../types";
 
 const BASE = "/api";
 const FETCH_TIMEOUT_MS = 15_000;
@@ -32,6 +32,20 @@ export async function fetchUsage(params: Record<string, string>): Promise<UsageR
   return (await res.json()) as UsageResponse;
 }
 
+export async function fetchSessions(params: Record<string, string>): Promise<SessionsResponse> {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetchWithTimeout(`${BASE}/sessions${qs ? `?${qs}` : ""}`);
+  if (!res.ok) throw new Error(`会话列表请求失败: ${res.status}`);
+  return (await res.json()) as SessionsResponse;
+}
+
+export async function fetchReport(params: Record<string, string>): Promise<ReportResponse> {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetchWithTimeout(`${BASE}/report${qs ? `?${qs}` : ""}`);
+  if (!res.ok) throw new Error(`报告请求失败: ${res.status}`);
+  return (await res.json()) as ReportResponse;
+}
+
 export async function fetchModels(): Promise<string[]> {
   const res = await fetchWithTimeout(`${BASE}/models`);
   if (!res.ok) throw new Error(`模型列表请求失败: ${res.status}`);
@@ -42,6 +56,12 @@ export async function fetchModels(): Promise<string[]> {
 export async function fetchAgents(): Promise<string[]> {
   const res = await fetchWithTimeout(`${BASE}/agents`);
   if (!res.ok) throw new Error(`Agent 列表请求失败: ${res.status}`);
+  return (await res.json()) as string[];
+}
+
+export async function fetchProjects(): Promise<string[]> {
+  const res = await fetchWithTimeout(`${BASE}/projects`);
+  if (!res.ok) throw new Error(`项目列表请求失败: ${res.status}`);
   return (await res.json()) as string[];
 }
 
@@ -110,10 +130,25 @@ export async function fetchProviders(): Promise<ProviderInfo[]> {
   return (await res.json()) as ProviderInfo[];
 }
 
-export async function fetchConfig(): Promise<{ usd_to_cny_rate: number }> {
+export interface ConfigResponse {
+  usd_to_cny_rate: number;
+  rate_source: string;
+  rate_updated_at: string | null;
+}
+
+export async function fetchConfig(): Promise<ConfigResponse> {
   const res = await fetchWithTimeout(`${BASE}/config`);
   if (!res.ok) throw new Error(`配置请求失败: ${res.status}`);
-  return (await res.json()) as { usd_to_cny_rate: number };
+  return (await res.json()) as ConfigResponse;
+}
+
+export async function refreshExchangeRate(): Promise<ConfigResponse> {
+  const res = await fetchWithTimeout(`${BASE}/config/exchange-rate/refresh`, { method: "POST" });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "刷新汇率失败");
+  }
+  return (await res.json()) as ConfigResponse;
 }
 
 export async function updateProviderConfig(
@@ -130,4 +165,75 @@ export async function updateProviderConfig(
     throw new Error(err.detail || "更新配置失败");
   }
   return (await res.json()) as { status: string };
+}
+
+// ── Data management (retention / backups) ────────────────────
+
+export interface DataSettings {
+  retention_days: number;
+  backup_keep: number;
+  auto_backup: boolean;
+}
+
+export interface BackupInfo {
+  name: string;
+  size_bytes: number;
+  created_at: string;
+}
+
+async function parseErr(res: Response, fallback: string): Promise<Error> {
+  const err = await res.json().catch(() => ({ detail: res.statusText }));
+  return new Error(err.detail || fallback);
+}
+
+export async function fetchDataSettings(): Promise<DataSettings> {
+  const res = await fetchWithTimeout(`${BASE}/config/data`);
+  if (!res.ok) throw await parseErr(res, "数据管理配置请求失败");
+  return (await res.json()) as DataSettings;
+}
+
+export async function updateDataSettings(
+  settings: Partial<DataSettings>,
+): Promise<{ status: string; settings: DataSettings }> {
+  const res = await fetchWithTimeout(`${BASE}/config/data`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  });
+  if (!res.ok) throw await parseErr(res, "保存设置失败");
+  return (await res.json()) as { status: string; settings: DataSettings };
+}
+
+export async function createBackup(): Promise<BackupInfo> {
+  const res = await fetchWithTimeout(`${BASE}/backup`, { method: "POST" });
+  if (!res.ok) throw await parseErr(res, "备份失败");
+  return (await res.json()).backup;
+}
+
+export async function fetchBackups(): Promise<BackupInfo[]> {
+  const res = await fetchWithTimeout(`${BASE}/backups`);
+  if (!res.ok) throw await parseErr(res, "备份列表请求失败");
+  return (await res.json()).items;
+}
+
+export async function deleteBackup(name: string): Promise<void> {
+  const res = await fetchWithTimeout(`${BASE}/backups/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw await parseErr(res, "删除备份失败");
+}
+
+export interface CleanupResult {
+  retention_days?: number;
+  cutoff?: string;
+  archived_rows?: number;
+  deleted_rows?: number;
+  disabled?: boolean;
+}
+
+export async function runCleanup(days?: number): Promise<CleanupResult> {
+  const qs = days ? `?days=${days}` : "";
+  const res = await fetchWithTimeout(`${BASE}/maintenance/cleanup${qs}`, { method: "POST" });
+  if (!res.ok) throw await parseErr(res, "清理失败");
+  return (await res.json()).result;
 }

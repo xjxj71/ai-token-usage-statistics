@@ -5,11 +5,14 @@
     unit?: string;
     prefix?: boolean;
     icon?: string;
+    /** Signed percent change vs the previous period; undefined/0 hides the badge. */
     trend?: number;
-    trendUp?: boolean;
+    /** When true a decrease is good (e.g. cost) — colors are inverted. */
+    goodWhenDown?: boolean;
+    trendLabel?: string;
   }
 
-  let { title, value, unit = "", prefix = false, icon = "", trend = 0, trendUp = true }: Props = $props();
+  let { title, value, unit = "", prefix = false, icon = "", trend = undefined, goodWhenDown = false, trendLabel = "较上期" }: Props = $props();
 
   function formatNumber(n: number): string {
     if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + "M";
@@ -21,6 +24,8 @@
   let display = $derived(
     prefix ? `${unit}${formatNumber(value)}` : `${formatNumber(value)} ${unit}`.trim()
   );
+
+  let showTrend = $derived(trend !== undefined && Number.isFinite(trend) && trend !== 0);
 </script>
 
 <div class="stat-card group">
@@ -33,14 +38,20 @@
     <span class="text-xs uppercase tracking-wide text-[var(--text-3)]">{title}</span>
   </div>
   <p class="text-2xl font-bold mb-2">{display}</p>
-  {#if trend > 0}
-    <div class="flex items-center gap-1 {trendUp ? 'text-[var(--green)]' : 'text-[var(--red)]'}">
-      {#if trendUp}
+  {#if showTrend}
+    {@const up = (trend as number) > 0}
+    {@const good = goodWhenDown ? !up : up}
+    <div
+      class="flex items-center gap-1 {good ? 'text-[var(--green)]' : 'text-[var(--red)]'}"
+      title="{trendLabel}：{(trend as number) > 0 ? '+' : ''}{(trend as number).toFixed(1)}%"
+    >
+      {#if up}
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
       {:else}
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
       {/if}
-      <span class="text-xs">{trendUp ? '+' : '-'}{trend}%</span>
+      <span class="text-xs">{up ? '+' : ''}{(trend as number).toFixed(1)}%</span>
+      <span class="text-[10px] text-[var(--text-3)]">{trendLabel}</span>
     </div>
   {/if}
 </div>

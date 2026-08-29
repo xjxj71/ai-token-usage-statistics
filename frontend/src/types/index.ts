@@ -4,28 +4,37 @@ export interface TokenRecord {
   agent: string;
   model: string;
   session_id: string;
+  project: string;
   input_tokens: number;
   output_tokens: number;
   cache_read_tokens: number;
   cache_write_tokens: number;
+  reasoning_tokens: number;
   cost_usd: number;
 }
 
-export interface SummaryResponse {
+export interface SummaryTotals {
   total_tokens: number;
   input_tokens: number;
   output_tokens: number;
   cache_read_tokens: number;
   cache_write_tokens: number;
   cache_tokens: number;
+  reasoning_tokens: number;
   cost_usd: number;
   call_count: number;
+}
+
+export interface SummaryResponse extends SummaryTotals {
+  /** Totals of the equal-length previous period (only with compare=true). */
+  previous?: SummaryTotals | null;
   breakdown: BreakdownItem[];
 }
 
 export interface BreakdownItem {
   agent: string;
   model: string;
+  project: string;
   input_tokens: number;
   output_tokens: number;
   cache_read_tokens: number;
@@ -36,6 +45,28 @@ export interface BreakdownItem {
 
 export interface UsageResponse {
   items: TokenRecord[];
+  total: number;
+  page: number;
+}
+
+export interface SessionItem {
+  agent: string;
+  session_id: string;
+  project: string;
+  models: string[];
+  first_ts: string;
+  last_ts: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  reasoning_tokens: number;
+  cost_usd: number;
+  call_count: number;
+}
+
+export interface SessionsResponse {
+  items: SessionItem[];
   total: number;
   page: number;
 }
@@ -56,6 +87,7 @@ export interface FilterState {
   to?: string;
   agents: string[];
   models: string[];
+  projects: string[];
 }
 
 export interface TrendPoint {
@@ -133,4 +165,39 @@ export interface ProviderInfo {
   enabled: boolean;
   has_credential: boolean;
   plan_type: string;
+}
+
+// ── Report ────────────────────────────────────────────────
+
+export interface ReportTopItem {
+  name: string;
+  total_tokens: number;
+  cost_usd: number;
+  call_count: number;
+}
+
+export interface ReportQuotaItem {
+  provider: string;
+  display_name: string;
+  plan_name: string;
+  source: string;
+  used: number | null;
+  total: number | null;
+  remaining: number | null;
+  unit: string;
+  reset_at: string | null;
+}
+
+export interface ReportResponse {
+  range: string;
+  label: string;
+  from: string;
+  to: string;
+  totals: SummaryTotals;
+  previous: SummaryTotals;
+  top_agents: ReportTopItem[];
+  top_models: ReportTopItem[];
+  top_projects: ReportTopItem[];
+  quota: ReportQuotaItem[];
+  markdown: string;
 }

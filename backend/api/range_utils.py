@@ -92,3 +92,21 @@ def _fmt_z(dt: datetime) -> str:
     format used in the database for reliable string comparison.
     """
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _parse_z(ts: str) -> datetime:
+    """Parse a Z-suffixed UTC ISO string (inverse of ``_fmt_z``)."""
+    return datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+
+
+def previous_window(from_ts: str, to_ts: str) -> tuple[str, str]:
+    """Return the equal-length window immediately before ``[from_ts, to_ts)``.
+
+    Used for period-over-period comparison: "today so far" compares against
+    yesterday up to the same time of day, "7d" against the prior 7 days, and
+    custom ranges against an equal-length window right before them.
+    """
+    from_dt = _parse_z(from_ts)
+    to_dt = _parse_z(to_ts)
+    duration = to_dt - from_dt
+    return _fmt_z(from_dt - duration), _fmt_z(from_dt)

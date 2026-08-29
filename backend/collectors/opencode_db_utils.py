@@ -131,6 +131,7 @@ def extract_token_records(
                 output_tokens=output_tokens,
                 cache_read_tokens=cache_read,
                 cache_write_tokens=cache_write,
+                reasoning_tokens=reasoning_tokens,
                 cost_usd=round(cost, 6),
                 raw_data=raw_data,
             )

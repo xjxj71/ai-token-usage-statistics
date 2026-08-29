@@ -195,6 +195,306 @@ async def test_filter_by_agent(client):
     assert data["call_count"] == 1
 
 
+# ── Project dimension tests ──────────────────────────────────────
+
+
+async def _seed_project_rows(db):
+    records = [
+        TokenRecord(
+            timestamp="2026-05-02T10:00:00Z", agent="zcode", model="glm-5.3",
+            session_id="s1", project="repo-a", input_tokens=1000, output_tokens=500,
+        ),
+        TokenRecord(
+            timestamp="2026-05-02T11:00:00Z", agent="claude-code", model="claude-sonnet-4-6",
+            session_id="s2", project="repo-a", input_tokens=200, output_tokens=100,
+        ),
+        TokenRecord(
+            timestamp="2026-05-02T12:00:00Z", agent="zcode", model="glm-5.3",
+            session_id="s3", project="repo-b", input_tokens=50, output_tokens=25,
+        ),
+        # No project data (e.g. hermes) — belongs to no project group
+        TokenRecord(
+            timestamp="2026-05-02T13:00:00Z", agent="hermes", model="gpt-4o",
+            session_id="s4", input_tokens=999, output_tokens=999,
+        ),
+    ]
+    await insert_records(db, records)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_summary_group_by_project(client):
+    db = await db_module.get_db()
+    await _seed_project_rows(db)
+
+    res = await client.get("/api/summary?range=custom&from=2026-01-01&to=2027-01-01&group_by=project")
+    assert res.status_code == 200
+    data = res.json()
+
+    # Totals still cover every row, including the no-project one
+    assert data["call_count"] == 4
+    # Breakdown only lists named projects
+    projects = {b["project"] for b in data["breakdown"]}
+    assert projects == {"repo-a", "repo-b"}
+    repo_a = next(b for b in data["breakdown"] if b["project"] == "repo-a")
+    assert repo_a["agent"] == "" and repo_a["model"] == ""
+    assert repo_a["input_tokens"] == 1200
+    assert repo_a["call_count"] == 2
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_summary_project_filter(client):
+    db = await db_module.get_db()
+    await _seed_project_rows(db)
+
+    res = await client.get("/api/summary?range=custom&from=2026-01-01&to=2027-01-01&project=repo-b")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["call_count"] == 1
+    assert data["input_tokens"] == 50
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_usage_project_and_session_filters(client):
+    db = await db_module.get_db()
+    await _seed_project_rows(db)
+
+    res = await client.get("/api/usage?from=2026-01-01&to=2027-01-01&project=repo-a")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] == 2
+    assert all(item["project"] == "repo-a" for item in data["items"])
+
+    res = await client.get("/api/usage?from=2026-01-01&to=2027-01-01&session_id=s3")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] == 1
+    assert data["items"][0]["session_id"] == "s3"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_projects_endpoint(client):
+    db = await db_module.get_db()
+    await _seed_project_rows(db)
+
+    res = await client.get("/api/projects")
+    assert res.status_code == 200
+    data = res.json()
+    assert data == ["repo-a", "repo-b"]
+
+
+# ── Session drill-down tests ─────────────────────────────────────
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_sessions_endpoint(client):
+    db = await db_module.get_db()
+    records = [
+        # Session s1 spans two records and two models
+        TokenRecord(
+            timestamp="2026-05-02T10:00:00Z", agent="zcode", model="glm-5.3",
+            session_id="s1", project="repo-a", input_tokens=1000, output_tokens=500,
+            reasoning_tokens=80,
+        ),
+        TokenRecord(
+            timestamp="2026-05-02T10:30:00Z", agent="zcode", model="glm-5.2",
+            session_id="s1", project="repo-a", input_tokens=200, output_tokens=100,
+            reasoning_tokens=20,
+        ),
+        # A different session, more recent
+        TokenRecord(
+            timestamp="2026-05-02T11:00:00Z", agent="claude-code", model="claude-sonnet-4-6",
+            session_id="s2", project="repo-b", input_tokens=300, output_tokens=150,
+        ),
+        # No session_id — must not appear
+        TokenRecord(
+            timestamp="2026-05-02T12:00:00Z", agent="hermes", model="gpt-4o",
+            session_id="", input_tokens=400, output_tokens=200,
+        ),
+    ]
+    await insert_records(db, records)
+
+    res = await client.get("/api/sessions?from=2026-01-01&to=2027-01-01")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] == 2
+    # Newest activity first
+    assert data["items"][0]["session_id"] == "s2"
+    s1 = data["items"][1]
+    assert s1["agent"] == "zcode"
+    assert s1["project"] == "repo-a"
+    assert s1["models"] == ["glm-5.2", "glm-5.3"] or s1["models"] == ["glm-5.3", "glm-5.2"]
+    assert s1["call_count"] == 2
+    assert s1["input_tokens"] == 1200
+    assert s1["reasoning_tokens"] == 100
+    assert s1["first_ts"] == "2026-05-02T10:00:00Z"
+    assert s1["last_ts"] == "2026-05-02T10:30:00Z"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_sessions_endpoint_filters_and_pagination(client):
+    db = await db_module.get_db()
+    records = [
+        TokenRecord(
+            timestamp=f"2026-05-02T1{i}:00:00Z", agent="zcode", model="glm-5.3",
+            session_id=f"sess-{i}", project=f"repo-{i}", input_tokens=10, output_tokens=5,
+        )
+        for i in range(4)
+    ]
+    await insert_records(db, records)
+
+    res = await client.get("/api/sessions?from=2026-01-01&to=2027-01-01&agent=zcode&limit=2&page=2")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] == 4
+    assert len(data["items"]) == 2
+
+    res = await client.get("/api/sessions?from=2026-01-01&to=2027-01-01&project=repo-2")
+    data = res.json()
+    assert data["total"] == 1
+    assert data["items"][0]["session_id"] == "sess-2"
+
+
+# ── Period comparison tests ──────────────────────────────────────
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_summary_compare_previous_window(client):
+    db = await db_module.get_db()
+    records = [
+        # Current window: 2026-05-02
+        TokenRecord(
+            timestamp="2026-05-02T10:00:00Z", agent="zcode", model="glm-5.3",
+            session_id="s1", input_tokens=1000, output_tokens=500, reasoning_tokens=100,
+        ),
+        # Previous window: 2026-05-01 (equal length before custom range)
+        TokenRecord(
+            timestamp="2026-05-01T10:00:00Z", agent="zcode", model="glm-5.3",
+            session_id="s0", input_tokens=500, output_tokens=250, reasoning_tokens=50,
+        ),
+    ]
+    await insert_records(db, records)
+
+    res = await client.get("/api/summary?range=custom&from=2026-05-02&to=2026-05-02&compare=true")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["input_tokens"] == 1000
+    assert "previous" in data
+    assert data["previous"]["input_tokens"] == 500
+    assert data["previous"]["reasoning_tokens"] == 50
+    assert "breakdown" not in data["previous"]
+
+    # Without compare, no previous block
+    res = await client.get("/api/summary?range=custom&from=2026-05-02&to=2026-05-02")
+    data = res.json()
+    assert "previous" not in data
+
+
+# ── Trend & cache-ratio tests ────────────────────────────────────
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_trend_endpoint_with_range(client):
+    """Regression: fetch_trend must apply the time range correctly
+    (a positional-arg bug once mapped from_ts onto the project filter)."""
+    db = await db_module.get_db()
+    records = [
+        TokenRecord(
+            timestamp="2026-05-02T10:00:00Z", agent="zcode", model="glm-5.3",
+            session_id="s1", input_tokens=1000, output_tokens=500, cache_read_tokens=200,
+        ),
+        TokenRecord(
+            timestamp="2026-05-02T11:00:00Z", agent="claude-code", model="claude-sonnet-4-6",
+            session_id="s2", input_tokens=2000, output_tokens=1000, cache_read_tokens=400,
+        ),
+    ]
+    await insert_records(db, records)
+
+    res = await client.get("/api/trend?range=custom&from=2026-05-02&to=2026-05-02&group_by=agent&granularity=day")
+    assert res.status_code == 200
+    data = res.json()
+    # Both agents must appear in the series for the day bucket
+    names = {s["name"] for s in data["series"]}
+    assert names == {"总计", "zcode", "claude-code"}
+    idx = data["dates"].index("2026-05-02")
+    zcode_series = next(s for s in data["series"] if s["name"] == "zcode")
+    assert zcode_series["data"][idx] == 1700  # 1000 + 500 + 200
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_cache_ratio_endpoint_with_range(client):
+    """Regression: fetch_cache_ratio must apply the time range correctly."""
+    db = await db_module.get_db()
+    records = [
+        TokenRecord(
+            timestamp="2026-05-02T10:00:00Z", agent="zcode", model="glm-5.3",
+            session_id="s1", input_tokens=800, cache_read_tokens=200,
+        ),
+    ]
+    await insert_records(db, records)
+
+    res = await client.get("/api/cache-ratio?range=custom&from=2026-05-02&to=2026-05-02&view=by_agent")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["overall_cache_ratio"] > 0
+    items = {i["agent"]: i for i in data["items"]}
+    assert "zcode" in items
+    assert abs(items["zcode"]["cache_ratio"] - 0.2) < 1e-6  # 200 / (800+200)
+
+
+# ── Report tests ─────────────────────────────────────────────────
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_report_endpoint(client, monkeypatch):
+    import backend.exchange_rate as fx
+
+    monkeypatch.setattr(fx, "_fetch_live_blocking", lambda: 7.0)
+    fx.reset_cache()
+
+    db = await db_module.get_db()
+    records = [
+        TokenRecord(
+            timestamp="2026-05-02T10:00:00Z", agent="zcode", model="glm-5.3",
+            session_id="s1", project="repo-a", input_tokens=1000, output_tokens=500,
+            reasoning_tokens=80,
+        ),
+        TokenRecord(
+            timestamp="2026-05-02T11:00:00Z", agent="claude-code", model="claude-sonnet-4-6",
+            session_id="s2", project="repo-b", input_tokens=5000, output_tokens=2500,
+        ),
+        TokenRecord(
+            timestamp="2026-05-01T10:00:00Z", agent="zcode", model="glm-5.3",
+            session_id="s0", project="repo-a", input_tokens=100, output_tokens=50,
+        ),
+    ]
+    await insert_records(db, records)
+
+    res = await client.get("/api/report?range=custom&from=2026-05-02&to=2026-05-02")
+    assert res.status_code == 200
+    data = res.json()
+
+    assert data["label"]
+    assert data["totals"]["input_tokens"] == 6000
+    assert data["previous"]["input_tokens"] == 100
+    # Top agent by tokens is claude-code (7500 vs 1500)
+    assert data["top_agents"][0]["name"] == "claude-code"
+    assert len(data["top_agents"]) <= 3
+    assert data["top_projects"][0]["name"] == "repo-b"
+    assert isinstance(data["quota"], list)
+    assert "# AI Token 用量报告" in data["markdown"]
+    assert "¥" in data["markdown"]
+
+
 # ── Quota config write-guard tests ───────────────────────────────
 
 
