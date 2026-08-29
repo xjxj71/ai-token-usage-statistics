@@ -193,3 +193,57 @@ async def test_filter_by_agent(client):
     data = res.json()
     assert data["input_tokens"] == 100
     assert data["call_count"] == 1
+
+
+# ── Quota config write-guard tests ───────────────────────────────
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_quota_config_loopback_allowed(client, tmp_path, monkeypatch):
+    """Loopback requests may update quota config without an API key."""
+    import backend.api.quota as quota_api
+
+    cfg = tmp_path / "quota_providers.yaml"
+    cfg.write_text("", encoding="utf-8")
+    monkeypatch.setattr(quota_api, "_CONFIG_YAML", cfg)
+
+    res = await client.put(
+        "/api/quota/config",
+        json={"provider": "zhipu", "enabled": True, "session_token": "secret-value"},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "ok"
+    # Credential must never be echoed back
+    assert "session_token" not in body["config"]
+    assert body["config"]["has_session_token"] is True
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_quota_config_remote_requires_key(tmp_path, monkeypatch):
+    """Non-loopback requests need TOKEN_STAT_API_KEY set and X-API-Key sent."""
+    from httpx import ASGITransport, AsyncClient
+
+    import backend.api.quota as quota_api
+    from backend import config
+    from backend.main import app
+
+    monkeypatch.setattr(config.settings, "api_key", "")
+    cfg = tmp_path / "quota_providers.yaml"
+    cfg.write_text("", encoding="utf-8")
+    monkeypatch.setattr(quota_api, "_CONFIG_YAML", cfg)
+
+    transport = ASGITransport(app=app, client=("10.0.0.5", 1234))
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        res = await c.put("/api/quota/config", json={"provider": "zhipu", "enabled": True})
+        assert res.status_code == 403
+
+        monkeypatch.setattr(config.settings, "api_key", "test-secret-key")
+        res = await c.put(
+            "/api/quota/config",
+            json={"provider": "zhipu", "enabled": True},
+            headers={"X-API-Key": "test-secret-key"},
+        )
+        assert res.status_code == 200

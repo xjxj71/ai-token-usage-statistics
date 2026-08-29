@@ -29,8 +29,10 @@ class Settings(BaseSettings):
     # Optional API key for authentication. If empty, auth is disabled.
     api_key: str = ""
 
-    # CORS allowed origins. Comma-separated list, or "*" for all (dev only).
-    cors_origins: str = "*"
+    # CORS allowed origins. Comma-separated list. Default only allows the
+    # local Vite dev server; set TOKEN_STAT_CORS_ORIGINS="*" (not recommended,
+    # effectively allows any site with credentials) or a real domain in prod.
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     # Exchange rate for USD to CNY display (configurable).
     usd_to_cny_rate: float = 7.25

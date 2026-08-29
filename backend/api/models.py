@@ -25,17 +25,7 @@ async def get_models():
     db = await db_module.get_db()
     used_models = await fetch_distinct_models(db)
 
-    # 获取 model_pricing 表中所有已知模型
-    rows = await db.execute_fetchall("SELECT model FROM model_pricing ORDER BY model")
-    known_models = {r["model"] for r in rows}
-
-    # 只返回：在 token_usage 中出现过 + 在 model_pricing 中存在 + 不在黑名单中
-    filtered = [
-        m for m in used_models
-        if m.lower() not in IGNORED_MODELS and m in known_models
-    ]
-
-    # 获取完整定价信息
+    # 单次查询获取所有已知模型的完整定价信息
     price_rows = await db.execute_fetchall("SELECT * FROM model_pricing ORDER BY model")
     pricing = {
         r["model"]: {
@@ -48,12 +38,12 @@ async def get_models():
         for r in price_rows
     }
 
-    # 只返回过滤后的模型，附上定价信息
-    result = []
-    for m in filtered:
-        entry = pricing.get(m, {"model": m})
-        result.append(entry)
-
+    # 只返回：在 token_usage 中出现过 + 在 model_pricing 中存在 + 不在黑名单中
+    result = [
+        pricing[m]
+        for m in used_models
+        if m.lower() not in IGNORED_MODELS and m in pricing
+    ]
     return result
 
 
@@ -144,7 +134,6 @@ async def refresh_pricing():
     existing_models = {r["model"] for r in existing_rows}
 
     updated = 0
-    added = 0
 
     try:
         def _fetch():
@@ -161,9 +150,15 @@ async def refresh_pricing():
         models = data.get("data", [])
         now = datetime.now(UTC).isoformat()
 
+        # Only refresh models already tracked in our table — importing all
+        # OpenRouter models (hundreds) would pollute /api/pricing and the
+        # model dropdown. New models get seeded from config/model_pricing.yaml
+        # by _ensure_models_in_pricing instead.
+        updates: list[tuple[float, float, float, float, str, str]] = []
+
         for m in models:
             model_id = m.get("id", "")
-            if not model_id:
+            if not model_id or model_id not in existing_models:
                 continue
 
             pricing = m.get("pricing", {})
@@ -171,29 +166,30 @@ async def refresh_pricing():
                 continue
 
             # OpenRouter pricing 是每 token 价格，转换为每 M token
-            input_price = float(pricing.get("prompt", 0)) * 1_000_000
-            output_price = float(pricing.get("completion", 0)) * 1_000_000
-            cache_read_price = float(pricing.get("input_cache_read", 0)) * 1_000_000
-            cache_write_price = float(pricing.get("input_cache_write", 0)) * 1_000_000
+            try:
+                input_price = float(pricing.get("prompt", 0)) * 1_000_000
+                output_price = float(pricing.get("completion", 0)) * 1_000_000
+                cache_read_price = float(pricing.get("input_cache_read", 0)) * 1_000_000
+                cache_write_price = float(pricing.get("input_cache_write", 0)) * 1_000_000
+            except (TypeError, ValueError):
+                logger.debug("Skipping model %s: non-numeric pricing", model_id)
+                continue
 
-            if model_id in existing_models:
-                await db.execute(
-                    """UPDATE model_pricing
-                       SET input_price = ?, output_price = ?,
-                           cache_read_price = ?, cache_write_price = ?, updated_at = ?
-                       WHERE model = ?""",
-                    (input_price, output_price, cache_read_price, cache_write_price, now, model_id),
-                )
-                updated += 1
-            else:
-                await db.execute(
-                    """INSERT INTO model_pricing (model, input_price, output_price, cache_read_price, cache_write_price, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
-                    (model_id, input_price, output_price, cache_read_price, cache_write_price, now),
-                )
-                added += 1
+            updates.append(
+                (input_price, output_price, cache_read_price, cache_write_price, now, model_id)
+            )
 
-        await db.commit()
+        if updates:
+            await db.executemany(
+                """UPDATE model_pricing
+                   SET input_price = ?, output_price = ?,
+                       cache_read_price = ?, cache_write_price = ?, updated_at = ?
+                   WHERE model = ?""",
+                updates,
+            )
+            await db.commit()
+
+        updated = len(updates)
 
     except urllib.error.URLError as e:
         logger.error("OpenRouter API 请求失败: %s", e)
@@ -202,4 +198,4 @@ async def refresh_pricing():
         logger.exception("刷新定价失败")
         raise HTTPException(status_code=500, detail="刷新定价失败")
 
-    return {"updated": updated, "added": added, "total": updated + added}
+    return {"updated": updated, "added": 0, "total": updated}

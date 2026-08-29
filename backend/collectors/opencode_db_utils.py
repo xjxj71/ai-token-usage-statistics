@@ -52,6 +52,7 @@ def extract_token_records(
     records: list[TokenRecord] = []
     max_ts_ms = last_timestamp_ms
 
+    conn: sqlite3.Connection | None = None
     try:
         conn = sqlite3.connect(str(db_path))
         conn.row_factory = sqlite3.Row
@@ -139,11 +140,12 @@ def extract_token_records(
             if created_ms and created_ms > max_ts_ms:
                 max_ts_ms = created_ms
 
-        conn.close()
-
     except sqlite3.Error as e:
         logger.error("%s: database error: %s", agent_name, e)
         return [], last_timestamp_ms
+    finally:
+        if conn is not None:
+            conn.close()
 
     logger.info("%s: extracted %d records from database", agent_name, len(records))
     return records, max_ts_ms

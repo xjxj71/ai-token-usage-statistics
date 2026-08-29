@@ -5,6 +5,7 @@ Reads token usage from OpenCode's SQLite database at ~/.local/share/opencode/ope
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Sequence
 from pathlib import Path
@@ -30,7 +31,8 @@ class OpenCodeCollector(BaseCollector):
         state = self._load_state()
         last_ts_ms = state.get("last_timestamp_ms", 0)
 
-        records, new_max_ts = extract_token_records(
+        records, new_max_ts = await asyncio.to_thread(
+            extract_token_records,
             db_path=_OPENCODE_DB_PATH,
             agent_name=self.name,
             last_timestamp_ms=last_ts_ms,

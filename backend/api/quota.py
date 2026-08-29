@@ -9,14 +9,17 @@ Provides endpoints for the frontend to:
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import secrets
 from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from backend.config import settings
 from backend.quota.base import ModelMultiplier, QuotaSnapshot, QuotaWindow
 from backend.quota.registry import get_registry
 
@@ -122,20 +125,45 @@ class ProviderConfigUpdate(BaseModel):
     session_token: str | None = None
 
 
+def _require_local_or_key(request: Request) -> None:
+    """Guard for endpoints that persist credentials.
+
+    Writing provider session tokens is sensitive: when the server is reached
+    from a non-loopback address, a valid API key must be configured and
+    supplied. Loopback requests (the normal local dashboard case) are allowed
+    without a key so the flow keeps working when no key is configured.
+    """
+    client_host = request.client.host if request.client else ""
+    if client_host in ("127.0.0.1", "::1", "localhost"):
+        return
+    api_key = request.headers.get("X-API-Key") or ""
+    if settings.api_key and secrets.compare_digest(api_key, settings.api_key):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            "该接口仅允许本机访问，或需配置 TOKEN_STAT_API_KEY 并携带 X-API-Key 请求头"
+        ),
+    )
+
+
 @router.put("/quota/config")
-async def update_provider_config(body: ProviderConfigUpdate):
+async def update_provider_config(body: ProviderConfigUpdate, request: Request):
     """Update a provider's configuration and persist to YAML.
 
     Only the fields that are provided (non-None) will be updated.
     """
+    _require_local_or_key(request)
     pid = body.provider
 
     # Read current config from YAML (or env-derived values won't be persisted).
     raw: dict[str, Any] = {}
     if _CONFIG_YAML.exists():
         try:
-            with open(_CONFIG_YAML, "r", encoding="utf-8") as f:  # noqa: ASYNC230
-                raw = yaml.safe_load(f) or {}
+            def _read() -> Any:
+                with open(_CONFIG_YAML, "r", encoding="utf-8") as f:
+                    return yaml.safe_load(f)
+            raw = await asyncio.to_thread(_read) or {}
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to read %s: %s", _CONFIG_YAML, exc)
 
@@ -161,8 +189,12 @@ async def update_provider_config(body: ProviderConfigUpdate):
     # Persist to YAML.
     _CONFIG_YAML.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with open(_CONFIG_YAML, "w", encoding="utf-8") as f:  # noqa: ASYNC230
-            yaml.dump(raw, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        await asyncio.to_thread(
+            lambda: _CONFIG_YAML.write_text(
+                yaml.dump(raw, default_flow_style=False, allow_unicode=True, sort_keys=False),
+                encoding="utf-8",
+            )
+        )
     except Exception as exc:  # noqa: BLE001
         logger.error("Failed to write %s: %s", _CONFIG_YAML, exc)
         raise HTTPException(status_code=500, detail=f"Failed to persist config: {exc}")
@@ -170,4 +202,13 @@ async def update_provider_config(body: ProviderConfigUpdate):
     # Reload registry to pick up new config.
     get_registry().reload()
 
-    return {"status": "ok", "provider": pid, "config": prov_cfg}
+    # Never echo the credential back in the response.
+    return {
+        "status": "ok",
+        "provider": pid,
+        "config": {
+            "enabled": prov_cfg.get("enabled"),
+            "plan_type": prov_cfg.get("plan_type"),
+            "has_session_token": bool(prov_cfg.get("session_token")),
+        },
+    }

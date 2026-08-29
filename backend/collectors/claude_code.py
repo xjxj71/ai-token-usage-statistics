@@ -6,6 +6,7 @@ Zero-intrusion: Claude Code writes session files natively — no hooks or config
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Sequence
 from pathlib import Path
@@ -31,15 +32,17 @@ class ClaudeCodeCollector(BaseCollector):
         last_dt = parse_timestamp(last_ts_str)
         file_positions: dict[str, int] = state.get("file_positions", {})
 
-        # Fix permissions on root-owned files before scanning
-        settings.ensure_claude_projects_readable()
+        # Fix permissions on root-owned files before scanning (wsl.exe call,
+        # potentially slow — run off the event loop)
+        await asyncio.to_thread(settings.ensure_claude_projects_readable)
 
         projects_dir = Path(settings.claude_projects_dir)
         if not projects_dir.exists():
             logger.debug("Claude Code: projects dir not found at %s", projects_dir)
             return []
 
-        records, new_positions, max_ts_str = scan_jsonl_directory(
+        records, new_positions, max_ts_str = await asyncio.to_thread(
+            scan_jsonl_directory,
             projects_dir=projects_dir,
             agent_name=self.name,
             last_dt=last_dt,

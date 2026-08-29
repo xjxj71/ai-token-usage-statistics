@@ -14,6 +14,7 @@ independent collector state files.  No cross-contamination.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Sequence
 from pathlib import Path
@@ -59,7 +60,7 @@ class HermesWindowsCollector(HermesCollector):
 
         # Fast-path: skip if source DB has not changed since last poll.
         try:
-            src_stat = Path(src_path).stat()
+            src_stat = await asyncio.to_thread(Path(src_path).stat)
         except OSError as exc:
             logger.debug(
                 "Hermes-win: cannot stat source db at %s: %s", src_path, exc

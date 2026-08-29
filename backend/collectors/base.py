@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 from abc import ABC, abstractmethod
@@ -8,6 +9,25 @@ from collections.abc import Sequence
 
 from backend.config import settings
 from backend.db.models import TokenRecord
+
+logger = logging.getLogger(__name__)
+
+
+def _read_state_file() -> dict:
+    """Read the shared collector state file, tolerating missing/corrupt JSON.
+
+    A corrupt state file must not crash every collector on every poll —
+    treat it as empty and let the next _save_state replace it.
+    """
+    path = settings.collector_state_path
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning("Collector state file unreadable, resetting: %s (%s)", path, e)
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 class BaseCollector(ABC):
@@ -25,20 +45,14 @@ class BaseCollector(ABC):
         ...
 
     def _load_state(self) -> dict:
-        path = settings.collector_state_path
-        if path.exists():
-            data = json.loads(path.read_text(encoding="utf-8"))
-            return data.get(self.name, {})
-        return {}
+        data = _read_state_file().get(self.name, {})
+        return data if isinstance(data, dict) else {}
 
     def _save_state(self, state: dict) -> None:
         path = settings.collector_state_path
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        all_state: dict = {}
-        if path.exists():
-            all_state = json.loads(path.read_text(encoding="utf-8"))
-
+        all_state = _read_state_file()
         all_state[self.name] = state
         content = json.dumps(all_state, indent=2, ensure_ascii=False)
 

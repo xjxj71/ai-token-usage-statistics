@@ -13,9 +13,11 @@ No hooks, no config changes, no agent modifications needed.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import Sequence
+from datetime import datetime
 from pathlib import Path
 
 from backend.collectors.base import BaseCollector
@@ -153,6 +155,77 @@ def _build_record(data: dict, agent_name: str) -> TokenRecord | None:
 # ── collector ────────────────────────────────────────────────────────────
 
 
+def _scan_sessions(
+    sessions_dir: Path,
+    last_dt: datetime,
+    file_positions: dict[str, int],
+    agent_name: str,
+) -> tuple[list[TokenRecord], str, dict[str, int]]:
+    """Blocking scan of Hanako session files — run via asyncio.to_thread."""
+    records: list[TokenRecord] = []
+    max_ts_str = ""
+    new_positions: dict[str, int] = {}
+
+    # Collect all .jsonl files recursively, excluding archived/bridge dirs
+    jsonl_files: list[Path] = []
+    for child in sorted(sessions_dir.iterdir()):
+        if child.is_dir():
+            if child.name in _SKIP_DIRS:
+                continue
+            jsonl_files.extend(sorted(child.glob("*.jsonl")))
+        elif child.suffix == ".jsonl":
+            jsonl_files.append(child)
+
+    logger.debug("Hanako: scanning %d jsonl files in %s", len(jsonl_files), sessions_dir)
+
+    for fpath in jsonl_files:
+        # Build a relative key that survives directory structure changes
+        rel_key = str(fpath.relative_to(sessions_dir))
+        start_pos = file_positions.get(rel_key, 0)
+
+        try:
+            file_size = fpath.stat().st_size
+        except OSError:
+            continue
+
+        # File was truncated or replaced — reset position
+        if start_pos > file_size:
+            start_pos = 0
+
+        # Skip fully-read files that haven't grown
+        if start_pos == file_size:
+            continue
+
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                if start_pos > 0:
+                    f.seek(start_pos)
+
+                for line in f:
+                    data = _parse_hanako_line(line)
+                    if data is None:
+                        continue
+
+                    ts = data.get("timestamp", "")
+                    ts_dt = parse_timestamp(ts)
+                    if ts_dt <= last_dt:
+                        continue
+
+                    record = _build_record(data, agent_name)
+                    if record is not None:
+                        records.append(record)
+                        if not max_ts_str or ts_dt > parse_timestamp(max_ts_str):
+                            max_ts_str = ts
+
+                    new_positions[rel_key] = f.tell()
+
+        except OSError as e:
+            logger.warning("Hanako: failed to read %s: %s", fpath, e)
+            continue
+
+    return records, max_ts_str, new_positions
+
+
 class HanakoCollector(BaseCollector):
     """Collect token usage from Hanako session JSONL files.
 
@@ -178,66 +251,9 @@ class HanakoCollector(BaseCollector):
             logger.debug("Hanako: sessions dir not found at %s", sessions_dir)
             return []
 
-        records: list[TokenRecord] = []
-        max_ts_str = ""
-        new_positions: dict[str, int] = {}
-
-        # Collect all .jsonl files recursively, excluding archived/bridge dirs
-        jsonl_files: list[Path] = []
-        for child in sorted(sessions_dir.iterdir()):
-            if child.is_dir():
-                if child.name in _SKIP_DIRS:
-                    continue
-                jsonl_files.extend(sorted(child.glob("*.jsonl")))
-            elif child.suffix == ".jsonl":
-                jsonl_files.append(child)
-
-        logger.debug("Hanako: scanning %d jsonl files in %s", len(jsonl_files), sessions_dir)
-
-        for fpath in jsonl_files:
-            # Build a relative key that survives directory structure changes
-            rel_key = str(fpath.relative_to(sessions_dir))
-            start_pos = file_positions.get(rel_key, 0)
-
-            try:
-                file_size = fpath.stat().st_size
-            except OSError:
-                continue
-
-            # File was truncated or replaced — reset position
-            if start_pos > file_size:
-                start_pos = 0
-
-            # Skip fully-read files that haven't grown
-            if start_pos == file_size:
-                continue
-
-            try:
-                with open(fpath, "r", encoding="utf-8") as f:  # noqa: ASYNC230
-                    if start_pos > 0:
-                        f.seek(start_pos)
-
-                    for line in f:
-                        data = _parse_hanako_line(line)
-                        if data is None:
-                            continue
-
-                        ts = data.get("timestamp", "")
-                        ts_dt = parse_timestamp(ts)
-                        if ts_dt <= last_dt:
-                            continue
-
-                        record = _build_record(data, self.name)
-                        if record is not None:
-                            records.append(record)
-                            if not max_ts_str or ts_dt > parse_timestamp(max_ts_str):
-                                max_ts_str = ts
-
-                    new_positions[rel_key] = f.tell()
-
-            except OSError as e:
-                logger.warning("Hanako: failed to read %s: %s", fpath, e)
-                continue
+        records, max_ts_str, new_positions = await asyncio.to_thread(
+            _scan_sessions, sessions_dir, last_dt, file_positions, self.name
+        )
 
         # Always persist position watermarks even without new records:
         # this preserves file truncation resets and prevents re-scanning

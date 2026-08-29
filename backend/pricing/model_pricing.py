@@ -7,6 +7,10 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
+# Models already warned about in calculate_cost — avoid log spam when a
+# collector processes many records for an unpriced model.
+_warned_models: set[str] = set()
+
 # Resolve config path relative to project root
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _PRICING_YAML = _PROJECT_ROOT / "config" / "model_pricing.yaml"
@@ -80,7 +84,9 @@ def calculate_cost(
 
     pricing = MODEL_PRICING.get(model)
     if not pricing:
-        logger.warning("Unknown model '%s', cannot calculate cost", model)
+        if model not in _warned_models:
+            _warned_models.add(model)
+            logger.warning("Unknown model '%s', cannot calculate cost", model)
         return 0.0
 
     cost = (

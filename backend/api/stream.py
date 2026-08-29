@@ -14,23 +14,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["stream"])
 
-# Shared event to notify SSE clients when the polling loop collects new records.
-_new_records_event: asyncio.Event = asyncio.Event()
+# One queue per connected SSE client. A single shared asyncio.Event would let
+# one client's clear() swallow notifications intended for other clients.
+_subscribers: set[asyncio.Queue[bool]] = set()
 
 
 def notify_new_records() -> None:
     """Called by the polling loop after a collection cycle with new records."""
-    _new_records_event.set()
-
-
-async def _wait_for_notification(timeout: float) -> bool:
-    """Wait up to *timeout* seconds for a notification. Returns True if notified."""
-    try:
-        await asyncio.wait_for(_new_records_event.wait(), timeout=timeout)
-        _new_records_event.clear()
-        return True
-    except TimeoutError:
-        return False
+    for q in list(_subscribers):
+        q.put_nowait(True)
 
 
 @router.get("/stream")
@@ -38,26 +30,35 @@ async def stream_events():
     polling_active = is_polling_active()
 
     async def event_generator():
-        if polling_active:
-            # Polling loop owns collection — just wait for notifications.
-            while True:
-                try:
-                    notified = await _wait_for_notification(settings.poll_interval_seconds)
-                    if notified:
-                        data = json.dumps({"type": "new_records"})
-                        yield f"data: {data}\n\n"
-                    else:
-                        yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
-                except Exception:
-                    logger.exception("SSE event generator error")
-                    yield f"data: {json.dumps({'type': 'error', 'message': 'Internal server error'})}\n\n"
-        else:
+        if not polling_active:
             # No background polling — let clients know collection is disabled
             # to avoid concurrent collectors being triggered by every SSE
             # connection simultaneously.
             data = json.dumps({"type": "polling_disabled", "message": "Background collection is not running."})
             yield f"data: {data}\n\n"
             return
+
+        queue: asyncio.Queue[bool] = asyncio.Queue()
+        _subscribers.add(queue)
+        try:
+            while True:
+                try:
+                    # Heartbeat if no notification arrives within the poll
+                    # interval — keeps proxies from closing the connection.
+                    notified = await asyncio.wait_for(
+                        queue.get(), timeout=settings.poll_interval_seconds
+                    )
+                    if notified:
+                        yield f"data: {json.dumps({'type': 'new_records'})}\n\n"
+                    else:
+                        yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
+                except TimeoutError:
+                    yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
+                except Exception:
+                    logger.exception("SSE event generator error")
+                    yield f"data: {json.dumps({'type': 'error', 'message': 'Internal server error'})}\n\n"
+        finally:
+            _subscribers.discard(queue)
 
     return StreamingResponse(
         event_generator(),

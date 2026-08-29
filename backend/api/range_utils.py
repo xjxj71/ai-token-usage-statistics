@@ -30,10 +30,10 @@ def resolve_range(
     to_date: str | None,
     tz_name: str = "Asia/Shanghai",
 ) -> tuple[str, str]:
-    """Resolve a range key to (from_ts, to_ts) ISO strings.
+    """Resolve a range key to (from_ts, to_ts) UTC ISO strings ending in Z.
 
-    Supports: 'today', '7d', '30d', 'custom' (requires from_date + to_date).
-    Falls back to today if key is unrecognized.
+    Supports: 'today', '7d', '30d', 'custom' (requires from_date + to_date,
+    both inclusive). Unrecognized keys or invalid dates raise HTTP 400.
     """
     import zoneinfo
     try:
@@ -60,9 +60,29 @@ def resolve_range(
     elif range_key == "custom" and from_date and to_date:
         _validate_date_format(from_date, "from")
         _validate_date_format(to_date, "to")
-        return from_date, to_date
+
+        from_dt = datetime.strptime(from_date, "%Y-%m-%d").replace(tzinfo=local_tz)
+        to_dt = datetime.strptime(to_date, "%Y-%m-%d").replace(tzinfo=local_tz)
+
+        if from_dt > to_dt:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid range: from ({from_date}) is after to ({to_date}).",
+            )
+
+        # Full local days, converted to UTC — the `to` day is inclusive
+        # (boundary is the following local midnight, exclusive).
+        return _fmt_z(from_dt.astimezone(UTC)), _fmt_z((to_dt + timedelta(days=1)).astimezone(UTC))
+    elif range_key == "custom":
+        raise HTTPException(
+            status_code=400,
+            detail="Custom range requires both 'from' and 'to' (YYYY-MM-DD).",
+        )
     else:
-        return _fmt_z(today_start_utc), _fmt_z(now_utc)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid range: '{range_key}'. Expected today / 7d / 30d / custom.",
+        )
 
 
 def _fmt_z(dt: datetime) -> str:

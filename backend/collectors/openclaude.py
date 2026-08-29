@@ -7,6 +7,7 @@ so the parsing logic is shared via :mod:`backend.collectors.jsonl_utils`.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Sequence
 from pathlib import Path
@@ -29,13 +30,13 @@ class OpenClaudeCollector(BaseCollector):
 
     @property
     def name(self) -> str:
-        return "openclaw"
+        return "openclaude"
 
     async def collect(self) -> Sequence[TokenRecord]:
         state = self._load_state()
         last_ts_str = state.get("last_timestamp", "")
 
-        projects_dir = Path.home() / ".openclaw" / "projects"
+        projects_dir = Path.home() / ".openclaude" / "projects"
         if not projects_dir.exists():
             logger.debug("OpenClaude: projects dir not found at %s", projects_dir)
             return []
@@ -58,7 +59,8 @@ class OpenClaudeCollector(BaseCollector):
             except (TypeError, ValueError):
                 logger.debug("OpenClaude: dropping bad file_position for %r", key)
 
-        records, new_positions, max_ts_str = scan_jsonl_directory(
+        records, new_positions, max_ts_str = await asyncio.to_thread(
+            scan_jsonl_directory,
             projects_dir=projects_dir,
             agent_name=self.name,
             last_dt=parse_timestamp(last_ts_str),

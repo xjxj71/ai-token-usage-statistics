@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import Sequence
@@ -25,7 +26,8 @@ class OpenClawCollector(BaseCollector):
         last_dt = parse_timestamp(last_ts_str)
 
         # Copy sessions.json from WSL /root to /tmp for UNC access
-        if not settings.wsl_copy_to_tmp(
+        if not await asyncio.to_thread(
+            settings.wsl_copy_to_tmp,
             "/root/.openclaw/agents/main/sessions/sessions.json",
             "/tmp/openclaw_sessions.json",
         ):
@@ -38,7 +40,8 @@ class OpenClawCollector(BaseCollector):
             return []
 
         try:
-            data = json.loads(sessions_path.read_text(encoding="utf-8"))
+            text = await asyncio.to_thread(sessions_path.read_text, "utf-8")
+            data = json.loads(text)
         except (json.JSONDecodeError, OSError) as e:
             logger.warning("OpenClaw: failed to read sessions.json: %s", e)
             return []

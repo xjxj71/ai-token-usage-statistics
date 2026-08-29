@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -58,16 +59,17 @@ class HermesCollector(BaseCollector):
         else:
             src_path = f"{settings.wsl_root}\\root\\.hermes\\state.db"
 
-        src_stat = None
-        try:
-            src_stat = Path(src_path).stat()
-        except OSError as exc:
-            # Stat may fail if WSL distro is stopped or not installed.
-            # Don't bail out — fall through to try wsl_copy_to_tmp which
-            # uses wsl.exe and may still succeed.
-            logger.debug(
-                "Hermes: cannot stat source db at %s: %s", src_path, exc
-            )
+        def _stat(p: str) -> os.stat_result | None:
+            try:
+                return Path(p).stat()
+            except OSError as exc:
+                # Stat may fail if WSL distro is stopped or not installed.
+                # Don't bail out — fall through to try wsl_copy_to_tmp which
+                # uses wsl.exe and may still succeed.
+                logger.debug("Hermes: cannot stat source db at %s: %s", p, exc)
+                return None
+
+        src_stat = await asyncio.to_thread(_stat, src_path)
 
         if src_stat is not None:
             prev_mtime = state.get("source_mtime")
@@ -84,16 +86,18 @@ class HermesCollector(BaseCollector):
                 )
                 return []
 
-        if not settings.wsl_copy_to_tmp(
-            "/root/.hermes/state.db", "/tmp/hermes_state.db"
+        if not await asyncio.to_thread(
+            settings.wsl_copy_to_tmp, "/root/.hermes/state.db", "/tmp/hermes_state.db"
         ):
             logger.warning("Hermes: failed to copy state.db via wsl_copy")
             return []
 
         # Also copy WAL and SHM sidecar files for fresh data
         for suffix in ("-wal", "-shm"):
-            settings.wsl_copy_to_tmp(
-                f"/root/.hermes/state.db{suffix}", f"/tmp/hermes_state.db{suffix}"
+            await asyncio.to_thread(
+                settings.wsl_copy_to_tmp,
+                f"/root/.hermes/state.db{suffix}",
+                f"/tmp/hermes_state.db{suffix}",
             )
 
         db_path = settings.hermes_db_path
@@ -118,7 +122,8 @@ class HermesCollector(BaseCollector):
         # Try to get fresh stat from the copied file for next poll's fast-path.
         # If stat originally failed (WSL down), use the copy's mtime/size instead.
         try:
-            fresh_stat = Path(src_path).stat() if src_stat is not None else Path(db_path).stat()
+            stat_target = src_path if src_stat is not None else db_path
+            fresh_stat = await asyncio.to_thread(Path(stat_target).stat)
         except OSError:
             fresh_stat = src_stat
 
@@ -142,6 +147,15 @@ class HermesCollector(BaseCollector):
 
     async def _copy_to_temp(self, db_path: str) -> str | None:
         """Copy the UNC-accessible db to a local temp file for SQLite access.
+
+        The blocking copy runs in a worker thread — reading from a UNC path
+        can take seconds and must not stall the event loop.
+        """
+        return await asyncio.to_thread(self._copy_to_temp_sync, db_path)
+
+    @staticmethod
+    def _copy_to_temp_sync(db_path: str) -> str | None:
+        """Blocking implementation of :meth:`_copy_to_temp`.
 
         SQLite WAL mode stores recent writes in a separate ``-wal`` file.
         We must copy both the main db **and** the WAL/SHM sidecar files,
