@@ -109,10 +109,13 @@ npm run build      # 生产构建（由 FastAPI 托管）
 | `db_path` / `TOKEN_STAT_DB_PATH` | `data/token_statistic.db` | 本地 SQLite 数据库路径 |
 | `TOKEN_STAT_HOST` | `127.0.0.1` | 服务绑定地址 |
 | `TOKEN_STAT_PORT` | `8001` | 服务端口 |
-| `TOKEN_STAT_CORS_ORIGINS` | `*` | CORS 允许的来源（逗号分隔，生产环境请设置为实际域名） |
+| `TOKEN_STAT_API_KEY` | 空 | API 鉴权密钥；为空时只允许本机访问。设置后所有 `/api/` 请求需携带 `X-API-Key` 请求头 |
+| `TOKEN_STAT_CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | CORS 允许的来源（逗号分隔，生产环境请设置为实际域名） |
 | `TOKEN_STAT_USD_TO_CNY_RATE` | `7.25` | 美元兑人民币汇率（用于前端费用显示） |
 | `TOKEN_STAT_ZHIPU_SESSION_TOKEN` | — | 智谱 Coding Plan 的 Session Token |
 | `TOKEN_STAT_XIAOMI_COOKIE` | — | 小米 MiMo Token Plan 的完整 Cookie |
+
+> **套餐凭据配置**：智谱/小米的凭据也可写在 `config/quota_providers.yaml`（从 [`config/quota_providers.example.yaml`](config/quota_providers.example.yaml) 复制模板填写）。该文件包含敏感凭据，已被 `.gitignore` 忽略，**切勿提交到仓库**。
 
 ### 数据源路径
 

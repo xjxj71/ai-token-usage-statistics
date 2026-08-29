@@ -1,0 +1,23 @@
+# 套餐余量监控配置模板。
+#
+# 使用方法：复制为 config/quota_providers.yaml 并填入真实凭据。
+# 该文件包含敏感凭据，已被 .gitignore 忽略，切勿提交到仓库。
+#
+# 也可改用环境变量注入（优先级高于 YAML）：
+#   TOKEN_STAT_ZHIPU_SESSION_TOKEN   → zhipu.session_token
+#   TOKEN_STAT_ZHIPU_PLAN_TYPE       → zhipu.plan_type
+#   TOKEN_STAT_XIAOMI_COOKIE         → xiaomi.session_token
+#   TOKEN_STAT_XIAOMI_PLAN_TYPE      → xiaomi.plan_type
+
+providers:
+  zhipu:
+    # 智谱 GLM Coding Plan，session_token 从 bigmodel.cn 登录后的 Cookie 中获取
+    enabled: false
+    plan_type: pro  # lite / pro / max
+    session_token: "YOUR_ZHIPU_SESSION_TOKEN"
+
+  xiaomi:
+    # 小米 MiMo Token Plan，session_token 为完整 Cookie 字符串
+    enabled: false
+    plan_type: standard
+    session_token: "YOUR_XIAOMI_COOKIE"

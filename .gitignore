@@ -13,6 +13,9 @@ __pycache__/
 # Environment config
 .env
 
+# 敏感凭据配置（使用 quota_providers.example.yaml 作为模板）
+config/quota_providers.yaml
+
 # Node
 node_modules/
 
@@ -25,6 +28,8 @@ data/*.db-wal
 data/*.db-shm
 data/collector_state.json
 data/*.png
+data/clean_dump.sql
+data/*.log
 
 # IDE / editor
 .mcp.json

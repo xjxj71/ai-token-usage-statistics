@@ -108,6 +108,12 @@ Configure via environment variables or `config.py` (prefix `TOKEN_STAT_`):
 | `db_path` / `TOKEN_STAT_DB_PATH` | `data/token_statistic.db` | Local SQLite database path |
 | `TOKEN_STAT_HOST` | `127.0.0.1` | Server bind address |
 | `TOKEN_STAT_PORT` | `8001` | Server port |
+| `TOKEN_STAT_API_KEY` | empty | API auth key; when empty only local access is allowed. When set, all `/api/` requests must send an `X-API-Key` header |
+| `TOKEN_STAT_CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | CORS allowed origins (comma-separated; set to your real domain in production) |
+| `TOKEN_STAT_ZHIPU_SESSION_TOKEN` | — | Zhipu Coding Plan session token |
+| `TOKEN_STAT_XIAOMI_COOKIE` | — | Xiaomi MiMo Token Plan full cookie |
+
+> **Quota credentials**: Zhipu/Xiaomi credentials can also be stored in `config/quota_providers.yaml` (copy from [`config/quota_providers.example.yaml`](config/quota_providers.example.yaml)). That file holds sensitive credentials and is gitignored — **never commit it**.
 
 ### Data Source Paths
 
