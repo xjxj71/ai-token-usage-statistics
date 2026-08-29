@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **ZCode 采集器**：监控 ZCode CLI 的 Token 用量。读取 `~/.zcode/cli/db/db.sqlite` 的 `model_usage` 表（每次模型请求一行），零侵入、无需配置
+  - WAL 快照读取：复制主库 + WAL 副本后查询，不干扰正在写入的 ZCode 进程
+  - 以 `completed_at` 为水位，进行中的请求在完成后自动补收；子代理（Explore 等）与后台请求计入 `zcode` 名下
+  - 新增 `glm-5.3` 定价条目（估算值，可在前端定价表中调整）
+- 新增共享工具 `sqlite_utils.copy_sqlite_with_wal()`（从 Hermes 采集器提取）
+
+### Security
+- 凭据配置 `config/quota_providers.yaml` 移出 git 跟踪，提供 `quota_providers.example.yaml` 模板
+- `PUT /api/quota/config` 仅允许本机调用（或携带有效 `X-API-Key`），响应不再回显 session token
+- CORS 默认来源收紧为本地开发服务器
+
+### Fixed
+- 修复 OpenClaude 采集器被误改为 `openclaw` 导致的采集中断与数据混淆
+- custom 时间范围 `to` 日期整天纳入统计；非法 range 返回 400 而非静默回退
+- SSE 改为每客户端队列，消除多客户端通知丢失
+- 采集器状态文件损坏时自动重置而非每轮崩溃
+- 采集循环中的阻塞 IO（wsl.exe、UNC 复制、JSONL 扫描、SQLite、YAML）全部移入线程池
+- 筛选栏 agent/模型列表改为随 SSE 实时刷新——页面打开期间新出现的 agent 自动进入筛选栏，无需手动刷新页面
+- 修复新模型自动入库时一律以 0 价插入、挡住 YAML 已配置定价的问题（`glm-5.3` 费用显示为 0 的根因）；已有 0 价行可通过定价表或 API 修正
+
 ## [0.4.0] - 2026-07-08
 
 ### Added

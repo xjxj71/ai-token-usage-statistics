@@ -57,9 +57,17 @@ class SummaryRow:
 
 
 async def _ensure_models_in_pricing(db: aiosqlite.Connection, models: set[str]) -> None:
-    """确保模型在 model_pricing 表中存在，不存在则插入默认定价（0）。"""
+    """确保模型在 model_pricing 表中存在。
+
+    优先使用 YAML 配置中的定价；YAML 未收录的模型才以 0 价插入，
+    避免已配置好价格的模型被 0 价行挡住（_seed_pricing 不覆盖已有行）。
+    """
     if not models:
         return
+
+    from backend.pricing.model_pricing import MODEL_PRICING
+
+    pricing_lower = {k.lower(): v for k, v in MODEL_PRICING.items()}
 
     # Normalize to lowercase for case-insensitive matching
     models_lower = {m.lower() for m in models}
@@ -70,11 +78,24 @@ async def _ensure_models_in_pricing(db: aiosqlite.Connection, models: set[str]) 
 
     if new_models:
         now = datetime.now(UTC).isoformat()
+        insert_rows = []
+        for m in sorted(new_models):
+            prices = pricing_lower.get(m)
+            insert_rows.append(
+                (
+                    m,
+                    prices["input"] if prices else 0.0,
+                    prices["output"] if prices else 0.0,
+                    prices.get("cache_read", 0) if prices else 0.0,
+                    prices.get("cache_write", 0) if prices else 0.0,
+                    now,
+                )
+            )
         await db.executemany(
             """INSERT INTO model_pricing
                (model, input_price, output_price, cache_read_price, cache_write_price, updated_at)
-               VALUES (?, 0.0, 0.0, 0.0, 0.0, ?)""",
-            [(m, now) for m in new_models],
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            insert_rows,
         )
         logger.info("Auto-detected new models added to pricing: %s", ", ".join(sorted(new_models)))
 

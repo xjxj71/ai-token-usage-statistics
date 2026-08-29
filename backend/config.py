@@ -79,6 +79,15 @@ class Settings(BaseSettings):
         return os.path.join(local, "hermes", "state.db")
 
     @property
+    def zcode_db_path(self) -> str:
+        """ZCode CLI usage database (~/.zcode/cli/db/db.sqlite).
+
+        ZCode records one row per model request in its ``model_usage``
+        table — read passively, no hooks needed.
+        """
+        return str(Path.home() / ".zcode" / "cli" / "db" / "db.sqlite")
+
+    @property
     def claude_projects_dir(self) -> str:
         """Claude Code session JSONL directory (~/.claude/projects/).
 

@@ -12,7 +12,7 @@
 
 ## 功能特性
 
-- **多 Agent 支持**：采集 Claude Code、Hermes（WSL + Windows）、OpenClaw、OpenClaude、MimoCode、OpenCode 的 Token 用量
+- **多 Agent 支持**：采集 Claude Code、Hermes（WSL + Windows）、OpenClaw、OpenClaude、MimoCode、OpenCode、ZCode 的 Token 用量
 - **实时仪表盘**：基于 SSE 推送更新，无需刷新页面
 - **套餐余量监控**：实时查询智谱 GLM Coding Plan、小米 MiMo Token Plan 的剩余用量（需提供浏览器 Cookie / Session Token）
 - **费用估算**：内置各模型定价（YAML 配置，支持热更新），自动计算使用成本
@@ -46,6 +46,7 @@ Windows 原生 或 WSL 内运行
                              │  OpenClaude (用户)      │
                              │  MimoCode (用户)        │
                              │  OpenCode (用户)        │
+                             │  ZCode (用户)           │
                              └────────────────────────┘
 ```
 
@@ -128,6 +129,7 @@ npm run build      # 生产构建（由 FastAPI 托管）
 | OpenClaude | session JSONL | — | `%USERPROFILE%\.openclaude\projects\**\*.jsonl`（Windows 本地，直接读取） |
 | MimoCode | mimocode.db (SQLite) | — | `~/.local/share/mimocode/mimocode.db`（Windows 本地，直接读取） |
 | OpenCode | opencode.db (SQLite) | — | `~/.local/share/opencode/opencode.db`（Windows 本地，直接读取） |
+| ZCode | db.sqlite (SQLite) | — | `~/.zcode/cli/db/db.sqlite`（Windows 本地，快照后读取） |
 
 > **权限说明**：Hermes（WSL）和 OpenClaw 的数据在 `/root/` 下（权限 700），WSL 默认用户 `claude` 无法通过 UNC 访问。采集器会在每次采集前通过 `wsl_copy_to_tmp()` 将文件复制到 `/tmp/`（chmod 644），然后读取副本。Windows 部署时用 `wsl.exe -u root -- cp` 执行复制；WSL 内测试时直接用 `shutil.copy2`。Claude Code 的数据在 `claude` 用户目录下，无权限问题。Hermes（Windows）的数据在 `%LOCALAPPDATA%` 下，当前用户直接可读。
 
@@ -139,6 +141,7 @@ npm run build      # 生产构建（由 FastAPI 托管）
 - **OpenClaude**：无需配置。采集器扫描 Windows 本地 `%USERPROFILE%\.openclaude\projects\` 下所有 session JSONL 文件，数据格式与 Claude Code 相同。无需 WSL 路径转换或权限处理。
 - **MimoCode**：无需配置。采集器读取 `~/.local/share/mimocode/mimocode.db` SQLite 数据库，从 `message` 表提取 assistant 消息的 token 使用数据。
 - **OpenCode**：无需配置。采集器读取 `~/.local/share/opencode/opencode.db` SQLite 数据库，数据格式与 MimoCode 相同（MiMoCode 是 OpenCode 的 fork）。
+- **ZCode**：无需配置。采集器读取 `~/.zcode/cli/db/db.sqlite` 的 `model_usage` 表（每次模型请求一行，token 字段完整）。数据库为 WAL 模式且被 ZCode 持续写入，采集时会先复制主库 + WAL 副本再查询；进行中的请求在完成后自动补收。
 
 详见 [Agent 配置指南](docs/agent-setup-guide.md)。
 

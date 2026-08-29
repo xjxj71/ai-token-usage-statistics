@@ -49,3 +49,4 @@ build_frontend.bat
 .claude/settings.local.json
 backend/collectors/.hermes-tmp.*
 prototype-dashboard.html
+.zcode/

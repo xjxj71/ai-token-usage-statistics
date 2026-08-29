@@ -51,6 +51,7 @@
     openclaw: { bg: "rgba(16,185,129,.2)", text: "#34D399" },
     hanako: { bg: "rgba(236,72,153,.2)", text: "#F472B6" },
     openclaude: { bg: "rgba(245,158,11,.2)", text: "#FBBF24" },
+    zcode: { bg: "rgba(249,115,22,.2)", text: "#FB923C" },
   };
 
   function getAgentColor(agent: string) {

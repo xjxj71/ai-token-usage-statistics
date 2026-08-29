@@ -12,7 +12,7 @@ A web dashboard for monitoring and visualizing token consumption and costs of mu
 
 ## Features
 
-- **Multi-Agent Support**: Collects token usage from Claude Code, Hermes (WSL + Windows), OpenClaw, OpenClaude, MimoCode, and OpenCode
+- **Multi-Agent Support**: Collects token usage from Claude Code, Hermes (WSL + Windows), OpenClaw, OpenClaude, MimoCode, OpenCode, and ZCode
 - **Real-time Dashboard**: SSE-based push updates, no page refresh needed
 - **Cost Estimation**: Built-in model pricing (YAML config with hot-reload), automatic cost calculation
 - **CNY Display**: All costs displayed in Chinese Yuan (CNY), one-click pricing refresh from OpenRouter
@@ -45,6 +45,7 @@ Running on Windows Native or WSL
                              │  OpenClaude (user)      │
                              │  MimoCode (user)        │
                              │  OpenCode (user)        │
+                             │  ZCode (user)           │
                              └────────────────────────┘
 ```
 
@@ -126,6 +127,7 @@ Configure via environment variables or `config.py` (prefix `TOKEN_STAT_`):
 | OpenClaude | session JSONL | — | `%USERPROFILE%\.openclaude\projects\**\*.jsonl` (Windows local, direct read) |
 | MimoCode | mimocode.db (SQLite) | — | `~/.local/share/mimocode/mimocode.db` (Windows local, direct read) |
 | OpenCode | opencode.db (SQLite) | — | `~/.local/share/opencode/opencode.db` (Windows local, direct read) |
+| ZCode | db.sqlite (SQLite) | — | `~/.zcode/cli/db/db.sqlite` (Windows local, snapshot read) |
 
 > **Permissions**: Hermes (WSL) and OpenClaw data is under `/root/` (mode 700), inaccessible to the default WSL user `claude` via UNC. The collector copies files to `/tmp/` (chmod 644) before reading. On Windows, `wsl.exe -u root -- cp` is used; inside WSL, `shutil.copy2` is used directly. Claude Code data is under the `claude` user directory with no permission issues. Hermes (Windows) data is under `%LOCALAPPDATA%`, readable by the current user.
 
@@ -137,6 +139,7 @@ Configure via environment variables or `config.py` (prefix `TOKEN_STAT_`):
 - **OpenClaude**: No configuration needed. Collector scans all session JSONL files under Windows local `%USERPROFILE%\.openclaude\projects\`, same data format as Claude Code. No WSL path conversion or permission handling needed.
 - **MimoCode**: No configuration needed. Collector reads `~/.local/share/mimocode/mimocode.db` SQLite database, extracting token usage from assistant messages in the `message` table.
 - **OpenCode**: No configuration needed. Collector reads `~/.local/share/opencode/opencode.db` SQLite database, same data format as MimoCode (MiMoCode is a fork of OpenCode).
+- **ZCode**: No configuration needed. Collector reads the `model_usage` table (one row per model request with full token accounting) from `~/.zcode/cli/db/db.sqlite`. The db is WAL-mode and actively written by ZCode, so a main+WAL snapshot is copied before querying; in-flight requests are picked up automatically once completed.
 
 See [Agent Setup Guide](docs/agent-setup-guide.md) for details.
 

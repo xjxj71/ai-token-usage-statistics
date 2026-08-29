@@ -4,8 +4,6 @@ import asyncio
 import json
 import logging
 import os
-import shutil
-import tempfile
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -13,6 +11,7 @@ from pathlib import Path
 import aiosqlite
 
 from backend.collectors.base import BaseCollector
+from backend.collectors.sqlite_utils import copy_sqlite_with_wal
 from backend.config import settings
 from backend.db.models import TokenRecord
 from backend.pricing.model_pricing import calculate_cost
@@ -146,34 +145,12 @@ class HermesCollector(BaseCollector):
         return records
 
     async def _copy_to_temp(self, db_path: str) -> str | None:
-        """Copy the UNC-accessible db to a local temp file for SQLite access.
+        """Copy the source db (plus WAL/SHM sidecars) to a temp snapshot.
 
         The blocking copy runs in a worker thread — reading from a UNC path
         can take seconds and must not stall the event loop.
         """
-        return await asyncio.to_thread(self._copy_to_temp_sync, db_path)
-
-    @staticmethod
-    def _copy_to_temp_sync(db_path: str) -> str | None:
-        """Blocking implementation of :meth:`_copy_to_temp`.
-
-        SQLite WAL mode stores recent writes in a separate ``-wal`` file.
-        We must copy both the main db **and** the WAL/SHM sidecar files,
-        otherwise the temp copy will be missing the latest data.
-        """
-        try:
-            fd, tmp_path = tempfile.mkstemp(suffix=".db")
-            os.close(fd)
-            shutil.copy2(db_path, tmp_path)
-            # Copy WAL and SHM sidecar files if they exist
-            for suffix in ("-wal", "-shm"):
-                src_sidecar = db_path + suffix
-                if Path(src_sidecar).exists():
-                    shutil.copy2(src_sidecar, tmp_path + suffix)
-            return tmp_path
-        except OSError as e:
-            logger.warning("Failed to copy hermes state.db: %s", e)
-            return None
+        return await asyncio.to_thread(copy_sqlite_with_wal, db_path)
 
     async def _read_sessions(
         self,

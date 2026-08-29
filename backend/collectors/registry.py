@@ -13,6 +13,7 @@ from backend.collectors.mimo_code import MimoCodeCollector
 from backend.collectors.open_code import OpenCodeCollector
 from backend.collectors.openclaude import OpenClaudeCollector
 from backend.collectors.openclaw import OpenClawCollector
+from backend.collectors.zcode import ZcodeCollector
 from backend.config import settings
 from backend.db.database import get_db
 from backend.db.models import TokenRecord, insert_records, upsert_records
@@ -39,6 +40,7 @@ COLLECTORS: list[BaseCollector] = [
     OpenClaudeCollector(),
     MimoCodeCollector(),
     OpenCodeCollector(),
+    ZcodeCollector(),
 ]
 
 _task: asyncio.Task | None = None

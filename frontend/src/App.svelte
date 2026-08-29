@@ -214,6 +214,9 @@
 
     const es = createEventSource(() => {
       loadData();
+      // New agents/models appear in the DB while the page is open —
+      // refresh the filter lists too, not just the data.
+      loadMeta();
       sseConnected = true;
     }, () => {
       sseConnected = false;

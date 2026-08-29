@@ -249,7 +249,37 @@ Get-ChildItem -Path $env:USERPROFILE\.openclaude\projects -Filter *.jsonl -Recur
 
 ---
 
-## 5. Token 统计工具配置
+## 5. ZCode
+
+### 无需配置
+
+ZCode CLI 在本地 SQLite 数据库中记录每次模型请求的完整 token 用量，采集器直接轮询读取，零侵入。
+
+### 数据位置
+
+- **数据库**：`~/.zcode/cli/db/db.sqlite`（WAL 模式，ZCode 运行期间持续写入）
+- **核心表**：`model_usage` — 每次模型请求一行，含 `input_tokens` / `output_tokens` / `cache_read_input_tokens` / `cache_creation_input_tokens` / `reasoning_tokens`、`model_id`、`started_at` / `completed_at`（epoch 毫秒）
+
+### 工作原理
+
+1. mtime/size 快路径：主库与 WAL 文件均未变化时跳过本轮轮询
+2. 复制主库 + `-wal`/`-shm` 副本到临时文件（`sqlite_utils.copy_sqlite_with_wal()`），避免与 ZCode 的写入争锁
+3. 以 `completed_at`（epoch 毫秒）为水位增量查询：进行中的请求（token 未定稿）在完成后的下一轮自动补收
+4. 子代理（如 `zcode-Explore`）与后台请求（如会话标题生成）均计入 `zcode` 名下，详情记录在 `raw_data`（turn_id、query_source、项目路径等）
+
+### 验证数据是否存在
+
+```bash
+# Windows PowerShell
+Get-Item $env:USERPROFILE\.zcode\cli\db\db.sqlite
+
+# 查看用量记录数
+sqlite3 "$env:USERPROFILE\.zcode\cli\db\db.sqlite" "SELECT COUNT(*) FROM model_usage"
+```
+
+---
+
+## 6. Token 统计工具配置
 
 通过环境变量或 `config.py` 配置采集器：
 
@@ -286,6 +316,10 @@ uvicorn backend.main:app --reload
 | Hermes (Windows) | 无 | `%LOCALAPPDATA%\hermes\state.db` (SQLite) | Windows 本地直接读取 |
 | OpenClaw | 无 | `/root/.openclaw/agents/main/sessions/sessions.json` | `wsl_copy_to_tmp()` 复制到 `/tmp/` 后读取 |
 | OpenClaude | 无 | `%USERPROFILE%\.openclaude\projects\**\*.jsonl` (JSONL) | Windows 本地直接读取 |
+| MimoCode | 无 | `~/.local/share/mimocode/mimocode.db` (SQLite) | Windows 本地直接读取 |
+| OpenCode | 无 | `~/.local/share/opencode/opencode.db` (SQLite) | Windows 本地直接读取 |
+| Hanako | 无 | `~/.hanako/agents/hanako/sessions/**/*.jsonl` (JSONL) | Windows 本地直接读取 |
+| ZCode | 无 | `~/.zcode/cli/db/db.sqlite` 的 `model_usage` 表 (SQLite) | 复制主库 + WAL 副本后读取 |
 
 ---
 
@@ -297,3 +331,4 @@ uvicorn backend.main:app --reload
 | Claude Code | 2,993 条 | 零侵入方案：从 session JSONL 提取，10 个模型，覆盖 2026-03-13 ~ 2026-05-04 |
 | OpenClaw | 70 条 | 模型包括 mimo-v2-pro, mimo-v2.5-pro, deepseek-v4 等 |
 | OpenClaude | 78 条 | Windows 本地采集，模型 mimo-v2.5-pro，3 个 session |
+| ZCode | 226 条 | Windows 本地采集，`model_usage` 表直读，模型 glm-5.3，覆盖 2026-08-29 |

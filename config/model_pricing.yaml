@@ -88,6 +88,10 @@ models:
     cache_read: 0.15
 
   # ── GLM (z.ai) — pricing TBD, using conservative estimates ──
+  glm-5.3:
+    input: 0.5
+    output: 2.0
+    cache_read: 0.125
   glm-5.1:
     input: 0.5
     output: 2.0

@@ -45,6 +45,7 @@
     hanako: "#EC4899",
     "mimo-code": "#0EA5E9",
     opencode: "#14B8A6",
+    zcode: "#F97316",
   };
 </script>
 
