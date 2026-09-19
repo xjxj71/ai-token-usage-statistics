@@ -1,18 +1,32 @@
 """Zhipu GLM Coding Plan quota provider.
 
-The Zhipu open platform (bigmodel.cn) does **not** expose a public API-key
-endpoint for querying subscription balance.  Instead, the web console calls
-internal endpoints under ``/api/biz/user/`` authenticated by a browser
-session token (extracted from cookies).
+Two credential types are supported, both **user-supplied** via the
+frontend settings panel (stored in ``config/quota_providers.yaml``):
 
-When a valid ``session_token`` is supplied in the provider config, we call:
+1. **API key** (format ``xxx.yyy``) — queries the Coding Plan usage
+   endpoint (same one cc-switch uses; bigmodel.cn and z.ai share the
+   backend and JSON shape)::
 
-    GET /api/biz/user/subscription/list      — plan info (Lite/Pro/Max)
-    GET /api/biz/user/subscription/usage     — 5h + weekly usage
-    GET /api/biz/user/account/balance        — cash + gift balance
+       GET /api/monitor/usage/quota/limit
+       Authorization: <api_key>        (no Bearer prefix — Zhipu quirk)
 
-When no token is available or the API returns 401, we fall back to a local
-estimate computed from the ``token_usage`` table.
+   Returns per-window **used percentage** (not absolute values) plus the
+   plan ``level``.  Absolute used/total are back-computed from the
+   official plan limits so the usage *ratio* is exact regardless of the
+   limits table's accuracy.  This endpoint does not expose account
+   balance or expiry.
+
+2. **Browser session token** — queries the web-console endpoints, which
+   carry absolute usage numbers *and* cash balance / expiry::
+
+       GET /api/biz/user/subscription/list      — plan info (Lite/Pro/Max)
+       GET /api/biz/user/subscription/usage     — 5h + weekly usage
+       GET /api/biz/user/account/balance        — cash + gift balance
+
+When no credential is supplied or the external call fails, we fall back
+to a local estimate computed from the ``token_usage`` table.  Credentials
+are never auto-discovered from other tools' config files — only the
+user-entered value from this app's own settings is used.
 """
 
 from __future__ import annotations
@@ -68,12 +82,11 @@ class ZhipuQuotaProvider(QuotaProvider):
         if not token:
             return await self._estimate()
 
-        # API keys (format: "xxx.yyy") cannot access the web-only
-        # subscription API.  Only session tokens from browser cookies
-        # work.  Detect the format and skip the external call for API
-        # keys to avoid unnecessary timeouts.
+        # API keys (format "xxx.yyy") use the Coding Plan usage endpoint
+        # (method adopted from cc-switch).  Session tokens from browser
+        # cookies use the web-console endpoints below.
         if self._is_api_key(token):
-            return await self._estimate()
+            return await self._fetch_via_api_key(token)
 
         try:
             return await self._fetch_api(token)
@@ -96,7 +109,148 @@ class ZhipuQuotaProvider(QuotaProvider):
         parts = cred.split(".")
         return len(parts) == 2 and len(parts[0]) > 10  # xxx.yyy format
 
-    # ── API path ───────────────────────────────────────────────
+    # ── API-key path (Coding Plan usage endpoint) ──────────────
+
+    async def _fetch_via_api_key(self, api_key: str) -> QuotaSnapshot:
+        """Query the Coding Plan usage endpoint with a plain API key.
+
+        Returns a live snapshot on success; falls back to the local
+        estimate (with ``error`` set) on any failure — never raises.
+        """
+        try:
+            headers = {
+                # Zhipu's coding-plan endpoint takes the raw key — no
+                # Bearer prefix (verified in cc-switch's implementation).
+                "Authorization": api_key.strip(),
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "Accept-Language": "en-US,en",
+                "User-Agent": "ai-token-usage/1.0",
+            }
+            body = await self._http_get(
+                f"{_BASE_URL}/api/monitor/usage/quota/limit", headers
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Zhipu coding-plan query failed, falling back to estimate: %s", exc
+            )
+            snapshot = await self._estimate()
+            snapshot.error = f"API Key 查询失败: {exc}"
+            return snapshot
+
+        snapshot = self._parse_coding_plan_response(body)
+        if snapshot is None:
+            logger.warning(
+                "Zhipu coding-plan response unparseable, falling back to estimate"
+            )
+            snapshot = await self._estimate()
+            snapshot.error = "Coding Plan 接口响应无法解析，已回退估算模式"
+        return snapshot
+
+    def _parse_coding_plan_response(self, body: dict) -> QuotaSnapshot | None:
+        """Parse the ``/api/monitor/usage/quota/limit`` response.
+
+        Window classification follows cc-switch's field-tested logic:
+
+        * ``unit: 3`` → 5-hour rolling window; ``unit: 6`` → weekly.
+          Classification must anchor on ``unit`` — sorting by reset time
+          mislabels the buckets near the end of a weekly cycle, where the
+          weekly window resets *earlier* than the 5-hour one.
+        * Fallback when ``unit`` is missing/unrecognized: entries without
+          ``nextResetTime`` go to the 5-hour slot first (a 0%-used 5h
+          bucket has no reset time), the rest fill empty slots by reset
+          time ascending.
+        * Legacy plans (pre-2026-02-12) return a single limit — the
+          weekly window is then simply absent.
+
+        ``percentage`` is the **used** percentage.  The endpoint has no
+        absolute numbers, so used/total are back-computed from the plan
+        limits — the resulting *ratio* equals percentage/100 exactly.
+        """
+        if not isinstance(body, dict):
+            return None
+        if body.get("success") is False:
+            logger.warning("Zhipu coding-plan API error: %s", body.get("msg"))
+            return None
+        data = body.get("data")
+        if not isinstance(data, dict):
+            return None
+
+        # Plan level — trust the API when it names a known plan,
+        # otherwise keep the user-configured plan_type.
+        plan_type = self.plan_type
+        level = str(data.get("level") or "").strip().lower()
+        if level in _PLAN_LIMITS:
+            plan_type = level
+        limits = _PLAN_LIMITS.get(plan_type, _PLAN_LIMITS["pro"])
+
+        five_hour: tuple[int | None, float] | None = None
+        weekly: tuple[int | None, float] | None = None
+        unclassified: list[tuple[int | None, float]] = []
+
+        for item in data.get("limits") or []:
+            if not isinstance(item, dict):
+                continue
+            limit_type = str(item.get("type") or "").upper()
+            if limit_type not in ("TOKENS_LIMIT", "CREDIT_LIMIT"):
+                continue
+            try:
+                pct = float(item.get("percentage") or 0.0)
+            except (TypeError, ValueError):
+                pct = 0.0
+            reset_ms = item.get("nextResetTime")
+            if not isinstance(reset_ms, (int, float)):
+                reset_ms = None
+            entry: tuple[int | None, float] = (reset_ms, pct)
+            unit = item.get("unit")
+            if unit == 3 and five_hour is None:
+                five_hour = entry
+            elif unit == 6 and weekly is None:
+                weekly = entry
+            else:
+                # Unknown unit, or a duplicate for an already-filled slot.
+                unclassified.append(entry)
+
+        # Fallback heuristic: no-reset entries prefer the 5-hour slot,
+        # then ascending reset time fills the remaining empty slot.
+        unclassified.sort(key=lambda e: (e[0] is not None, e[0] if e[0] is not None else 0))
+        for entry in unclassified:
+            if five_hour is None:
+                five_hour = entry
+            elif weekly is None:
+                weekly = entry
+
+        def _window(entry: tuple[int | None, float], total: float) -> QuotaWindow:
+            reset_ms, pct = entry
+            reset_iso = None
+            if reset_ms is not None:
+                try:
+                    reset_iso = datetime.fromtimestamp(reset_ms / 1000, tz=UTC).isoformat()
+                except (OverflowError, OSError, ValueError):
+                    reset_iso = None
+            return QuotaWindow(
+                used=round(total * pct / 100.0, 1),
+                total=total,
+                unit="prompts",
+                reset_at=reset_iso,
+            )
+
+        main = _window(five_hour, float(limits["window_5h"])) if five_hour else None
+        extra = [_window(weekly, float(limits["weekly"]))] if weekly else []
+
+        return QuotaSnapshot(
+            provider=self.provider_id,
+            display_name=self.display_name,
+            plan_name=plan_type.capitalize(),
+            plan_type=plan_type,
+            main_window=main,
+            extra_windows=extra,
+            model_multipliers=self.multipliers,
+            fetched_at=datetime.now(UTC).isoformat(),
+            source="api",
+        )
+
+    # ── Session-token path (web-console endpoints) ─────────────
 
     async def _fetch_api(self, token: str) -> QuotaSnapshot:
         """Query Zhipu internal web API using a browser session token.

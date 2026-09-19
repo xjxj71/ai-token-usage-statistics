@@ -184,7 +184,7 @@
               </select>
               <input
                 type="password"
-                placeholder="Session Token / Cookie"
+                placeholder={p.provider_id === "zhipu" ? "API Key / Session Token" : "Cookie"}
                 bind:value={form.session_token}
                 class="token-input"
               />
@@ -200,7 +200,7 @@
       {/each}
       <div class="settings-hint">
         <span class="text-[11px] text-[var(--text-3)]">
-          <strong>智谱：</strong>填 API key（自动走本地估算），或登录 bigmodel.cn 从 Network 面板复制 Cookie（实时查询）。<br />
+          <strong>智谱：</strong>填 API Key 可实时查询套餐使用率（Coding Plan 官方接口，推荐）；填 bigmodel.cn 浏览器 Session Token 还能获取现金余额与到期时间。凭据由你手动填写，仅保存在本地 config。<br />
           <strong>小米：</strong>必须从 Network 面板复制完整 Cookie（包含 HttpOnly 的 serviceToken），document.cookie 拿不到。
         </span>
       </div>
