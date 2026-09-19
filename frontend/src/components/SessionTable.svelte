@@ -162,32 +162,34 @@
                 {:else if (details[key] ?? []).length === 0}
                   <div class="detail-loading">该会话暂无明细记录</div>
                 {:else}
-                  <table class="detail-table">
-                    <thead>
-                      <tr>
-                        <th>时间</th>
-                        <th>模型</th>
-                        <th class="text-right">输入</th>
-                        <th class="text-right">输出</th>
-                        <th class="text-right">思考</th>
-                        <th class="text-right">缓存</th>
-                        <th class="text-right">费用</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {#each details[key] as r (r.id)}
+                  <div class="detail-scroll">
+                    <table class="detail-table">
+                      <thead>
                         <tr>
-                          <td class="whitespace-nowrap">{fmtTime(r.timestamp)}</td>
-                          <td class="truncate max-w-[220px]" title={r.model}>{r.model}</td>
-                          <td class="text-right">{fmt(r.input_tokens)}</td>
-                          <td class="text-right">{fmt(r.output_tokens)}</td>
-                          <td class="text-right">{fmt(r.reasoning_tokens ?? 0)}</td>
-                          <td class="text-right">{fmt(r.cache_read_tokens + r.cache_write_tokens)}</td>
-                          <td class="text-right text-[var(--amber)]">¥{(r.cost_usd * usdToCnyRate).toFixed(3)}</td>
+                          <th>时间</th>
+                          <th>模型</th>
+                          <th class="text-right">输入</th>
+                          <th class="text-right">输出</th>
+                          <th class="text-right">思考</th>
+                          <th class="text-right">缓存</th>
+                          <th class="text-right">费用</th>
                         </tr>
-                      {/each}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {#each details[key] as r (r.id)}
+                          <tr>
+                            <td class="whitespace-nowrap">{fmtTime(r.timestamp)}</td>
+                            <td class="truncate max-w-[220px]" title={r.model}>{r.model}</td>
+                            <td class="text-right">{fmt(r.input_tokens)}</td>
+                            <td class="text-right">{fmt(r.output_tokens)}</td>
+                            <td class="text-right">{fmt(r.reasoning_tokens ?? 0)}</td>
+                            <td class="text-right">{fmt(r.cache_read_tokens + r.cache_write_tokens)}</td>
+                            <td class="text-right text-[var(--amber)]">¥{(r.cost_usd * usdToCnyRate).toFixed(3)}</td>
+                          </tr>
+                        {/each}
+                      </tbody>
+                    </table>
+                  </div>
                   {#if (details[key] ?? []).length >= DETAIL_LIMIT}
                     <div class="detail-loading">仅显示最近 {DETAIL_LIMIT} 条请求</div>
                   {/if}
@@ -274,6 +276,8 @@
   table {
     width: 100%;
     border-collapse: collapse;
+    /* 窄屏下保证列不逐字换行：容器 overflow-x-auto 负责横向滚动 */
+    min-width: 880px;
   }
   th {
     padding: 10px 16px;
@@ -294,6 +298,7 @@
     padding: 10px 16px;
     font-size: 13px;
     border-bottom: 1px solid rgba(51, 65, 85, 0.4);
+    white-space: nowrap;
   }
   .session-row {
     cursor: pointer;
@@ -323,6 +328,14 @@
   }
   .detail-table {
     width: 100%;
+    min-width: 0;
+  }
+  /* 明细可能多达 200 条：限高内部滚动，不把整页拉长 */
+  .detail-scroll {
+    max-height: 360px;
+    overflow-y: auto;
+    border: 1px solid rgba(51, 65, 85, 0.35);
+    border-radius: 8px;
   }
   .detail-table th {
     padding: 6px 12px;

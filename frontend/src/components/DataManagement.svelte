@@ -141,7 +141,6 @@
         <label class="field">
           <span class="field-label">明细保留天数</span>
           <input type="number" min="0" bind:value={settings.retention_days} />
-          <span class="field-hint">0 = 永久保留；超期明细先按天聚合归档再删除，趋势/汇总历史不受影响</span>
         </label>
         <label class="field">
           <span class="field-label">备份保留个数</span>
@@ -156,6 +155,8 @@
         </button>
         {#if saveMsg}<span class="msg">{saveMsg}</span>{/if}
       </div>
+      <!-- 帮助文字单独一行，避免把左侧字段撑高导致与右侧字段的输入框错位 -->
+      <div class="field-hint">明细保留天数：0 = 永久保留；超期明细先按天聚合归档再删除，趋势/汇总历史不受影响</div>
 
       <div class="actions-row">
         <button class="action-btn" onclick={handleCleanup} disabled={cleaning}>
@@ -274,7 +275,7 @@
   .field-hint {
     font-size: 11px;
     color: var(--text-3);
-    max-width: 340px;
+    margin-top: -8px;
   }
   .field.checkbox {
     flex-direction: row;

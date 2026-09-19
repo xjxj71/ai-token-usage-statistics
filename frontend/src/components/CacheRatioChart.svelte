@@ -89,6 +89,7 @@
           },
         })),
         barWidth: "55%",
+        barMaxWidth: 36,
         label: {
           show: true,
           position: "right",
@@ -146,6 +147,7 @@
           },
         })),
         barWidth: "55%",
+        barMaxWidth: 36,
         label: {
           show: true,
           position: "right",
@@ -180,6 +182,7 @@
         return item ? Math.round(item.cache_ratio * 1000) / 10 : 0;
       }),
       barWidth: "50%",
+      barMaxWidth: 36,
       itemStyle: {
         color: MODEL_COLORS[mi % MODEL_COLORS.length],
         borderRadius: mi === allModels.length - 1 ? [0, 4, 4, 0] : [0, 0, 0, 0],

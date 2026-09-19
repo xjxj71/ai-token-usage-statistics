@@ -409,7 +409,8 @@
   /* Cards */
   .cards-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    /* auto-fit: 套餐少时卡片伸展填充可用宽度，不留空轨道 */
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
     gap: 14px;
   }
   .quota-card {

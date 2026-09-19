@@ -250,7 +250,8 @@
 <main class="min-h-screen bg-[var(--bg)] text-[var(--text)]" style="padding-bottom: 2rem;">
   <!-- Header -->
   <header class="header-bar">
-    <div class="flex items-center gap-3">
+    <div class="header-inner">
+      <div class="flex items-center gap-3">
       <div class="flex items-center gap-2.5">
         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="2">
           <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
@@ -279,7 +280,8 @@
         <span class="text-xs text-[var(--text-3)] animate-pulse ml-2">刷新中...</span>
       {/if}
     </div>
-    <TimeRangeTabs current={filter.range} onchange={handleRangeChange} />
+      <TimeRangeTabs current={filter.range} onchange={handleRangeChange} />
+    </div>
   </header>
 
   {#if error}
@@ -297,7 +299,7 @@
       <span>加载中...</span>
     </div>
   {:else if summary}
-    <div class="px-6 pt-2 pb-6 space-y-6">
+    <div class="px-6 pt-2 pb-6 space-y-6 mx-auto w-full max-w-[1800px]">
       <!-- Plan Quota Monitor -->
       <PlanQuotaCard />
 
@@ -315,8 +317,8 @@
         onchange={handleFilterChange}
       />
 
-      <!-- Stat Cards -->
-      <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
+      <!-- Stat Cards: 8 列仅在 ≥1536px（1080p/2160p 桌面）启用；720p(1280) 及以下保持 4 列，避免涨幅标签折行 -->
+      <div class="grid grid-cols-2 md:grid-cols-4 2xl:grid-cols-8 gap-4">
         <StatCard title="总 Token" value={summary.total_tokens} unit="" trend={totalsDelta("total_tokens")}
           icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>' />
         <StatCard title="输入 Token" value={summary.input_tokens} unit="" trend={totalsDelta("input_tokens")}
@@ -401,13 +403,17 @@
   .header-bar {
     border-bottom: 1px solid var(--border);
     padding: 14px 24px;
+    background: var(--card);
+  }
+  /* 4K/超宽屏下头部内容与主体内容一致限宽居中 */
+  .header-inner {
+    max-width: 1800px;
+    margin: 0 auto;
     display: flex;
     align-items: center;
     justify-content: space-between;
     flex-wrap: wrap;
     gap: 12px;
-    background: var(--card);
-    border-bottom: 1px solid var(--border);
   }
   .sse-dot {
     width: 8px;

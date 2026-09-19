@@ -18,8 +18,14 @@
     return n.toLocaleString();
   }
 
-  function truncate(name: string, max = 12): string {
+  function truncate(name: string, max = 18): string {
     return name.length > max ? name.slice(0, max) + "..." : name;
+  }
+
+  /** 条目少时压缩图高，避免单根柱子显得空旷；containLabel 会自动容纳较长的类目标签 */
+  function getChartHeight(): string {
+    const rows = [...new Set((breakdown ?? []).map((d) => d.model || "未知"))].length;
+    return `${Math.max(240, rows * 48 + 60)}px`;
   }
 
   function buildOption(data: BreakdownItem[]) {
@@ -70,6 +76,7 @@
           type: "bar",
           data: totals.reverse(),
           barWidth: "50%",
+          barMaxWidth: 28,
           itemStyle: {
             borderRadius: [0, 6, 6, 0],
             color: {
@@ -117,7 +124,7 @@
 
 <div class="chart-card">
   <h3 class="chart-title">Model 分布</h3>
-  <div bind:this={chartEl} class="chart-body" style="height:320px;"></div>
+  <div bind:this={chartEl} class="chart-body" style="height:{getChartHeight()}"></div>
 </div>
 
 <style>

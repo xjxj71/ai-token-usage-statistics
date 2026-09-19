@@ -20,6 +20,13 @@
     return n.toLocaleString();
   }
 
+  // Y 轴刻度与趋势图一致使用中文单位，避免同屏出现 150,000,000 这类原始数字
+  function fmtAxis(v: number): string {
+    if (v >= 1e8) return (v / 1e8).toFixed(1) + "亿";
+    if (v >= 1e4) return (v / 1e4).toFixed(0) + "万";
+    return String(v);
+  }
+
   function buildOption(data: BreakdownItem[]) {
     const agents = [...new Set(data.map((d) => d.agent))];
 
@@ -54,11 +61,12 @@
         data: data.map((d) => `${d.agent} / ${d.model}`),
         axisLine: { lineStyle: { color: "#334155" } },
         axisTick: { show: false },
-        axisLabel: { color: "#64748B", fontSize: 11, rotate: 30 },
+        // 类目少时水平展示，多时才旋转避让
+        axisLabel: { color: "#64748B", fontSize: 11, rotate: data.length > 6 ? 30 : 0, hideOverlap: true },
       },
       yAxis: {
         type: "value",
-        axisLabel: { color: "#64748B", fontSize: 11 },
+        axisLabel: { color: "#64748B", fontSize: 11, formatter: fmtAxis },
         splitLine: { lineStyle: { color: "rgba(51,65,85,.5)" } },
       },
       series: [
@@ -69,6 +77,7 @@
           data: data.map((d) => d.input_tokens),
           itemStyle: { color: COLORS[0], borderRadius: [0, 0, 0, 0] },
           barWidth: "40%",
+          barMaxWidth: 48,
         },
         {
           name: "输出 Token",

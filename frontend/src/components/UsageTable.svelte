@@ -280,6 +280,8 @@
   table {
     width: 100%;
     border-collapse: collapse;
+    /* 窄屏下保证列不逐字换行：容器 overflow-x-auto 负责横向滚动 */
+    min-width: 880px;
   }
   th {
     padding: 10px 16px;
@@ -300,6 +302,7 @@
     padding: 10px 16px;
     font-size: 13px;
     border-bottom: 1px solid rgba(51, 65, 85, 0.4);
+    white-space: nowrap;
   }
   tr:hover td {
     background: rgba(99, 102, 241, 0.06);
