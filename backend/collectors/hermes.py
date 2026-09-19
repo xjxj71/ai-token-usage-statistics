@@ -43,6 +43,16 @@ class HermesCollector(BaseCollector):
         return "hermes"
 
     async def collect(self) -> Sequence[TokenRecord]:
+        # WSL guard: bail before touching the distro — the source stat on
+        # the UNC path, the wsl.exe copies, and the snapshot read would
+        # all boot a stopped WSL.
+        if not await asyncio.to_thread(settings.is_wsl_running):
+            logger.debug(
+                "Hermes: WSL distro '%s' not running, skipping poll",
+                settings.wsl_distro,
+            )
+            return []
+
         state = self._load_state()
         closed_up_to_rowid: int = state.get("closed_up_to_rowid", 0)
         open_session_ids: list[str] = state.get("open_session_ids", [])

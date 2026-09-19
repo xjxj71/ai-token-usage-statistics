@@ -27,6 +27,15 @@ class ClaudeCodeCollector(BaseCollector):
         return "claude-code"
 
     async def collect(self) -> Sequence[TokenRecord]:
+        # WSL guard: bail before touching the distro — the permission fix
+        # (wsl.exe) and the UNC directory scan would both boot a stopped WSL.
+        if not await asyncio.to_thread(settings.is_wsl_running):
+            logger.debug(
+                "Claude Code: WSL distro '%s' not running, skipping poll",
+                settings.wsl_distro,
+            )
+            return []
+
         state = self._load_state()
         last_ts_str = state.get("last_timestamp", "")
         last_dt = parse_timestamp(last_ts_str)

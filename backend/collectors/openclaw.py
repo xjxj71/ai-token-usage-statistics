@@ -21,6 +21,15 @@ class OpenClawCollector(BaseCollector):
         return "openclaw"
 
     async def collect(self) -> Sequence[TokenRecord]:
+        # WSL guard: bail before the wsl.exe copy — it would boot a
+        # stopped WSL.
+        if not await asyncio.to_thread(settings.is_wsl_running):
+            logger.debug(
+                "OpenClaw: WSL distro '%s' not running, skipping poll",
+                settings.wsl_distro,
+            )
+            return []
+
         state = self._load_state()
         last_ts_str = state.get("last_timestamp", "")
         last_dt = parse_timestamp(last_ts_str)

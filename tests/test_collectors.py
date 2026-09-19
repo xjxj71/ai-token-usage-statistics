@@ -39,6 +39,15 @@ class TestClaudeCodeCollector:
             records = await collector.collect()
         assert records == []
 
+    @pytest.mark.asyncio
+    async def test_collect_skips_when_wsl_stopped(self, collector):
+        """WSL guard: must not touch wsl.exe or UNC paths when distro is stopped."""
+        with patch("backend.collectors.claude_code.settings") as mock_settings:
+            mock_settings.is_wsl_running.return_value = False
+            records = await collector.collect()
+        assert records == []
+        mock_settings.ensure_claude_projects_readable.assert_not_called()
+
 
 class TestOpenClawCollector:
     @pytest.fixture
@@ -70,6 +79,7 @@ class TestOpenClawCollector:
         session_file.write_text(json.dumps(session_data), encoding="utf-8")
 
         with patch("backend.collectors.openclaw.settings") as mock_settings:
+            mock_settings.is_wsl_running.return_value = True
             mock_settings.wsl_copy_to_tmp.return_value = True
             mock_settings.openclaw_sessions_path = str(session_file)
             with (
@@ -100,6 +110,7 @@ class TestOpenClawCollector:
         session_file.write_text(json.dumps(session_data), encoding="utf-8")
 
         with patch("backend.collectors.openclaw.settings") as mock_settings:
+            mock_settings.is_wsl_running.return_value = True
             mock_settings.wsl_copy_to_tmp.return_value = True
             mock_settings.openclaw_sessions_path = str(session_file)
             with (
@@ -109,6 +120,15 @@ class TestOpenClawCollector:
                 records = await collector.collect()
 
         assert len(records) == 0
+
+    @pytest.mark.asyncio
+    async def test_collect_skips_when_wsl_stopped(self, collector):
+        """WSL guard: must not call wsl_copy_to_tmp when distro is stopped."""
+        with patch("backend.collectors.openclaw.settings") as mock_settings:
+            mock_settings.is_wsl_running.return_value = False
+            records = await collector.collect()
+        assert records == []
+        mock_settings.wsl_copy_to_tmp.assert_not_called()
 
 
 class TestZcodeCollector:
@@ -300,6 +320,111 @@ class TestZcodeCollector:
                 records = await collector.collect()
 
         assert records == []
+
+
+class TestHermesCollector:
+    @pytest.mark.asyncio
+    async def test_collect_skips_when_wsl_stopped(self):
+        """WSL guard: must not stat UNC paths or call wsl_copy_to_tmp."""
+        from backend.collectors.hermes import HermesCollector
+
+        collector = HermesCollector()
+        with patch("backend.collectors.hermes.settings") as mock_settings:
+            mock_settings.is_wsl_running.return_value = False
+            records = await collector.collect()
+        assert records == []
+        mock_settings.wsl_copy_to_tmp.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_hermes_win_not_gated_by_wsl_check(self):
+        """hermes-win fully overrides collect() — reads LOCALAPPDATA, no WSL guard."""
+        from backend.collectors.hermes_win import HermesWindowsCollector
+
+        collector = HermesWindowsCollector()
+        assert collector.name == "hermes-win"
+        # Missing local db → collect returns [] without any WSL interaction
+        with patch("backend.collectors.hermes_win.settings") as mock_settings:
+            mock_settings.hermes_win_db_path = "D:/nonexistent/hermes/state.db"
+            records = await collector.collect()
+        assert records == []
+        mock_settings.is_wsl_running.assert_not_called()
+
+
+class TestWslRunningCheck:
+    """_query_wsl_running() must survive wsl.exe's UTF-16LE output."""
+
+    @staticmethod
+    def _fake_wsl(stdout_bytes: bytes) -> object:
+        import subprocess as sp
+        return sp.CompletedProcess(args=[], returncode=0, stdout=stdout_bytes)
+
+    @pytest.mark.unit
+    def test_running_distro_utf16_bom(self):
+        from backend import config
+
+        s = config.Settings()
+        raw = b"\xff\xfe" + "  project-claude    Running    2\r\n".encode("utf-16-le")
+        with patch.object(config.subprocess, "run", return_value=self._fake_wsl(raw)):
+            assert s._query_wsl_running() is True
+
+    @pytest.mark.unit
+    def test_running_distro_utf16_without_bom(self):
+        """zh-CN Windows emits UTF-16LE with no BOM and localized headers."""
+        from backend import config
+
+        s = config.Settings()
+        raw = "适用于 Linux 的 Windows 子系统分发:\r\nproject-claude (默认)\r\n".encode("utf-16-le")
+        with patch.object(config.subprocess, "run", return_value=self._fake_wsl(raw)):
+            assert s._query_wsl_running() is True
+
+    @pytest.mark.unit
+    def test_no_running_distro_utf16(self):
+        from backend import config
+
+        s = config.Settings()
+        raw = b"\xff\xfe" + "There are no running distributions.\r\n".encode("utf-16-le")
+        with patch.object(config.subprocess, "run", return_value=self._fake_wsl(raw)):
+            assert s._query_wsl_running() is False
+
+    @pytest.mark.unit
+    def test_no_running_distro_plain_ascii(self):
+        """Defensive: some environments may emit plain ASCII/UTF-8."""
+        from backend import config
+
+        s = config.Settings()
+        with patch.object(
+            config.subprocess, "run",
+            return_value=self._fake_wsl(b"There are no running distributions.\r\n"),
+        ):
+            assert s._query_wsl_running() is False
+
+    @pytest.mark.unit
+    def test_running_distro_plain_ascii(self):
+        from backend import config
+
+        s = config.Settings()
+        with patch.object(
+            config.subprocess, "run",
+            return_value=self._fake_wsl(b"  project-claude    Running    2\r\n"),
+        ):
+            assert s._query_wsl_running() is True
+
+    @pytest.mark.unit
+    def test_other_distro_running_does_not_match(self):
+        from backend import config
+
+        s = config.Settings()
+        raw = b"\xff\xfe" + "  ubuntu    Running    2\r\n".encode("utf-16-le")
+        with patch.object(config.subprocess, "run", return_value=self._fake_wsl(raw)):
+            assert s._query_wsl_running() is False
+
+    @pytest.mark.unit
+    def test_wsl_exe_missing(self):
+        from backend import config
+
+        s = config.Settings()
+        with patch.object(config.subprocess, "run", side_effect=FileNotFoundError):
+            assert s._query_wsl_running() is False
 
 
 class TestJsonlUtils:

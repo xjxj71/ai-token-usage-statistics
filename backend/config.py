@@ -4,11 +4,18 @@ import logging
 import os
 import shlex
 import subprocess
+import time
 from pathlib import Path
 
+from pydantic import PrivateAttr
 from pydantic_settings import BaseSettings
 
 logger = logging.getLogger(__name__)
+
+# How long is_wsl_running() trusts its cached answer. Short enough that a
+# distro start/stop is noticed within one poll cycle, long enough that the
+# WSL-dependent collectors and their helpers share one wsl.exe query.
+_WSL_RUNNING_TTL = 2.0
 
 
 class Settings(BaseSettings):
@@ -40,6 +47,9 @@ class Settings(BaseSettings):
     frontend_dist: Path = Path("frontend/dist")
 
     model_config = {"env_prefix": "TOKEN_STAT_"}
+
+    # (monotonic_time, result) cache for is_wsl_running()
+    _wsl_running_cache: tuple[float, bool] | None = PrivateAttr(default=None)
 
     @property
     def is_wsl(self) -> bool:
@@ -105,6 +115,55 @@ class Settings(BaseSettings):
             return "/tmp/openclaw_sessions.json"
         return f"{self.wsl_root}\\tmp\\openclaw_sessions.json"
 
+    # ── WSL running-state check ──────────────────────────────
+
+    def is_wsl_running(self) -> bool:
+        """True if the target WSL distro is currently running.
+
+        This never starts the distro: ``wsl.exe --list --running`` only
+        reports state, unlike ``wsl.exe -d <distro> -- ...`` or touching
+        ``\\\\wsl$\\<distro>`` paths, both of which boot a stopped distro.
+
+        The answer is cached for ``_WSL_RUNNING_TTL`` seconds so the
+        WSL-dependent collectors don't spawn wsl.exe several times per
+        poll cycle.
+        """
+        if self.is_wsl:
+            return True
+        now = time.monotonic()
+        cached = self._wsl_running_cache
+        if cached is not None and now - cached[0] < _WSL_RUNNING_TTL:
+            return cached[1]
+        running = self._query_wsl_running()
+        self._wsl_running_cache = (now, running)
+        return running
+
+    def _query_wsl_running(self) -> bool:
+        """Ask wsl.exe which distros are running and look for ours.
+
+        wsl.exe localizes its output and emits UTF-16LE — with or without
+        a BOM depending on the Windows version/locale (observed BOM-less
+        on zh-CN Windows), so ``text=True`` (ANSI code page) garbles it
+        and even BOM-sniffing is unreliable.  Decode both ways and search
+        each: the distro name only survives in the correct decode.
+        """
+        try:
+            result = subprocess.run(
+                ["wsl.exe", "--list", "--running"],
+                capture_output=True,
+                timeout=5,
+                check=False,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+            logger.debug("wsl.exe --list --running failed: %s", e)
+            return False
+        raw = result.stdout or b""
+        texts = (
+            raw.decode("utf-16-le", errors="replace"),
+            raw.decode("utf-8", errors="replace"),
+        )
+        return any(self.wsl_distro in t.replace("\x00", "") for t in texts)
+
     # ── Permission fix helper ────────────────────────────────
 
     def ensure_claude_projects_readable(self) -> None:
@@ -142,6 +201,12 @@ class Settings(BaseSettings):
                 return
 
             # Windows: call wsl.exe to fix permissions as root
+            if not self.is_wsl_running():
+                logger.debug(
+                    "WSL distro '%s' not running, skipping permission fix",
+                    self.wsl_distro,
+                )
+                return
             safe_user = shlex.quote(self.wsl_user_accessible)
             safe_dir = shlex.quote(linux_dir)
             result = subprocess.run(
@@ -185,6 +250,12 @@ class Settings(BaseSettings):
                 return True
 
             # Windows: call wsl.exe to copy as root
+            if not self.is_wsl_running():
+                logger.debug(
+                    "WSL distro '%s' not running, skipping copy of %s",
+                    self.wsl_distro, linux_src,
+                )
+                return False
             safe_src = shlex.quote(linux_src)
             safe_dst = shlex.quote(linux_dst)
             result = subprocess.run(
