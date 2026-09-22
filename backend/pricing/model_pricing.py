@@ -7,13 +7,14 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
+from backend import paths
+
 # Models already warned about in calculate_cost — avoid log spam when a
 # collector processes many records for an unpriced model.
 _warned_models: set[str] = set()
 
-# Resolve config path relative to project root
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-_PRICING_YAML = _PROJECT_ROOT / "config" / "model_pricing.yaml"
+# Resolved via backend.paths (bundled seed in frozen builds, repo config in dev).
+_PRICING_YAML = paths.model_pricing_yaml_path()
 
 # Module-level pricing dict (loaded once, can be reloaded)
 MODEL_PRICING: dict[str, dict[str, float]] = {}

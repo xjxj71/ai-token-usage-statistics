@@ -11,6 +11,7 @@ Out:  assets/icon-previews/variant-{a,b,c}.png, preview-sheet.png
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -116,7 +117,18 @@ def downscale(img: Image.Image, size: int) -> Image.Image:
     return img.resize((size, size), Image.LANCZOS)
 
 
-def main() -> None:
+def export_build_assets(master: Image.Image) -> None:
+    """Write multi-size app.ico and tray PNG used by packaging."""
+    assets = Path(__file__).resolve().parent
+    ico_path = assets / "app.ico"
+    sizes = [(256, 256), (48, 48), (32, 32), (16, 16)]
+    master.save(ico_path, format="ICO", sizes=sizes)
+    downscale(master, 32).save(assets / "tray-32.png")
+    print(f"wrote {ico_path} and {assets / 'tray-32.png'}")
+
+
+def main(argv: list[str] | None = None) -> None:
+    argv = list(sys.argv[1:] if argv is None else argv)
     OUT.mkdir(parents=True, exist_ok=True)
     renders = {}
     for key, fn in VARIANTS.items():
@@ -145,6 +157,9 @@ def main() -> None:
         x += cell_w + pad
     sheet.save(OUT / "preview-sheet.png")
     print(f"written to {OUT}")
+
+    if "--export-build-assets" in argv:
+        export_build_assets(renders["a"])
 
 
 if __name__ == "__main__":

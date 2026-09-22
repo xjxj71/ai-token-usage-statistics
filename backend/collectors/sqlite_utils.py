@@ -15,6 +15,8 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from backend import paths
+
 logger = logging.getLogger(__name__)
 
 
@@ -34,7 +36,7 @@ def copy_sqlite_with_wal(db_path: str | Path) -> str | None:
     None if the copy failed (caller should skip this poll).
     """
     try:
-        fd, tmp_path = tempfile.mkstemp(suffix=".db")
+        fd, tmp_path = tempfile.mkstemp(suffix=".db", dir=str(paths.temp_dir()))
         os.close(fd)
         shutil.copy2(db_path, tmp_path)
         # Copy WAL and SHM sidecar files if they exist

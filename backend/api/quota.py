@@ -11,13 +11,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from pathlib import Path
 from typing import Any
 
 import yaml
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from backend import paths
 from backend.api.deps import require_local_or_key as _require_local_or_key
 from backend.quota.base import ModelMultiplier, QuotaSnapshot, QuotaWindow
 from backend.quota.registry import get_registry
@@ -26,7 +26,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["quota"])
 
-_CONFIG_YAML = Path(__file__).resolve().parent.parent.parent / "config" / "quota_providers.yaml"
+# Kept as a module attribute so tests can point it at tmp_path.
+_CONFIG_YAML = paths.quota_providers_path()
 
 
 # ── Serialisation helpers ──────────────────────────────────────

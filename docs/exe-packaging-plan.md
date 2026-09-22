@@ -1,8 +1,8 @@
 # Windows 桌面化（exe 安装包）实施方案
 
-> 状态：**实现规格已补齐，待编码**（本文档即实施依据）  
-> 日期：2026-09-19 初稿 · 2026-09-22 补齐路径/生命周期/构建细则  
-> 产品交互与选型沿用已定稿决策；§4 起为可直接落地的实现规格。
+> 状态：**代码骨架已落地（feat/windows-exe-packaging），待打包冒烟与安装验收**  
+> 日期：2026-09-19 初稿 · 2026-09-22 补齐路径/生命周期/构建细则并实现  
+> 产品交互与选型沿用已定稿决策；§4 为实现规格，对应代码见 `backend/paths.py`、`backend/tray_app.py`、`build/`。
 
 ## 1. 目标交互流程
 
@@ -317,17 +317,17 @@ hidden     = aiosqlite, uvicorn.logging, uvicorn.loops.auto, uvicorn.protocols.h
 
 ## 6. 实施步骤 checklist
 
-1. [ ] `backend/paths.py` + 单测（frozen / portable / APPDATA）
-2. [ ] `backend/config.py`、`quota/registry.py`、`api/quota.py`、`pricing/model_pricing.py`、`main.py` 切到 paths
-3. [ ] 采集临时文件改 `%TEMP%`
-4. [ ] `backend/tray_app.py`（mutex / 日志轮转 / 端口 / uvicorn 线程 / 气泡 / 菜单 / instance.json）
-5. [ ] 图标定稿（方案 A）→ `assets/app.ico` 多尺寸
-6. [ ] `build/tray_app.spec` + 构建补齐 hidden imports（以缺失告警为准）
-7. [ ] `build/installer.iss`（AppMutex / 版本 / 自启任务 / 卸载删数据勾选）
-8. [ ] `build/build_exe.py` 一键串联 + 版本注入
-9. [ ] `pyproject.toml` 补 pystray、Pillow、pyinstaller
-10. [ ] 端到端验收（见 §7）
-11. [ ] README「桌面版」小节：安装、数据目录、无 WSL 说明、SmartScreen
+1. [x] `backend/paths.py` + 单测（frozen / portable / APPDATA）
+2. [x] `backend/config.py`、`quota/registry.py`、`api/quota.py`、`pricing/model_pricing.py`、`main.py` 切到 paths
+3. [x] 采集临时文件改 `%TEMP%`（`sqlite_utils.copy_sqlite_with_wal`）
+4. [x] `backend/tray_app.py`（mutex / 日志轮转 / 端口 / uvicorn 线程 / 气泡 / 菜单 / instance.json）
+5. [x] 图标定稿（方案 A）→ `assets/app.ico` 多尺寸（`generate_icon.py --export-build-assets`）
+6. [x] `build/tray_app.spec` + hidden imports 预置（打包冒烟时按 ImportError 再补）
+7. [x] `build/installer.iss`（AppMutex / 版本 / 自启任务 / 卸载删数据勾选）
+8. [x] `build/build_exe.py` 一键串联 + 版本注入
+9. [x] `pyproject.toml` 补 pystray、Pillow、pyinstaller
+10. [ ] 端到端验收（见 §7）— **待本机安装验证**
+11. [x] README「桌面版」小节：安装、数据目录、无 WSL 说明、SmartScreen
 
 ## 7. 验收清单（端到端）
 

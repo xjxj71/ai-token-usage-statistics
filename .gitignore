@@ -21,6 +21,10 @@ node_modules/
 
 # Build output
 frontend/dist/
+build/dist/
+build/output/
+assets/app.ico
+assets/tray-32.png
 
 # Runtime data (local databases, collector state)
 data/*.db

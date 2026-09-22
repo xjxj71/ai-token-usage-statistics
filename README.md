@@ -252,6 +252,28 @@ pytest -q
 ruff check backend/ tests/
 ```
 
+## 桌面版（Windows exe）
+
+开发版与打包版共用 `backend/paths.py` 路径层：
+
+| 模式 | 数据 / 配置 |
+|------|-------------|
+| 开发（仓库） | `<repo>/data`、`<repo>/config` |
+| 安装版 | `%APPDATA%\ai-token-usage\{data,config}` |
+| 绿色版（exe 旁放 `portable.flag`） | `<exe目录>\{data,config}` |
+
+构建（仅 Windows）：
+
+```bash
+# 依赖：Node/npm、Python venv（pip install -e ".[dev]"）、Inno Setup（iscc，可选）
+python build/build_exe.py
+# 产物：build/dist/ai-token-usage/  与  build/output/AI-Token-Usage-Setup-<ver>.exe
+```
+
+运行 `ai-token-usage.exe` 后托盘驻留，浏览器自动打开面板；右键退出完全退出。  
+无 WSL 或发行版未运行时服务可启动，用量采集为空。安装包未签名，SmartScreen 首次需「更多信息 → 仍要运行」。  
+详细规格见 [docs/exe-packaging-plan.md](docs/exe-packaging-plan.md)。
+
 ## 许可证
 
 [MIT License](LICENSE)

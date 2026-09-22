@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from backend import paths
 from backend.api import (
     cache_ratio,
     maintenance,
@@ -111,7 +112,7 @@ def create_app() -> FastAPI:
     app.include_router(report.router, prefix="/api")
     app.include_router(maintenance.router, prefix="/api")
 
-    frontend_dist = settings.frontend_dist.resolve()
+    frontend_dist = paths.frontend_dist()
     if frontend_dist.exists():
         app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
 

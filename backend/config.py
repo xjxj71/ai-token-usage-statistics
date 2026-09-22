@@ -7,8 +7,10 @@ import subprocess
 import time
 from pathlib import Path
 
-from pydantic import PrivateAttr
+from pydantic import Field, PrivateAttr
 from pydantic_settings import BaseSettings
+
+from backend import paths
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +28,8 @@ class Settings(BaseSettings):
     # WSL user whose files need root copy (hermes/openclaw run as root)
     wsl_user_root: str = "root"
 
-    db_path: Path = Path("data/token_statistic.db")
-    collector_state_path: Path = Path("data/collector_state.json")
+    db_path: Path = Field(default_factory=paths.db_path)
+    collector_state_path: Path = Field(default_factory=paths.collector_state_path)
 
     poll_interval_seconds: int = 5
     host: str = "127.0.0.1"
@@ -44,9 +46,13 @@ class Settings(BaseSettings):
     # Exchange rate for USD to CNY display (configurable).
     usd_to_cny_rate: float = 7.25
 
-    frontend_dist: Path = Path("frontend/dist")
+    frontend_dist: Path = Field(default_factory=paths.frontend_dist)
 
-    model_config = {"env_prefix": "TOKEN_STAT_"}
+    model_config = {
+        "env_prefix": "TOKEN_STAT_",
+        "env_file": str(paths.env_file_path()),
+        "extra": "ignore",
+    }
 
     # (monotonic_time, result) cache for is_wsl_running()
     _wsl_running_cache: tuple[float, bool] | None = PrivateAttr(default=None)

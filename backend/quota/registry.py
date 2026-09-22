@@ -10,17 +10,18 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 import yaml
 
+from backend import paths
 from backend.quota.base import QuotaProvider, QuotaSnapshot
 
 logger = logging.getLogger(__name__)
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-_CONFIG_YAML = _PROJECT_ROOT / "config" / "quota_providers.yaml"
+# Resolved via backend.paths so frozen/portable installs work. Tests may
+# monkeypatch this module attribute.
+_CONFIG_YAML = paths.quota_providers_path()
 
 # Cache TTL in seconds.
 _CACHE_TTL = 120  # 2 minutes
