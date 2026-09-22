@@ -68,10 +68,12 @@
       providers = provData;
       // Sync settings forms
       for (const p of provData) {
+        const prev = settingsForms[p.provider_id];
         settingsForms[p.provider_id] = {
           enabled: p.enabled,
           plan_type: p.plan_type || "pro",
-          session_token: "",
+          // Keep in-progress secret input so a background refresh doesn't wipe it.
+          session_token: prev?.session_token ?? "",
         };
       }
     } catch (e: any) {
@@ -398,11 +400,6 @@
   }
   .settings-hint {
     padding-top: 4px;
-  }
-  .settings-hint code {
-    background: var(--bg);
-    padding: 1px 5px;
-    border-radius: 3px;
     font-size: 11px;
   }
 

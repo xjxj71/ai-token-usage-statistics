@@ -4,7 +4,7 @@
     value: number;
     unit?: string;
     prefix?: boolean;
-    icon?: string;
+    icon?: string; // trusted inline SVG from App (not user input)
     /** Signed percent change vs the previous period; undefined/0 hides the badge. */
     trend?: number;
     /** When true a decrease is good (e.g. cost) — colors are inverted. */

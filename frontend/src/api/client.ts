@@ -3,7 +3,7 @@ import type { SummaryResponse, UsageResponse, ModelInfo, TrendResponse, CacheRat
 const BASE = "/api";
 const FETCH_TIMEOUT_MS = 15_000;
 
-async function fetchWithTimeout(url: string, options: RequestInit = {}): Promise<Response> {
+export async function fetchWithTimeout(url: string, options: RequestInit = {}): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
@@ -68,16 +68,23 @@ export async function fetchProjects(): Promise<string[]> {
 export function createEventSource(
   onMessage: (data: unknown) => void,
   onError?: () => void,
-): EventSource {
+): { close: () => void } {
   const es = new EventSource(`${BASE}/stream`);
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   const DEBOUNCE_MS = 3000;
 
+  const clearDebounce = () => {
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+      debounceTimer = null;
+    }
+  };
+
   es.addEventListener("message", (event: MessageEvent) => {
     try {
       const parsed = JSON.parse(event.data);
-      if (debounceTimer) clearTimeout(debounceTimer);
+      clearDebounce();
       debounceTimer = setTimeout(() => {
         onMessage(parsed);
         debounceTimer = null;
@@ -88,14 +95,16 @@ export function createEventSource(
   });
 
   es.addEventListener("error", () => {
-    if (debounceTimer) {
-      clearTimeout(debounceTimer);
-      debounceTimer = null;
-    }
+    clearDebounce();
     onError?.();
   });
 
-  return es;
+  return {
+    close: () => {
+      clearDebounce();
+      es.close();
+    },
+  };
 }
 
 export async function fetchTrend(params: Record<string, string>): Promise<TrendResponse> {

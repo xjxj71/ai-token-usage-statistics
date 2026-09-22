@@ -238,10 +238,7 @@ ai-token-usage-statistics/
 
 ```bash
 # Run all tests
-pytest
-
-# With coverage report
-pytest --cov=backend --cov-report=term-missing
+pytest -q
 
 # Code linting
 ruff check backend/ tests/

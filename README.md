@@ -234,6 +234,11 @@ ai-token-usage-statistics/
 - **备份**：每日自动（可关）+ 手动备份，存放在 `data/backups/`，保留最新 N 个。**恢复方法**：停止后端服务，用备份文件替换 `data/token_statistic.db`，重新启动即可。
 - **旧库升级**：首次启动新版本时自动执行迁移——为历史记录从 `raw_data` 回填 `project`（取会话工作目录最后一段）与 `reasoning_tokens` 列，无需手动操作。
 
+### 安全提示
+
+- `config/quota_providers.yaml` 含上游会话凭据，已被 `.gitignore` 忽略，**切勿提交**。若曾提交过该文件，请立即轮换智谱 / 小米凭据，并视情况清理 git 历史。
+- 默认只监听 `127.0.0.1`。若绑定到 `0.0.0.0` 或放在反向代理后，请设置 `TOKEN_STAT_API_KEY`，并为写入类接口与备份下载启用鉴权。
+
 ## 测试
 
 ```bash
@@ -241,7 +246,7 @@ ai-token-usage-statistics/
 pytest
 
 # 带覆盖率报告
-pytest --cov=backend --cov-report=term-missing
+pytest -q
 
 # 代码检查
 ruff check backend/ tests/

@@ -1,7 +1,7 @@
 """Tests for data retention, backups, and their API surface."""
 
 import asyncio
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -15,26 +15,24 @@ from backend.maintenance import (
     update_app_settings,
 )
 
-# Fixed "old" days that any run of this test will consider archivable, plus a
-# dynamically-computed recent day so assertions hold regardless of run date.
-_OLD_DAYS = ("2026-01-01", "2026-01-02")
-_ARCHIVE_BOUNDARY = date(2026, 3, 1)
+# Relative anchors so the suite does not depend on the wall-clock date.
+_OLD_OFFSETS = (40, 39)  # days ago — always outside a short retention window
+_RETENTION_DAYS = 7
 
 
-def _days_since_boundary() -> int:
-    """Retention length whose cutoff lands exactly on _ARCHIVE_BOUNDARY."""
-    return (datetime.now(UTC).date() - _ARCHIVE_BOUNDARY).days
+def _seed_day(offset: int) -> str:
+    return (datetime.now(UTC) - timedelta(days=offset)).strftime("%Y-%m-%dT10:00:00Z")
 
 
 async def _seed_spanning_rows(db):
     recent = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%dT10:00:00Z")
     records = [
         TokenRecord(
-            timestamp=f"{day}T10:00:00Z", agent="zcode", model="glm-5.3",
-            session_id=f"s-{day}", project="repo-a",
+            timestamp=_seed_day(offset), agent="zcode", model="glm-5.3",
+            session_id=f"s-{offset}", project="repo-a",
             input_tokens=1000, output_tokens=500, reasoning_tokens=50,
         )
-        for day in _OLD_DAYS
+        for offset in _OLD_OFFSETS
     ]
     records.append(
         TokenRecord(
@@ -55,8 +53,8 @@ async def test_run_retention_archives_then_deletes(client):
     db = await db_module.get_db()
     await _seed_spanning_rows(db)
 
-    # Cutoff lands on 2026-03-01: archives the two 2026-01 days, keeps yesterday
-    result = await run_retention(_days_since_boundary())
+    # Cutoff is 7 days ago: archives the two old days, keeps yesterday
+    result = await run_retention(_RETENTION_DAYS)
 
     assert result["deleted_rows"] == 2
     raw_left = await db.execute_fetchall("SELECT timestamp FROM token_usage")
@@ -65,7 +63,8 @@ async def test_run_retention_archives_then_deletes(client):
     daily = await db.execute_fetchall(
         "SELECT date, input_tokens, reasoning_tokens, call_count FROM usage_daily ORDER BY date"
     )
-    assert [r["date"] for r in daily] == ["2026-01-01", "2026-01-02"]
+    expected_dates = sorted(_seed_day(o)[:10] for o in _OLD_OFFSETS)
+    assert [r["date"] for r in daily] == expected_dates
     assert all(r["input_tokens"] == 1000 and r["reasoning_tokens"] == 50 and r["call_count"] == 1 for r in daily)
 
 
@@ -75,13 +74,13 @@ async def test_summary_keeps_history_after_retention(client):
     db = await db_module.get_db()
     await _seed_spanning_rows(db)
 
-    before = await fetch_summary(db, from_ts="2026-01-01T00:00:00Z", to_ts="2100-01-01T00:00:00Z")
+    before = await fetch_summary(db, from_ts="2000-01-01T00:00:00Z", to_ts="2100-01-01T00:00:00Z")
     total_before = sum(r.input_tokens for r in before)
 
-    await run_retention(_days_since_boundary())
+    await run_retention(_RETENTION_DAYS)
 
     # Same wide range — the UNION with usage_daily must preserve totals
-    after = await fetch_summary(db, from_ts="2026-01-01T00:00:00Z", to_ts="2100-01-01T00:00:00Z")
+    after = await fetch_summary(db, from_ts="2000-01-01T00:00:00Z", to_ts="2100-01-01T00:00:00Z")
     assert sum(r.input_tokens for r in after) == total_before
 
 
@@ -177,7 +176,7 @@ async def test_maintenance_cleanup_endpoint(client):
     db = await db_module.get_db()
     await _seed_spanning_rows(db)
 
-    res = await client.post(f"/api/maintenance/cleanup?days={_days_since_boundary()}")
+    res = await client.post(f"/api/maintenance/cleanup?days={_RETENTION_DAYS}")
     assert res.status_code == 200
     assert res.json()["result"]["deleted_rows"] == 2
 
@@ -211,4 +210,37 @@ async def test_backup_remote_requires_key():
     transport = ASGITransport(app=app, client=("10.0.0.5", 1234))
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         res = await c.post("/api/backup")
-    assert res.status_code == 403
+        assert res.status_code == 403
+        res = await c.get("/api/backups")
+        assert res.status_code == 403
+        res = await c.get("/api/backups/token_statistic_20260101_000000.db")
+        assert res.status_code == 403
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_pricing_write_remote_requires_key():
+    from httpx import ASGITransport, AsyncClient
+
+    from backend import config
+    from backend.main import app
+
+    transport = ASGITransport(app=app, client=("10.0.0.5", 1234))
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        res = await c.put(
+            "/api/pricing/some-model",
+            json={"input_price": 1, "output_price": 1},
+        )
+        assert res.status_code == 403
+
+        res = await c.post("/api/pricing/refresh")
+        assert res.status_code == 403
+
+        config.settings.api_key = "test-secret-key"
+        try:
+            res = await c.post(
+                "/api/pricing/refresh", headers={"X-API-Key": "test-secret-key"}
+            )
+            assert res.status_code != 403
+        finally:
+            config.settings.api_key = ""

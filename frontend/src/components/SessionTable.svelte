@@ -29,6 +29,17 @@
   let expandedKey: string | null = $state(null);
   let loadingKey: string | null = $state(null);
   let details: Record<string, TokenRecord[]> = $state({});
+  let detailScope = "";
+
+  // Drill-down rows are scoped to the current page; drop caches when paging.
+  $effect(() => {
+    const scope = `${page}|${pageSize}`;
+    if (scope !== detailScope) {
+      detailScope = scope;
+      details = {};
+      expandedKey = null;
+    }
+  });
 
   function sessionKey(s: SessionItem): string {
     return `${s.agent}|${s.session_id}`;
@@ -132,7 +143,19 @@
         {#each items as s (sessionKey(s))}
           {@const key = sessionKey(s)}
           {@const c = getAgentColor(s.agent)}
-          <tr class="session-row {expandedKey === key ? 'expanded' : ''}" onclick={() => toggleExpand(s)}>
+          <tr
+            class="session-row {expandedKey === key ? 'expanded' : ''}"
+            role="button"
+            tabindex="0"
+            aria-expanded={expandedKey === key}
+            onclick={() => toggleExpand(s)}
+            onkeydown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                toggleExpand(s);
+              }
+            }}
+          >
             <td>
               <svg
                 class="chevron {expandedKey === key ? 'open' : ''}"

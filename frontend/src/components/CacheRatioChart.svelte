@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import * as echarts from "echarts";
   import type { CacheRatioItem } from "../types";
+  import { escapeHtml } from "../utils/escape";
 
   interface Props {
     byAgent: CacheRatioItem[];
@@ -59,7 +60,7 @@
         formatter: (params: any[]) => {
           const p = params[0];
           const item = sorted[p.dataIndex];
-          return `<b>${item.agent || "未知"}</b><br/>`
+          return `<b>${escapeHtml(item.agent || "未知")}</b><br/>`
             + `缓存命中率: <b>${ratios[p.dataIndex]}%</b><br/>`
             + `总 Token: <b>${fmtTokens(item.total_tokens)}</b><br/>`
             + `缓存 Token: <b>${fmtTokens(item.cache_read_tokens)}</b>`;
@@ -117,7 +118,7 @@
         formatter: (params: any[]) => {
           const p = params[0];
           const item = sorted[p.dataIndex];
-          return `<b>${item.model || "未知"}</b><br/>`
+          return `<b>${escapeHtml(item.model || "未知")}</b><br/>`
             + `缓存命中率: <b>${ratios[p.dataIndex]}%</b><br/>`
             + `总 Token: <b>${fmtTokens(item.total_tokens)}</b><br/>`
             + `缓存 Token: <b>${fmtTokens(item.cache_read_tokens)}</b>`;
@@ -206,12 +207,12 @@
         axisPointer: { type: "shadow" },
         formatter: (params: any[]) => {
           const agentName = params[0].axisValue;
-          let html = `<b>${agentName}</b><br/>`;
+          let html = `<b>${escapeHtml(agentName)}</b><br/>`;
           for (const p of params) {
             if (p.value > 0) {
               const items = agentGroups.get(agentName) || [];
               const item = items.find((d) => (d.model || "未知") === p.seriesName);
-              html += `${p.marker} ${p.seriesName}: <b>${p.value}%</b>`;
+              html += `${p.marker} ${escapeHtml(p.seriesName)}: <b>${p.value}%</b>`;
               if (item) html += ` (${fmtTokens(item.cache_read_tokens)} / ${fmtTokens(item.total_tokens)})`;
               html += "<br/>";
             }

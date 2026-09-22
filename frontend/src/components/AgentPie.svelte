@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import * as echarts from "echarts";
   import type { BreakdownItem } from "../types";
+  import { escapeHtml } from "../utils/escape";
 
   interface Props {
     breakdown: BreakdownItem[];
@@ -35,7 +36,7 @@
         textStyle: { color: "#F8FAFC", fontSize: 12 },
         formatter: (params: any) => {
           const val = params.value as number;
-          return `<b>${params.name}</b><br/>`
+          return `<b>${escapeHtml(params.name)}</b><br/>`
             + `总 Token: <b>${fmt(val)}</b><br/>`
             + `占比: <b>${params.percent}%</b>`;
         },

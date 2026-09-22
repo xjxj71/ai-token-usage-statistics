@@ -36,6 +36,13 @@
     onchange(next, selectedModels, selectedProjects);
   }
 
+  function toggleModel(model: string) {
+    const next = selectedModels.includes(model)
+      ? selectedModels.filter((m) => m !== model)
+      : [...selectedModels, model];
+    onchange(selectedAgents, next, selectedProjects);
+  }
+
   function toggleProject(project: string) {
     const next = selectedProjects.includes(project)
       ? selectedProjects.filter((p) => p !== project)
@@ -69,6 +76,7 @@
       <button
         class="agent-tag {isActive ? 'active' : ''}"
         style="--tag-color: {color}"
+        aria-pressed={isActive}
         onclick={() => toggleAgent(agent)}
       >
         <span class="tag-dot" style="background:{isActive ? color : 'var(--text-3)'}"></span>
@@ -76,9 +84,46 @@
       </button>
     {/each}
 
+    {#if models.length > 0}
+      <div class="project-select">
+        <button
+          class="project-toggle"
+          aria-expanded={showModels}
+          onclick={() => (showModels = !showModels)}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+          模型{selectedModels.length > 0 ? ` · ${selectedModels.length} 项` : ""}
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        {#if showModels}
+          <div class="project-dropdown">
+            {#each models as model}
+              <label class="project-option">
+                <input
+                  type="checkbox"
+                  checked={selectedModels.includes(model)}
+                  onchange={() => toggleModel(model)}
+                />
+                <span class="truncate" title={model}>{model}</span>
+              </label>
+            {/each}
+            {#if selectedModels.length > 0}
+              <button class="project-clear" onclick={() => onchange(selectedAgents, [], selectedProjects)}>
+                清除模型筛选
+              </button>
+            {/if}
+          </div>
+        {/if}
+      </div>
+    {/if}
+
     {#if projects.length > 0}
       <div class="project-select">
-        <button class="project-toggle" onclick={() => (showProjects = !showProjects)}>
+        <button
+          class="project-toggle"
+          aria-expanded={showProjects}
+          onclick={() => (showProjects = !showProjects)}
+        >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
           项目{selectedProjects.length > 0 ? ` · ${selectedProjects.length} 项` : ""}
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>

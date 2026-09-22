@@ -118,8 +118,9 @@ class PricingUpdate(BaseModel):
 
 
 @router.put("/pricing/{model:path}")
-async def update_pricing(model: str, body: PricingUpdate):
-    """更新指定模型的自定义定价。"""
+async def update_pricing(model: str, body: PricingUpdate, request: Request):
+    """更新指定模型的自定义定价（仅本机或携带有效 API Key）。"""
+    require_local_or_key(request)
     db = await db_module.get_db()
 
     # 检查模型是否存在
@@ -151,8 +152,9 @@ async def update_pricing(model: str, body: PricingUpdate):
 
 
 @router.post("/pricing/refresh")
-async def refresh_pricing():
-    """从 OpenRouter API 一键获取最新模型定价，更新数据库。"""
+async def refresh_pricing(request: Request):
+    """从 OpenRouter API 一键获取最新模型定价，更新数据库（仅本机或携带有效 API Key）。"""
+    require_local_or_key(request)
     import json as json_mod
     import urllib.error
     import urllib.request

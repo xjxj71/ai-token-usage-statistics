@@ -98,7 +98,8 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
         <input
           type="text"
-          placeholder="搜索 Agent / 模型..."
+          placeholder="搜索当前页 Agent / 模型 / 项目..."
+          aria-label="搜索当前页"
           bind:value={searchQuery}
           class="search-input"
         />

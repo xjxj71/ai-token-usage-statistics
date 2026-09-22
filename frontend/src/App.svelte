@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { SummaryResponse, SummaryTotals, UsageResponse, FilterState, TimeRange, TrendResponse, CacheRatioResponse, SessionsResponse, TokenRecord } from "./types";
-  import { fetchSummary, fetchUsage, fetchAgents, fetchModels, fetchTrend, fetchCacheRatio, createEventSource, fetchConfig, fetchProjects, fetchSessions, refreshExchangeRate } from "./api/client";
+  import { fetchSummary, fetchUsage, fetchAgents, fetchModels, fetchTrend, fetchCacheRatio, createEventSource, fetchConfig, fetchProjects, fetchSessions, refreshExchangeRate, fetchWithTimeout } from "./api/client";
   import { buildParams } from "./api/params";
+  import { csvEscape } from "./utils/csv";
   import TimeRangeTabs from "./components/TimeRangeTabs.svelte";
   import StatCard from "./components/StatCard.svelte";
   import ComparisonChart from "./components/ComparisonChart.svelte";
@@ -39,7 +40,8 @@
   let pageSize = $state(50);
   let sessionPage = $state(1);
   let sessionPageSize = $state(20);
-  let sseConnected = $state(true);
+  let sseConnected = $state(false);
+  let loadSeq = 0;
   let usdToCnyRate = $state(7.25); // Default, will be updated from config
   let rateSource = $state("");
   let rateRefreshing = $state(false);
@@ -64,6 +66,7 @@
   }
 
   async function loadData(page?: number) {
+    const seq = ++loadSeq;
     loading = true;
     error = "";
     if (page !== undefined) currentPage = page;
@@ -81,6 +84,7 @@
         fetchCacheRatio({ ...params, view: "by_model" }),
         fetchCacheRatio({ ...params, view: "by_agent_model" }),
       ]);
+      if (seq !== loadSeq) return;
       summary = agentSum;
       agentBreakdown = agentSum.breakdown;
       modelBreakdown = modelSum.breakdown;
@@ -93,9 +97,10 @@
       usage = usg;
       sessions = sess;
     } catch (e: any) {
+      if (seq !== loadSeq) return;
       error = e.message || "数据加载失败";
     } finally {
-      loading = false;
+      if (seq === loadSeq) loading = false;
     }
   }
 
@@ -172,17 +177,17 @@
   async function handleExport() {
     try {
       const params = buildParams(filter);
-      const res = await fetch(`/api/usage?${new URLSearchParams({ ...params, limit: "99999" })}`);
+      const res = await fetchWithTimeout(`/api/usage?${new URLSearchParams({ ...params, limit: "99999" })}`);
       if (!res.ok) throw new Error("导出失败");
       const data = await res.json();
 
       const header = "时间,Agent,模型,项目,输入Token,输出Token,思考Token,缓存Token,费用(CNY)";
       const rows = data.items.map((r: any) =>
         [
-          `"${r.timestamp}"`,
-          `"${r.agent}"`,
-          `"${r.model}"`,
-          `"${r.project ?? ""}"`,
+          csvEscape(r.timestamp),
+          csvEscape(r.agent),
+          csvEscape(r.model),
+          csvEscape(r.project ?? ""),
           r.input_tokens,
           r.output_tokens,
           r.reasoning_tokens ?? 0,

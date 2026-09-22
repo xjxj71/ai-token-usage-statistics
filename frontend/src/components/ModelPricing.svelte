@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { fetchWithTimeout } from "../api/client";
 
   interface PricingItem {
     model: string;
@@ -61,7 +62,7 @@
   async function loadPricing() {
     loading = true;
     try {
-      const res = await fetch(`${BASE}/pricing`);
+      const res = await fetchWithTimeout(`${BASE}/pricing`);
       if (!res.ok) throw new Error("获取定价失败");
       pricingData = await res.json();
     } catch (e: any) {
@@ -98,7 +99,7 @@
         cache_read_price: +(editForm.cache_read_price / usdToCnyRate).toFixed(6),
         cache_write_price: +(editForm.cache_write_price / usdToCnyRate).toFixed(6),
       };
-      const res = await fetch(`${BASE}/pricing/${encoded}`, {
+      const res = await fetchWithTimeout(`${BASE}/pricing/${encoded}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(usdForm),
@@ -123,7 +124,7 @@
     refreshing = true;
     refreshMsg = null;
     try {
-      const res = await fetch(`${BASE}/pricing/refresh`, { method: "POST" });
+      const res = await fetchWithTimeout(`${BASE}/pricing/refresh`, { method: "POST" });
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.detail || "更新失败");

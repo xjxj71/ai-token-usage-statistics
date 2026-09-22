@@ -88,8 +88,9 @@ async def get_quota():
 
 
 @router.post("/quota/refresh")
-async def refresh_quota():
-    """Force-refresh quota data from all providers."""
+async def refresh_quota(request: Request):
+    """Force-refresh quota data from all providers (local or API key only)."""
+    _require_local_or_key(request)
     registry = get_registry()
     snapshots = await registry.fetch_all(force_refresh=True)
     return {

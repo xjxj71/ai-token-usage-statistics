@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import * as echarts from "echarts";
   import type { BreakdownItem } from "../types";
+  import { escapeHtml } from "../utils/escape";
 
   interface Props {
     breakdown: BreakdownItem[];
@@ -48,7 +49,7 @@
         axisPointer: { type: "shadow" },
         formatter: (params: any[]) => {
           const fullName = projectNames[params[0].dataIndex] || params[0].axisValue;
-          return `<b>${fullName}</b><br/>合计: <b>${formatTokens(params[0].value)}</b>`;
+          return `<b>${escapeHtml(fullName)}</b><br/>合计: <b>${formatTokens(params[0].value)}</b>`;
         },
       },
       grid: { left: "4%", right: "12%", bottom: "4%", top: "4%", containLabel: true },

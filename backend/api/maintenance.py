@@ -74,12 +74,14 @@ async def backup_now(request: Request):
 
 
 @router.get("/backups")
-async def get_backups():
+async def get_backups(request: Request):
+    require_local_or_key(request)
     return {"items": list_backups()}
 
 
 @router.get("/backups/{name}")
-async def download_backup(name: str):
+async def download_backup(name: str, request: Request):
+    require_local_or_key(request)
     if not is_valid_backup_name(name):
         raise HTTPException(status_code=400, detail="非法的备份文件名")
     path = settings.db_path.parent / "backups" / name

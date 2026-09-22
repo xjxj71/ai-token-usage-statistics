@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import * as echarts from "echarts";
   import type { BreakdownItem } from "../types";
+  import { escapeHtml } from "../utils/escape";
 
   interface Props {
     breakdown: BreakdownItem[];
@@ -39,11 +40,11 @@
         textStyle: { color: "#F8FAFC", fontSize: 12 },
         axisPointer: { type: "shadow" },
         formatter: (params: any[]) => {
-          let html = `<b>${params[0].axisValue}</b><br/>`;
+          let html = `<b>${escapeHtml(params[0].axisValue)}</b><br/>`;
           let total = 0;
           for (const p of params) {
             total += p.value;
-            html += `${p.marker} ${p.seriesName}: <b>${fmt(p.value)}</b><br/>`;
+            html += `${p.marker} ${escapeHtml(p.seriesName)}: <b>${fmt(p.value)}</b><br/>`;
           }
           html += `<b>总计: ${fmt(total)}</b>`;
           return html;
@@ -58,7 +59,7 @@
       grid: { left: "3%", right: "4%", bottom: "3%", top: "14%", containLabel: true },
       xAxis: {
         type: "category",
-        data: data.map((d) => `${d.agent} / ${d.model}`),
+        data: data.map((d) => d.model ? `${d.agent} / ${d.model}` : d.agent),
         axisLine: { lineStyle: { color: "#334155" } },
         axisTick: { show: false },
         // 类目少时水平展示，多时才旋转避让

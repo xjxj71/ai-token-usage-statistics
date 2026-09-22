@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import * as echarts from "echarts";
   import type { TrendResponse } from "../types";
+  import { escapeHtml } from "../utils/escape";
 
   interface Props {
     data: TrendResponse | null;
@@ -73,11 +74,11 @@
         formatter: (params: any[]) => {
           const raw = d.dates[params[0].dataIndex];
           const label = hourly ? `${raw.slice(0, 10)} ${raw.slice(11)}:00` : raw;
-          let html = `<b>${label}</b><br/>`;
+          let html = `<b>${escapeHtml(label)}</b><br/>`;
           let total = 0;
           for (const p of params) {
             total += p.value;
-            html += `${p.marker} ${p.seriesName}: <b>${fmt(p.value)}</b><br/>`;
+            html += `${p.marker} ${escapeHtml(p.seriesName)}: <b>${fmt(p.value)}</b><br/>`;
           }
           html += `<b>总计: ${fmt(total)}</b>`;
           return html;

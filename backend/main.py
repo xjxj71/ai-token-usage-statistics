@@ -88,10 +88,8 @@ def create_app() -> FastAPI:
         # Skip auth when no API key is configured
         if not settings.api_key:
             return await call_next(request)
-        # Skip auth for frontend static files and docs
+        # Skip auth for frontend static files and docs (non-/api paths)
         if not request.url.path.startswith("/api/"):
-            return await call_next(request)
-        if request.url.path in ("/docs", "/openapi.json", "/redoc"):
             return await call_next(request)
 
         api_key = request.headers.get("X-API-Key") or ""
