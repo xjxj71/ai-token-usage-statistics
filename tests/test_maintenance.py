@@ -219,28 +219,55 @@ async def test_backup_remote_requires_key():
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_pricing_write_remote_requires_key():
+async def test_pricing_write_remote_requires_key(tmp_path, monkeypatch):
+    """Remote pricing writes need the API key; an authorized refresh succeeds.
+
+    Self-contained on purpose: CI has no repo data/ DB, so the endpoint must
+    run against a freshly initialized database and a stubbed OpenRouter fetch
+    (the real one would make this test network-dependent).
+    """
+    import urllib.request
+
     from httpx import ASGITransport, AsyncClient
 
     from backend import config
+    from backend.db import database as db_module
     from backend.main import app
 
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return b'{"data": []}'
+
+    monkeypatch.setattr(config.settings, "db_path", tmp_path / "test.db")
+    monkeypatch.setattr(
+        urllib.request, "urlopen", lambda req, timeout=30: _FakeResponse()
+    )
+    await db_module.close_db()
+    await db_module.init_db()
+
     transport = ASGITransport(app=app, client=("10.0.0.5", 1234))
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        res = await c.put(
-            "/api/pricing/some-model",
-            json={"input_price": 1, "output_price": 1},
-        )
-        assert res.status_code == 403
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            res = await c.put(
+                "/api/pricing/some-model",
+                json={"input_price": 1, "output_price": 1},
+            )
+            assert res.status_code == 403
 
-        res = await c.post("/api/pricing/refresh")
-        assert res.status_code == 403
+            res = await c.post("/api/pricing/refresh")
+            assert res.status_code == 403
 
-        config.settings.api_key = "test-secret-key"
-        try:
+            config.settings.api_key = "test-secret-key"
             res = await c.post(
                 "/api/pricing/refresh", headers={"X-API-Key": "test-secret-key"}
             )
-            assert res.status_code != 403
-        finally:
-            config.settings.api_key = ""
+            assert res.status_code == 200
+    finally:
+        config.settings.api_key = ""
+        await db_module.close_db()
