@@ -21,8 +21,11 @@ node_modules/
 
 # Build output
 frontend/dist/
+dist/
 build/dist/
 build/output/
+build/work/
+build/tray_app/
 assets/app.ico
 assets/tray-32.png
 

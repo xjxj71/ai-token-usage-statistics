@@ -38,15 +38,49 @@ hiddenimports = [
     "yaml",
 ]
 
+# Conda's _ssl.pyd must load the matching OpenSSL DLLs from
+# <conda>/Library/bin — PyInstaller may otherwise pick a mismatched pair
+# (missing COMP_get_type at runtime). python.org interpreters bundle their
+# own OpenSSL DLLs, so only pin them when a conda install is detected.
+import os
+import sys
+from pathlib import Path as _P
+
+
+def _conda_library_bin():
+    """Library/bin of the conda install owning this interpreter, if any."""
+    prefixes = []
+    if os.environ.get("CONDA_PREFIX"):
+        prefixes.append(_P(os.environ["CONDA_PREFIX"]))
+    base = _P(sys.base_prefix)
+    prefixes.extend([base, base.parent])
+    for p in prefixes:
+        for cand in (p, p.parent):
+            bin_dir = cand / "Library" / "bin"
+            if (bin_dir / "libssl-3-x64.dll").is_file():
+                return bin_dir
+    return None
+
+
+_extra_binaries = []
+if sys.platform == "win32":
+    _conda_bin = _conda_library_bin()
+    if _conda_bin is not None:
+        for _name in ("libcrypto-3-x64.dll", "libssl-3-x64.dll"):
+            _src = _conda_bin / _name
+            if not _src.is_file():
+                raise SystemExit(f"missing OpenSSL DLL for conda _ssl.pyd: {_src}")
+            _extra_binaries.append((str(_src), "."))
+
 a = Analysis(
     [str(ROOT / "backend" / "tray_app.py")],
     pathex=[str(ROOT)],
-    binaries=[],
+    binaries=_extra_binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=[str(_P(SPECPATH) / "pyi_rth_ssl_fix.py")],
     excludes=["tkinter", "matplotlib.tests"],
     noarchive=False,
 )

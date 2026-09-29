@@ -11,13 +11,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BUILD = ROOT / "build"
-DIST = BUILD / "dist" / "ai-token-usage"
+DIST = ROOT / "dist" / "ai-token-usage"
 OUTPUT = BUILD / "output"
 
 
 def read_version() -> str:
     text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    m = re.search(r'^version\s*=\s*"([^"]+)"', text, re.M)
+    m = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
     return m.group(1) if m else "0.0.0"
 
 
@@ -45,8 +45,12 @@ def main() -> int:
     py = sys.executable
     run([py, str(ROOT / "assets" / "generate_icon.py"), "--export-build-assets"])
 
-    # 3) PyInstaller
-    run([py, "-m", "PyInstaller", "--noconfirm", str(BUILD / "tray_app.spec")])
+    # 3) PyInstaller (workpath under build/work, which is gitignored)
+    run([
+        py, "-m", "PyInstaller", "--noconfirm",
+        "--workpath", str(BUILD / "work"),
+        str(BUILD / "tray_app.spec"),
+    ])
     if not (DIST / "ai-token-usage.exe").is_file():
         print("error: onedir output missing ai-token-usage.exe", file=sys.stderr)
         return 1

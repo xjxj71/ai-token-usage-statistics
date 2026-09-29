@@ -2,7 +2,8 @@
 
 Runs uvicorn in a background thread and hosts a pystray icon on the main
 thread. Dev usage: ``python -m backend.tray_app``. Frozen usage: the
-PyInstaller console-free executable.
+PyInstaller console-free executable. ``--minimized`` skips the auto-opened
+browser panel (used by the installer's Start-with-Windows registration).
 """
 
 from __future__ import annotations
@@ -41,6 +42,17 @@ _SERVER_ERROR: list[str] = []
 # ── Single instance ─────────────────────────────────────────────
 
 
+if sys.platform == "win32":
+    # use_last_error=True is required: ctypes' internal calls can clobber the
+    # thread's last-error, so kernel32.GetLastError() directly is unreliable.
+    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _kernel32.CreateMutexW.restype = ctypes.c_void_p
+    _kernel32.CreateMutexW.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_wchar_p)
+    _kernel32.CloseHandle.restype = ctypes.c_int
+    _kernel32.CloseHandle.argtypes = (ctypes.c_void_p,)
+_ERROR_ALREADY_EXISTS = 183
+
+
 def acquire_single_instance() -> int | None:
     """Return a mutex handle if we own the instance, else None (already running)."""
     if sys.platform != "win32":
@@ -54,13 +66,11 @@ def acquire_single_instance() -> int | None:
         except FileExistsError:
             return None
 
-    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-    ERROR_ALREADY_EXISTS = 183
-    handle = kernel32.CreateMutexW(None, False, MUTEX_NAME)
+    handle = _kernel32.CreateMutexW(None, False, MUTEX_NAME)
     if not handle:
         return None
-    if kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
-        kernel32.CloseHandle(handle)
+    if ctypes.get_last_error() == _ERROR_ALREADY_EXISTS:
+        _kernel32.CloseHandle(handle)
         return None
     return handle
 
@@ -74,7 +84,7 @@ def release_single_instance(handle: int | None) -> None:
         except OSError:
             pass
         return
-    ctypes.windll.kernel32.CloseHandle(handle)  # type: ignore[attr-defined]
+    _kernel32.CloseHandle(handle)
 
 
 # ── Logging / stdio redirect ────────────────────────────────────
@@ -219,10 +229,18 @@ def start_server_thread(host: str, port: int) -> threading.Thread:
 
 
 def request_shutdown() -> None:
-    for server in _SERVER_REF:
+    servers = list(_SERVER_REF)
+    for server in servers:
         server.should_exit = True
     for t in _SERVER_THREAD:
         t.join(timeout=5)
+        if t.is_alive():
+            # Browser tabs hold SSE/keep-alive connections that block
+            # uvicorn's graceful wait indefinitely; break it so the lifespan
+            # shutdown (stop_polling, close_db) still runs.
+            for server in servers:
+                server.force_exit = True
+            t.join(timeout=3)
 
 
 def wait_ready(base_url: str, timeout: float = 30.0) -> bool:
@@ -249,7 +267,8 @@ def _load_tray_image():
     for cand in (
         paths.bundle_root() / "assets" / "tray-32.png",
         paths.app_root() / "assets" / "tray-32.png",
-        paths.bundle_root() / "assets" / "icon-previews" / "variant-a.png",
+        # The spec flattens icon-previews/variant-a.png into assets/.
+        paths.bundle_root() / "assets" / "variant-a.png",
         paths.app_root() / "assets" / "icon-previews" / "variant-a.png",
     ):
         if cand.is_file():
@@ -310,6 +329,10 @@ def main() -> int:
     paths.init_user_dirs()
     redirect_stdio_and_logging()
 
+    # Registered by the installer's "Start with Windows" task: run headless in
+    # the tray without popping a browser panel on every login.
+    minimized = "--minimized" in sys.argv[1:]
+
     handle = acquire_single_instance()
     if handle is None:
         url = resolve_existing_base_url()
@@ -348,7 +371,8 @@ def main() -> int:
         release_single_instance(handle)
         return 1
 
-    webbrowser.open(base_url)
+    if not minimized:
+        webbrowser.open(base_url)
     try:
         show_tray(base_url)
     finally:

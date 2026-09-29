@@ -4,6 +4,7 @@ import logging
 import os
 import shlex
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -18,6 +19,15 @@ logger = logging.getLogger(__name__)
 # distro start/stop is noticed within one poll cycle, long enough that the
 # WSL-dependent collectors and their helpers share one wsl.exe query.
 _WSL_RUNNING_TTL = 2.0
+
+# Windowed (tray/noconsole) builds must not flash a console for wsl.exe.
+_NO_WINDOW = {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}
+
+
+def _run_quiet(cmd: list[str], **kwargs):
+    kwargs.setdefault("capture_output", True)
+    kwargs.update(_NO_WINDOW)
+    return subprocess.run(cmd, check=False, **kwargs)
 
 
 class Settings(BaseSettings):
@@ -154,11 +164,9 @@ class Settings(BaseSettings):
         each: the distro name only survives in the correct decode.
         """
         try:
-            result = subprocess.run(
+            result = _run_quiet(
                 ["wsl.exe", "--list", "--running"],
-                capture_output=True,
                 timeout=5,
-                check=False,
             )
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
             logger.debug("wsl.exe --list --running failed: %s", e)
@@ -215,18 +223,16 @@ class Settings(BaseSettings):
                 return
             safe_user = shlex.quote(self.wsl_user_accessible)
             safe_dir = shlex.quote(linux_dir)
-            result = subprocess.run(
+            result = _run_quiet(
                 [
                     "wsl.exe", "-u", self.wsl_user_root, "-d", self.wsl_distro, "--",
                     "bash", "-c",
                     (f"chown -R {safe_user}:{safe_user} {safe_dir} "
                      f"&& chmod -R a+rX {safe_dir}"),
                 ],
-                capture_output=True,
                 text=True,
                 errors="replace",
                 timeout=30,
-                check=False,
             )
             if result.returncode != 0:
                 logger.warning(
@@ -264,17 +270,15 @@ class Settings(BaseSettings):
                 return False
             safe_src = shlex.quote(linux_src)
             safe_dst = shlex.quote(linux_dst)
-            result = subprocess.run(
+            result = _run_quiet(
                 [
                     "wsl.exe", "-u", self.wsl_user_root, "-d", self.wsl_distro, "--",
                     "bash", "-c",
                     f"cp {safe_src} {safe_dst} && chmod 644 {safe_dst}",
                 ],
-                capture_output=True,
                 text=True,
                 errors="replace",
                 timeout=30,
-                check=False,
             )
             if result.returncode != 0:
                 logger.warning(

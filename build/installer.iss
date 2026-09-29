@@ -1,9 +1,11 @@
 ; Inno Setup script — AI 用量统计 (ai-token-usage)
-; Build: iscc /DAppVersion=0.1.0 build\installer.iss
+; Build: iscc /DAppVersion=0.1.2 build\installer.iss
 ; AppMutex must match backend.tray_app.MUTEX_NAME / APP_MUTEX_NAME.
+; The version MUST be passed explicitly so installer stamps never drift from
+; pyproject.toml — build_exe.py reads it and passes /DAppVersion automatically.
 
 #ifndef AppVersion
-  #define AppVersion "0.1.0"
+  #error "Pass the version: iscc /DAppVersion=x.y.z build\installer.iss (build_exe.py does this)"
 #endif
 
 [Setup]
@@ -14,7 +16,7 @@ AppPublisher=ai-token-usage-statistics
 DefaultDirName={localappdata}\Programs\ai-token-usage
 DefaultGroupName=AI 用量统计
 DisableProgramGroupPage=yes
-PrivilegesRequired=dynamic
+PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 OutputDir=..\build\output
 OutputBaseFilename=AI-Token-Usage-Setup-{#AppVersion}
@@ -29,16 +31,19 @@ CloseApplications=yes
 RestartApplications=no
 
 [Languages]
-Name: "chinesesimplified"; MessagesFile: "compiler:Default.isl"
+; No official Simplified Chinese .isl in the stock installer; wizard UI is English.
+; Product name and shortcut labels below stay Chinese.
+Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加图标:"
-Name: "startup"; Description: "开机自启"; GroupDescription: "启动方式:"
-Name: "deletedata"; Description: "卸载时同时删除用户数据"; GroupDescription: "卸载:"; Flags: unchecked
+Name: "desktopicon"; Description: "Create desktop shortcut"; GroupDescription: "Additional icons:"
+; Registered with --minimized so logging in does not pop a browser panel.
+Name: "startup"; Description: "Start with Windows"; GroupDescription: "Startup:"
+Name: "deletedata"; Description: "Delete user data when uninstalling"; GroupDescription: "Uninstall:"; Flags: unchecked
 
 [Files]
-; PyInstaller onedir output: build/dist/ai-token-usage/**
-Source: "dist\ai-token-usage\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; PyInstaller onedir output (default --distpath is <repo>/dist)
+Source: "..\dist\ai-token-usage\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\AI 用量统计"; Filename: "{app}\ai-token-usage.exe"
@@ -46,11 +51,11 @@ Name: "{autodesktop}\AI 用量统计"; Filename: "{app}\ai-token-usage.exe"; Tas
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
-  ValueType: string; ValueName: "AiTokenUsageStatistics"; ValueData: "{app}\ai-token-usage.exe"; \
+  ValueType: string; ValueData: """{app}\ai-token-usage.exe"" --minimized"; \
   Flags: uninsdeletevalue; Tasks: startup
 
 [Run]
-Filename: "{app}\ai-token-usage.exe"; Description: "立即运行 AI 用量统计"; \
+Filename: "{app}\ai-token-usage.exe"; Description: "Launch AI Token Usage now"; \
   Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
