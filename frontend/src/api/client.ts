@@ -68,6 +68,7 @@ export async function fetchProjects(): Promise<string[]> {
 export function createEventSource(
   onMessage: (data: unknown) => void,
   onError?: () => void,
+  onOpen?: () => void,
 ): { close: () => void } {
   const es = new EventSource(`${BASE}/stream`);
 
@@ -81,9 +82,17 @@ export function createEventSource(
     }
   };
 
+  es.addEventListener("open", () => {
+    onOpen?.();
+  });
+
   es.addEventListener("message", (event: MessageEvent) => {
     try {
       const parsed = JSON.parse(event.data);
+      // Heartbeats (no new data) keep the connection alive — reloading the
+      // whole dashboard on each of them burned CPU around the clock in the
+      // packaged tray app, whose tab stays open for days.
+      if (parsed?.type !== "new_records") return;
       clearDebounce();
       debounceTimer = setTimeout(() => {
         onMessage(parsed);
