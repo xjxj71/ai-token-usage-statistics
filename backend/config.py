@@ -15,10 +15,13 @@ from backend import paths
 
 logger = logging.getLogger(__name__)
 
-# How long is_wsl_running() trusts its cached answer. Short enough that a
-# distro start/stop is noticed within one poll cycle, long enough that the
-# WSL-dependent collectors and their helpers share one wsl.exe query.
+# How long is_wsl_running() trusts its cached answer. A "running" answer must
+# stay fresh (collectors read the distro right after); a "stopped" answer can
+# be trusted longer — there is nothing to collect while stopped, and each
+# wsl.exe spawn costs seconds on some machines (observed ~5s with the distro
+# stopped), which used to be paid twice per poll cycle.
 _WSL_RUNNING_TTL = 2.0
+_WSL_STOPPED_TTL = 15.0
 
 # Windowed (tray/noconsole) builds must not flash a console for wsl.exe.
 _NO_WINDOW = {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}
@@ -148,8 +151,10 @@ class Settings(BaseSettings):
             return True
         now = time.monotonic()
         cached = self._wsl_running_cache
-        if cached is not None and now - cached[0] < _WSL_RUNNING_TTL:
-            return cached[1]
+        if cached is not None:
+            ttl = _WSL_RUNNING_TTL if cached[1] else _WSL_STOPPED_TTL
+            if now - cached[0] < ttl:
+                return cached[1]
         running = self._query_wsl_running()
         self._wsl_running_cache = (now, running)
         return running
