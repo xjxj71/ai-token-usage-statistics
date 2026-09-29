@@ -135,7 +135,10 @@ def scan_jsonl_directory(
     """
     records: list[TokenRecord] = []
     max_ts_str = ""
-    new_positions: dict[str, int] = {}
+    # Carry untouched files' watermarks forward: the caller replaces the whole
+    # state map, so a consumed-and-skipped file would otherwise drop out and
+    # be re-read from byte 0 on its next growth.
+    new_positions: dict[str, int] = dict(file_positions)
 
     jsonl_files = sorted(projects_dir.rglob("*.jsonl"))
     logger.debug("%s: scanning %d jsonl files", agent_name, len(jsonl_files))
@@ -154,11 +157,24 @@ def scan_jsonl_directory(
             start_pos = 0
 
         try:
-            with open(fpath, "r", encoding="utf-8") as f:
+            # Binary mode on purpose: text-mode positions are opaque cookies
+            # that never compare against st_size (truncation detection always
+            # fired) and tell() is forbidden during iteration. Binary
+            # readline keeps tell() a plain byte offset.
+            with open(fpath, "rb") as f:
                 if start_pos > 0:
                     f.seek(start_pos)
 
-                for _line_no, line in enumerate(f, 1):
+                while True:
+                    raw_line = f.readline()
+                    if not raw_line:
+                        break
+                    if not raw_line.endswith(b"\n"):
+                        # Writer is mid-append; pick the tail up next cycle.
+                        break
+                    new_positions[rel_key] = f.tell()
+                    line = raw_line.decode("utf-8", errors="replace")
+
                     data = parse_jsonl_line(line)
                     if data is None:
                         continue
@@ -173,9 +189,6 @@ def scan_jsonl_directory(
                         records.append(record)
                         if not max_ts_str or ts_dt > parse_timestamp(max_ts_str):
                             max_ts_str = ts
-
-                # Record current position for incremental reads
-                new_positions[rel_key] = f.tell()
 
         except OSError as e:
             logger.warning("%s: failed to read %s: %s", agent_name, fpath, e)

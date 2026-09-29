@@ -164,7 +164,10 @@ def _scan_sessions(
     """Blocking scan of Hanako session files — run via asyncio.to_thread."""
     records: list[TokenRecord] = []
     max_ts_str = ""
-    new_positions: dict[str, int] = {}
+    # Carry untouched files' watermarks forward: the caller replaces the whole
+    # state map, so a consumed-and-skipped file would otherwise drop out and
+    # be re-read from byte 0 on its next growth.
+    new_positions: dict[str, int] = dict(file_positions)
 
     # Collect all .jsonl files recursively, excluding archived/bridge dirs
     jsonl_files: list[Path] = []
@@ -197,11 +200,24 @@ def _scan_sessions(
             continue
 
         try:
-            with open(fpath, "r", encoding="utf-8") as f:
+            # Binary mode on purpose: inside `for line in f:` text iteration,
+            # f.tell() raises OSError — positions were never saved, so every
+            # poll re-read every file from byte 0. Binary readline keeps
+            # tell() a plain byte offset.
+            with open(fpath, "rb") as f:
                 if start_pos > 0:
                     f.seek(start_pos)
 
-                for line in f:
+                while True:
+                    raw_line = f.readline()
+                    if not raw_line:
+                        break
+                    if not raw_line.endswith(b"\n"):
+                        # Writer is mid-append; pick the tail up next cycle.
+                        break
+                    new_positions[rel_key] = f.tell()
+                    line = raw_line.decode("utf-8", errors="replace")
+
                     data = _parse_hanako_line(line)
                     if data is None:
                         continue
@@ -216,8 +232,6 @@ def _scan_sessions(
                         records.append(record)
                         if not max_ts_str or ts_dt > parse_timestamp(max_ts_str):
                             max_ts_str = ts
-
-                    new_positions[rel_key] = f.tell()
 
         except OSError as e:
             logger.warning("Hanako: failed to read %s: %s", fpath, e)
