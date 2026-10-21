@@ -164,3 +164,79 @@ def test_scan_jsonl_directory_resets_on_truncation(tmp_path: Path):
     f.write_text(_claude_line("2026-01-02T00:00:01Z", 3) + "\n", encoding="utf-8")
     records, _, _ = scan_jsonl_directory(tmp_path, "claude-code", _EPOCH, positions)
     assert len(records) == 1
+
+
+# ── Codex rollout files ────────────────────────────────────────────
+
+def _codex_record_line(ts: str, i: int) -> str:
+    return json.dumps(
+        {
+            "timestamp": ts,
+            "type": "token_usage_record",
+            "payload": {
+                "session_id": "s-codex",
+                "turn_id": f"turn-{i}",
+                "usage": {"input_tokens": 100, "cached_input_tokens": 40, "output_tokens": 10},
+            },
+        }
+    )
+
+
+def test_codex_positions_persist_and_incremental(tmp_path: Path):
+    from backend.collectors.codex import scan_codex_directory
+
+    f = tmp_path / "2026" / "rollout.jsonl"
+    f.parent.mkdir()
+    f.write_text(
+        "\n".join(_codex_record_line(f"2026-01-01T00:00:0{i}.000Z", i) for i in range(3)) + "\n",
+        encoding="utf-8",
+    )
+
+    records, positions, context = scan_codex_directory(tmp_path, "codex", {}, {})
+    assert len(records) == 3
+    assert positions == {str(f.relative_to(tmp_path)): f.stat().st_size}
+
+    # Second poll with saved watermarks must not re-collect anything.
+    records2, positions2, _ = scan_codex_directory(tmp_path, "codex", positions, context)
+    assert records2 == []
+    assert positions2 == positions
+
+    # An appended line is picked up incrementally, old lines stay consumed.
+    with f.open("a", encoding="utf-8") as fh:
+        fh.write(_codex_record_line("2026-01-01T00:00:09.000Z", 9) + "\n")
+    records3, _, _ = scan_codex_directory(tmp_path, "codex", positions, context)
+    assert len(records3) == 1
+
+
+def test_codex_unmatched_file_gets_watermark(tmp_path: Path):
+    # A rollout file with no usage events must still be marked consumed, or
+    # it is re-parsed (including its huge session_meta line) on every poll.
+    from backend.collectors.codex import scan_codex_directory
+
+    f = tmp_path / "rollout.jsonl"
+    f.write_text(
+        '{"type":"session_meta","payload":{"cwd":"/tmp"}}\n{"type":"noise"}\n',
+        encoding="utf-8",
+    )
+
+    _, positions, _ = scan_codex_directory(tmp_path, "codex", {}, {})
+    assert positions == {str(f.relative_to(tmp_path)): f.stat().st_size}
+
+
+def test_codex_partial_line_not_consumed(tmp_path: Path):
+    from backend.collectors.codex import scan_codex_directory
+
+    f = tmp_path / "rollout.jsonl"
+    complete = _codex_record_line("2026-01-01T00:00:01.000Z", 1) + "\n"
+    full_second = _codex_record_line("2026-01-01T00:00:02.000Z", 2) + "\n"
+    partial = full_second[:40]
+    f.write_text(complete + partial, encoding="utf-8", newline="")
+    size_after_complete = len(complete.encode("utf-8"))
+
+    records, positions, _ = scan_codex_directory(tmp_path, "codex", {}, {})
+    assert len(records) == 1
+    assert positions == {str(f.relative_to(tmp_path)): size_after_complete}
+
+    f.write_text(complete + full_second, encoding="utf-8", newline="")
+    records2, _, _ = scan_codex_directory(tmp_path, "codex", positions, {})
+    assert len(records2) == 1

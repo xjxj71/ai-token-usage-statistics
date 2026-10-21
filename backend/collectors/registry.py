@@ -6,6 +6,7 @@ from collections.abc import Sequence
 
 from backend.collectors.base import BaseCollector
 from backend.collectors.claude_code import ClaudeCodeCollector
+from backend.collectors.codex import CodexCollector
 from backend.collectors.hanako import HanakoCollector
 from backend.collectors.hermes import HermesCollector
 from backend.collectors.hermes_win import HermesWindowsCollector
@@ -41,6 +42,7 @@ COLLECTORS: list[BaseCollector] = [
     MimoCodeCollector(),
     OpenCodeCollector(),
     ZcodeCollector(),
+    CodexCollector(),
 ]
 
 _task: asyncio.Task | None = None

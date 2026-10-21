@@ -126,7 +126,7 @@
 <div class="chart-card">
   <h3 class="chart-title">项目消耗分布</h3>
   {#if !breakdown?.length}
-    <div class="empty-hint">当前范围内没有带项目信息的记录（仅 claude-code / openclaude / zcode 提供工作目录数据）</div>
+    <div class="empty-hint">当前范围内没有带项目信息的记录（仅 claude-code / openclaude / zcode / codex 提供工作目录数据）</div>
   {/if}
   <div bind:this={chartEl} class="chart-body" style="height:{getChartHeight()}"></div>
 </div>
