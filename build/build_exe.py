@@ -23,7 +23,8 @@ def read_version() -> str:
 
 def run(cmd: list[str], **kw) -> None:
     print("+", " ".join(cmd), flush=True)
-    subprocess.run(cmd, check=True, cwd=ROOT, **kw)
+    kw.setdefault("cwd", ROOT)
+    subprocess.run(cmd, check=True, **kw)
 
 
 def main() -> int:
