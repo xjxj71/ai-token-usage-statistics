@@ -102,6 +102,7 @@
     "mimo-code": { bg: "rgba(14,165,233,.2)", text: "#38BDF8" },
     opencode: { bg: "rgba(20,184,166,.2)", text: "#2DD4BF" },
     zcode: { bg: "rgba(249,115,22,.2)", text: "#FB923C" },
+    codex: { bg: "rgba(148,163,184,.2)", text: "#CBD5E1" },
   };
 
   function getAgentColor(agent: string) {

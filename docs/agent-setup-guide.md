@@ -13,6 +13,7 @@
 | Claude Code | session JSONL | `/home/claude/.claude/projects/**/*.jsonl` | `\\wsl$\project-claude\home\claude\.claude\projects\`（递归扫描） |
 | OpenClaw | sessions.json | `/root/.openclaw/agents/main/sessions/sessions.json` → 复制到 `/tmp/openclaw_sessions.json` | `\\wsl$\project-claude\tmp\openclaw_sessions.json` |
 | OpenClaude | session JSONL | — | `%USERPROFILE%\.openclaude\projects\**\*.jsonl`（Windows 本地，直接读取） |
+| Codex | session JSONL | — | `%USERPROFILE%\.codex\sessions\YYYY\MM\DD\rollout-*.jsonl`（Windows 本地，直接读取） |
 
 ### 权限与数据复制机制
 
@@ -279,6 +280,38 @@ sqlite3 "$env:USERPROFILE\.zcode\cli\db\db.sqlite" "SELECT COUNT(*) FROM model_u
 
 ---
 
+## 5b. Codex
+
+### 无需配置
+
+Codex CLI 把每个会话写成一个追加式 rollout JSONL，采集器直接轮询读取，零侵入。
+
+### 数据位置
+
+- **会话目录**：`~/.codex/sessions/YYYY/MM/DD/rollout-<时间戳>-<会话UUID>.jsonl`（Windows 本地）
+- **用量事件**：每次模型响应一条 `token_usage_record`（顶层 `type`），`usage` 内含 `input_tokens` / `cached_input_tokens` / `cache_write_input_tokens` / `output_tokens` / `reasoning_output_tokens`
+- **上下文**：`session_meta`（会话 id、cwd、CLI 版本）与 `turn_context`（模型、cwd）行
+
+### 工作原理
+
+1. 按文件字节偏移水位增量读取（与 Claude Code / OpenClaude 相同机制），半行写入的尾部留待下一轮
+2. 每个文件的 session_id / cwd / 模型上下文缓存在采集器状态里，增量续读时仍能正确归属项目与模型
+3. token 口径转换：Codex 的 `input_tokens` 含缓存命中（OpenAI 口径），入库时拆为「未缓存输入 + 缓存读取」两列；`reasoning_output_tokens` 计入思考 Token
+4. 兜底：旧版 CLI 无 `token_usage_record` 时解析 `event_msg/token_count` 的 `last_token_usage`；同一文件两种事件不重复计数
+5. 会话 id 优先取自文件名中的 UUID，即使从文件中间续读也能关联会话
+
+### 验证数据是否存在
+
+```powershell
+# Windows PowerShell
+Get-ChildItem "$env:USERPROFILE\.codex\sessions" -Recurse -Filter *.jsonl | Measure-Object
+
+# 查看用量事件条数（任选一个文件）
+Select-String -Path (Get-ChildItem "$env:USERPROFILE\.codex\sessions" -Recurse -Filter *.jsonl | Select-Object -First 1).FullName -Pattern 'token_usage_record' | Measure-Object
+```
+
+---
+
 ## 6. Token 统计工具配置
 
 通过环境变量或 `config.py` 配置采集器：
@@ -320,6 +353,7 @@ uvicorn backend.main:app --reload
 | OpenCode | 无 | `~/.local/share/opencode/opencode.db` (SQLite) | Windows 本地直接读取 |
 | Hanako | 无 | `~/.hanako/agents/hanako/sessions/**/*.jsonl` (JSONL) | Windows 本地直接读取 |
 | ZCode | 无 | `~/.zcode/cli/db/db.sqlite` 的 `model_usage` 表 (SQLite) | 复制主库 + WAL 副本后读取 |
+| Codex | 无 | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` (JSONL) | Windows 本地直接读取 |
 
 ---
 

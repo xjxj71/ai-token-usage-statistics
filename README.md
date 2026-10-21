@@ -12,10 +12,10 @@
 
 ## 功能特性
 
-- **多 Agent 支持**：采集 Claude Code、Hermes（WSL + Windows）、OpenClaw、OpenClaude、MimoCode、OpenCode、ZCode 的 Token 用量
+- **多 Agent 支持**：采集 Claude Code、Hermes（WSL + Windows）、OpenClaw、OpenClaude、MimoCode、OpenCode、ZCode、Codex 的 Token 用量
 - **实时仪表盘**：基于 SSE 推送更新，无需刷新页面
-- **项目维度分析**：按工作目录统计各项目（repo）的 Token 消耗与费用，支持项目筛选（数据来自 claude-code / openclaude / zcode 的会话目录）
-- **思考 Token 统计**：单独统计推理模型的思考（reasoning）Token，覆盖 zcode / opencode / mimocode
+- **项目维度分析**：按工作目录统计各项目（repo）的 Token 消耗与费用，支持项目筛选（数据来自 claude-code / openclaude / zcode / codex 的会话目录）
+- **思考 Token 统计**：单独统计推理模型的思考（reasoning）Token，覆盖 zcode / opencode / mimocode / codex
 - **会话明细钻取**：会话级汇总列表，点击行内展开查看该会话的每条请求明细
 - **环比对比**：统计卡展示较上一周期（今日→昨日同时段、7 天→前 7 天）的涨跌
 - **用量报告**：一键生成日报/周报（消耗概览、Top Agent/模型/项目、套餐余量），支持复制 Markdown
@@ -53,6 +53,7 @@ Windows 原生 或 WSL 内运行
                              │  MimoCode (用户)        │
                              │  OpenCode (用户)        │
                              │  ZCode (用户)           │
+                             │  Codex (用户)           │
                              └────────────────────────┘
 ```
 
@@ -139,6 +140,7 @@ npm run build      # 生产构建（由 FastAPI 托管）
 | MimoCode | mimocode.db (SQLite) | — | `~/.local/share/mimocode/mimocode.db`（Windows 本地，直接读取） |
 | OpenCode | opencode.db (SQLite) | — | `~/.local/share/opencode/opencode.db`（Windows 本地，直接读取） |
 | ZCode | db.sqlite (SQLite) | — | `~/.zcode/cli/db/db.sqlite`（Windows 本地，快照后读取） |
+| Codex | session JSONL | — | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`（Windows 本地，直接读取） |
 
 > **权限说明**：Hermes（WSL）和 OpenClaw 的数据在 `/root/` 下（权限 700），WSL 默认用户 `claude` 无法通过 UNC 访问。采集器会在每次采集前通过 `wsl_copy_to_tmp()` 将文件复制到 `/tmp/`（chmod 644），然后读取副本。Windows 部署时用 `wsl.exe -u root -- cp` 执行复制；WSL 内测试时直接用 `shutil.copy2`。Claude Code 的数据在 `claude` 用户目录下，无权限问题。Hermes（Windows）的数据在 `%LOCALAPPDATA%` 下，当前用户直接可读。
 
@@ -151,6 +153,7 @@ npm run build      # 生产构建（由 FastAPI 托管）
 - **MimoCode**：无需配置。采集器读取 `~/.local/share/mimocode/mimocode.db` SQLite 数据库，从 `message` 表提取 assistant 消息的 token 使用数据。
 - **OpenCode**：无需配置。采集器读取 `~/.local/share/opencode/opencode.db` SQLite 数据库，数据格式与 MimoCode 相同（MiMoCode 是 OpenCode 的 fork）。
 - **ZCode**：无需配置。采集器读取 `~/.zcode/cli/db/db.sqlite` 的 `model_usage` 表（每次模型请求一行，token 字段完整）。数据库为 WAL 模式且被 ZCode 持续写入，采集时会先复制主库 + WAL 副本再查询；进行中的请求在完成后自动补收。
+- **Codex**：无需配置。采集器扫描 `~/.codex/sessions/` 下按日期分目录的 rollout JSONL，读取每次响应的 `token_usage_record`（旧版 CLI 兜底解析 `token_count` 事件）。Codex 的 `cached_input_tokens` 计在 `input_tokens` 内（OpenAI 口径），入库时拆分为未缓存输入 + 缓存读取；`reasoning_output_tokens` 记入思考 Token。
 
 详见 [Agent 配置指南](docs/agent-setup-guide.md)。
 

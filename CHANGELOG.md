@@ -8,8 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
-- **项目维度分析**：新增 `token_usage.project` 列（取会话工作目录最后一段），`/api/summary?group_by=project` 聚合 + 前端"项目消耗分布"条形图 + FilterBar 项目多选筛选 + `/api/projects` 端点（数据来自 claude-code / openclaude / zcode）
-- **思考 Token 统计**：新增 `token_usage.reasoning_tokens` 列（zcode / opencode / mimocode 采集），第 8 张统计卡、使用记录"思考"列、CSV 导出、会话与摘要中的思考 Token 汇总
+- **Codex 采集器**：监控 OpenAI Codex CLI 的 Token 用量。读取 `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` 中的 `token_usage_record` 事件（旧版 CLI 兜底解析 `token_count`），零侵入、无需配置
+  - token 口径转换：Codex 的 `input_tokens` 含缓存命中，入库时拆为「未缓存输入 + 缓存读取」；`reasoning_output_tokens` 计入思考 Token
+  - 按文件字节偏移水位增量读取；session_id / cwd / 模型上下文按文件缓存，续读时仍可正确归属项目与模型
+  - 前端 FilterBar / 会话明细 / 使用记录新增 codex 标签色（石板灰）
+  - 定价 YAML 新增 gpt-5 / gpt-5-mini / gpt-5-nano / gpt-5-pro / gpt-5.1 系列 / gpt-5-codex / gpt-5.1-codex(-max) / codex-mini-latest 条目
+- **项目维度分析**：新增 `token_usage.project` 列（取会话工作目录最后一段），`/api/summary?group_by=project` 聚合 + 前端"项目消耗分布"条形图 + FilterBar 项目多选筛选 + `/api/projects` 端点（数据来自 claude-code / openclaude / zcode / codex）
+- **思考 Token 统计**：新增 `token_usage.reasoning_tokens` 列（zcode / opencode / mimocode / codex 采集），第 8 张统计卡、使用记录"思考"列、CSV 导出、会话与摘要中的思考 Token 汇总
 - **会话明细钻取**：新增 `GET /api/sessions`（按 Agent×会话聚合，含项目/模型/Token/费用）与 `/api/usage?session_id=` 过滤；前端"会话明细"表点击行内展开查看该会话每条请求
 - **环比对比**：`range_utils.previous_window()` 计算等长上一周期；`/api/summary?compare=true` 返回 `previous` 总量；统计卡显示"较上期"涨跌角标（费用卡下降=绿色）
 - **汇率自动获取**：新增 `backend/exchange_rate.py`（open.er-api.com，12h 缓存 + `data/exchange_rate.json` 持久化 + 静态值回退）；`/api/config` 返回生效汇率与来源，`POST /api/config/exchange-rate/refresh` 强制刷新；页眉展示汇率 + 刷新按钮

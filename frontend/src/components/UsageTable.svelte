@@ -53,6 +53,7 @@
     hanako: { bg: "rgba(236,72,153,.2)", text: "#F472B6" },
     openclaude: { bg: "rgba(245,158,11,.2)", text: "#FBBF24" },
     zcode: { bg: "rgba(249,115,22,.2)", text: "#FB923C" },
+    codex: { bg: "rgba(148,163,184,.2)", text: "#CBD5E1" },
   };
 
   function getAgentColor(agent: string) {

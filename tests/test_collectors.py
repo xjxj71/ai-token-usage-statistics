@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from backend.collectors.claude_code import ClaudeCodeCollector
+from backend.collectors.codex import CodexCollector
 from backend.collectors.jsonl_utils import build_token_record, parse_jsonl_line, parse_timestamp
 from backend.collectors.openclaw import OpenClawCollector
 from backend.collectors.zcode import ZcodeCollector
@@ -320,6 +321,270 @@ class TestZcodeCollector:
                 records = await collector.collect()
 
         assert records == []
+
+
+class TestCodexCollector:
+    """Codex rollout JSONL parsing — shapes observed from Codex CLI 0.163.0."""
+
+    SESSION_ID = "01a15f88-800a-7ad1-8d7b-36323f9fb50a"
+
+    @staticmethod
+    def _line(obj: dict) -> str:
+        return json.dumps(obj, ensure_ascii=False)
+
+    @staticmethod
+    def _session_meta(cwd=r"C:\Users\Administrator", model=None, cli="0.163.0"):
+        payload = {
+            "session_id": TestCodexCollector.SESSION_ID,
+            "id": TestCodexCollector.SESSION_ID,
+            "cwd": cwd,
+            "originator": "codex-tui",
+            "cli_version": cli,
+            "source": "vscode",
+        }
+        if model:
+            payload["provenance"] = {"type": "model", "model": model}
+        return {"timestamp": "2026-10-21T17:35:55.843Z", "type": "session_meta", "payload": payload}
+
+    @staticmethod
+    def _turn_context(model="mimo-v2.6-pro", cwd=r"C:\Users\Administrator"):
+        return {
+            "timestamp": "2026-10-21T17:35:55.917Z",
+            "type": "turn_context",
+            "payload": {"turn_id": "turn-1", "cwd": cwd, "model": model},
+        }
+
+    @staticmethod
+    def _usage_record(ts="2026-10-21T17:35:59.230Z", turn="turn-1", response="resp-1", usage=None):
+        return {
+            "timestamp": ts,
+            "type": "token_usage_record",
+            "payload": {
+                "thread_id": TestCodexCollector.SESSION_ID,
+                "turn_id": turn,
+                "session_id": TestCodexCollector.SESSION_ID,
+                "response_id": response,
+                "usage": usage
+                or {
+                    "input_tokens": 12451,
+                    "cached_input_tokens": 4096,
+                    "cache_write_input_tokens": 0,
+                    "output_tokens": 37,
+                    "reasoning_output_tokens": 12,
+                    "total_tokens": 12488,
+                },
+            },
+        }
+
+    @staticmethod
+    def _token_count(ts="2026-10-21T17:35:59.233Z", usage=None):
+        return {
+            "timestamp": ts,
+            "type": "event_msg",
+            "payload": {
+                "type": "token_count",
+                "info": {
+                    "total_token_usage": usage or {"input_tokens": 1},
+                    "last_token_usage": usage
+                    or {
+                        "input_tokens": 12451,
+                        "cached_input_tokens": 4096,
+                        "cache_write_input_tokens": 0,
+                        "output_tokens": 37,
+                        "reasoning_output_tokens": 12,
+                        "total_tokens": 12488,
+                    },
+                },
+            },
+        }
+
+    @pytest.fixture
+    def collector(self):
+        return CodexCollector()
+
+    @pytest.mark.unit
+    def test_name(self, collector):
+        assert collector.name == "codex"
+
+    @pytest.mark.asyncio
+    async def test_collect_no_dir(self, collector, tmp_path):
+        with patch("backend.collectors.codex._CODEX_SESSIONS_DIR", tmp_path / "missing"):
+            records = await collector.collect()
+        assert records == []
+
+    @pytest.mark.asyncio
+    async def test_collect_maps_fields(self, collector, tmp_path):
+        f = tmp_path / "2026" / "10" / "21" / f"rollout-2026-10-21T17-35-44-{self.SESSION_ID}.jsonl"
+        f.parent.mkdir(parents=True)
+        f.write_text(
+            "\n".join(
+                [
+                    self._line(self._session_meta()),
+                    self._line(self._turn_context()),
+                    self._line({"timestamp": "x", "type": "event_msg", "payload": {"type": "noise"}}),
+                    self._line(self._usage_record()),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        with (
+            patch("backend.collectors.codex._CODEX_SESSIONS_DIR", tmp_path),
+            patch.object(collector, "_load_state", return_value={}),
+            patch.object(collector, "_save_state") as save_state,
+        ):
+            records = await collector.collect()
+
+        assert len(records) == 1
+        r = records[0]
+        assert r.agent == "codex"
+        # OpenAI semantics: input_tokens includes cached — split into uncached + cache_read
+        assert r.input_tokens == 12451 - 4096
+        assert r.cache_read_tokens == 4096
+        assert r.cache_write_tokens == 0
+        assert r.output_tokens == 37
+        assert r.reasoning_tokens == 12
+        assert r.model == "mimo-v2.6-pro"
+        assert r.session_id == self.SESSION_ID
+        assert r.project == "Administrator"
+        assert r.timestamp == "2026-10-21T17:35:59.230Z"
+        raw = json.loads(r.raw_data)
+        assert raw["response_id"] == "resp-1"
+        assert raw["cli_version"] == "0.163.0"
+        # Watermark persisted for the nested file: one entry, consumed to EOF.
+        state = save_state.call_args[0][0]
+        assert len(state["file_positions"]) == 1
+        pos_key, pos_val = next(iter(state["file_positions"].items()))
+        assert pos_key.endswith(f.name)
+        assert pos_val == f.stat().st_size
+        # Per-file context cached for incremental resumes.
+        assert state["file_context"][pos_key]["model"] == "mimo-v2.6-pro"
+
+    @pytest.mark.asyncio
+    async def test_fallback_token_count(self, collector, tmp_path):
+        """Older CLIs emit no token_usage_record — parse event_msg/token_count instead."""
+        f = tmp_path / "rollout-old.jsonl"
+        f.write_text(
+            "\n".join(
+                [
+                    self._line(self._session_meta(cli="0.20.0")),
+                    self._line(self._turn_context(model="gpt-5.1-codex-max")),
+                    self._line(self._token_count()),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        with (
+            patch("backend.collectors.codex._CODEX_SESSIONS_DIR", tmp_path),
+            patch.object(collector, "_load_state", return_value={}),
+            patch.object(collector, "_save_state"),
+        ):
+            records = await collector.collect()
+
+        assert len(records) == 1
+        r = records[0]
+        assert r.model == "gpt-5.1-codex-max"
+        assert r.input_tokens == 12451 - 4096
+        assert r.cache_read_tokens == 4096
+        assert r.session_id == self.SESSION_ID
+
+    @pytest.mark.asyncio
+    async def test_records_win_over_token_count(self, collector, tmp_path):
+        """New CLIs write both events per response — count each response exactly once."""
+        f = tmp_path / "rollout.jsonl"
+        f.write_text(
+            "\n".join(
+                [
+                    self._line(self._session_meta()),
+                    self._line(self._turn_context()),
+                    self._line(self._usage_record()),
+                    self._line(self._token_count()),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        with (
+            patch("backend.collectors.codex._CODEX_SESSIONS_DIR", tmp_path),
+            patch.object(collector, "_load_state", return_value={}),
+            patch.object(collector, "_save_state"),
+        ):
+            records = await collector.collect()
+
+        assert len(records) == 1
+        assert records[0].timestamp == "2026-10-21T17:35:59.230Z"
+
+    @pytest.mark.asyncio
+    async def test_all_zero_usage_skipped(self, collector, tmp_path):
+        f = tmp_path / "rollout.jsonl"
+        zero = {"input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0}
+        f.write_text(
+            "\n".join(
+                [
+                    self._line(self._session_meta()),
+                    self._line(self._turn_context()),
+                    self._line(self._usage_record(usage=zero)),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        with (
+            patch("backend.collectors.codex._CODEX_SESSIONS_DIR", tmp_path),
+            patch.object(collector, "_load_state", return_value={}),
+            patch.object(collector, "_save_state"),
+        ):
+            records = await collector.collect()
+
+        assert records == []
+
+    @pytest.mark.asyncio
+    async def test_incremental_resume_uses_cached_context(self, collector, tmp_path):
+        """An appended record with no new session_meta/turn_context is still
+        attributed via the per-file context cached in collector state."""
+        f = tmp_path / "rollout.jsonl"
+        f.write_text(
+            "\n".join(
+                [
+                    self._line(self._session_meta()),
+                    self._line(self._turn_context()),
+                    self._line(self._usage_record()),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        saved: dict = {}
+        with (
+            patch("backend.collectors.codex._CODEX_SESSIONS_DIR", tmp_path),
+            patch.object(collector, "_load_state", return_value={}),
+            patch.object(collector, "_save_state", side_effect=lambda s: saved.update(s)),
+        ):
+            records1 = await collector.collect()
+        assert len(records1) == 1
+
+        # Append a bare record — only the file-context cache knows model/session/cwd.
+        with f.open("a", encoding="utf-8") as fh:
+            fh.write(self._line(self._usage_record(ts="2026-10-21T17:40:00.000Z", turn="turn-2", response="resp-2")) + "\n")
+
+        with (
+            patch("backend.collectors.codex._CODEX_SESSIONS_DIR", tmp_path),
+            patch.object(collector, "_load_state", return_value=saved),
+            patch.object(collector, "_save_state", side_effect=lambda s: saved.update(s)),
+        ):
+            records2 = await collector.collect()
+
+        assert len(records2) == 1
+        r = records2[0]
+        assert r.model == "mimo-v2.6-pro"
+        assert r.session_id == self.SESSION_ID
+        assert r.project == "Administrator"
 
 
 class TestHermesCollector:
