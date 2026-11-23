@@ -53,6 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - 筛选栏 agent/模型列表改为随 SSE 实时刷新——页面打开期间新出现的 agent 自动进入筛选栏，无需手动刷新页面
 - 修复新模型自动入库时一律以 0 价插入、挡住 YAML 已配置定价的问题（`glm-5.3` 费用显示为 0 的根因）；已有 0 价行可通过定价表或 API 修正
 - 修复套餐卡片模型消耗倍数展示不全：旧条件 `off_peak < 1` 导致智谱 glm-5.2 / glm-5-turbo 的「夜间 2x」加成倍数被隐藏；现在高峰/夜间倍数完整展示、标注生效时段（智谱 高峰 14-18、小米 夜间 00-08），1x 模型（glm-4.7）也以「1x」角标显示
+- 修复 qoder 记录已入库但筛选栏不显示 qoder 选项：`/api/agents` 的 `SUPPORTED_AGENTS` 白名单漏加 qoder；新增回归测试保证已注册采集器必然在白名单内
 
 ## [0.4.0] - 2026-07-08
 
