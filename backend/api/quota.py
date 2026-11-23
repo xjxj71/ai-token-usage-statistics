@@ -47,12 +47,7 @@ def _window_to_dict(w: QuotaWindow | None) -> dict[str, Any] | None:
 
 
 def _multiplier_to_dict(m: ModelMultiplier) -> dict[str, Any]:
-    return {
-        "model": m.model,
-        "peak": m.peak,
-        "off_peak": m.off_peak,
-        "peak_hours": m.peak_hours,
-    }
+    return m.to_dict()
 
 
 def _snapshot_to_dict(s: QuotaSnapshot) -> dict[str, Any]:
@@ -66,6 +61,9 @@ def _snapshot_to_dict(s: QuotaSnapshot) -> dict[str, Any]:
         "balance": s.balance,
         "free_balance": s.free_balance,
         "model_multipliers": [_multiplier_to_dict(m) for m in s.model_multipliers],
+        "multiplier_note": s.multiplier_note,
+        "multiplier_source": s.multiplier_source,
+        "multiplier_updated_at": s.multiplier_updated_at,
         "expires_at": s.expires_at,
         "auto_renew": s.auto_renew,
         "fetched_at": s.fetched_at,
@@ -97,6 +95,19 @@ async def refresh_quota(request: Request):
     return {
         "items": [_snapshot_to_dict(s) for s in snapshots],
         "total": len(snapshots),
+    }
+
+
+@router.post("/quota/multipliers/refresh")
+async def refresh_multipliers(request: Request):
+    """Re-fetch model multipliers from the vendors' documentation centres."""
+    _require_local_or_key(request)
+    from backend.quota import multipliers as mult_module
+
+    updated = await mult_module.refresh()
+    return {
+        "updated": updated,
+        "items": [s.to_dict() for s in mult_module.get_all_sets()],
     }
 
 

@@ -5,10 +5,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from backend.quota import multipliers as mult_module
 from backend.quota.base import QuotaSnapshot, QuotaWindow
 from backend.quota.registry import get_registry
-from backend.quota.xiaomi import _PLAN_LIMITS_MONTHLY, XiaomiQuotaProvider
-from backend.quota.zhipu import _PLAN_LIMITS, ZhipuQuotaProvider
+from backend.quota.xiaomi import XiaomiQuotaProvider, _plan_limits_monthly
+from backend.quota.zhipu import ZhipuQuotaProvider
 
 # ── Dataclass unit tests ────────────────────────────────────────
 
@@ -59,25 +60,33 @@ def test_xiaomi_provider_config():
 
 @pytest.mark.unit
 def test_zhipu_plan_limits():
-    assert _PLAN_LIMITS["lite"]["window_5h"] == 80
-    assert _PLAN_LIMITS["pro"]["weekly"] == 2000
-    assert _PLAN_LIMITS["max"]["window_5h"] == 1600
+    credits = mult_module.get_plan_limits("zhipu", "credits")
+    assert credits["lite"]["window_5h"] == 2000
+    assert credits["pro"]["weekly"] == 60000
+    assert credits["max"]["weekly"] == 140000
+    prompts = mult_module.get_plan_limits("zhipu", "prompts")
+    assert prompts["lite"]["window_5h"] == 80
+    assert prompts["pro"]["weekly"] == 2000
+    assert prompts["max"]["window_5h"] == 1600
 
 
 @pytest.mark.unit
 def test_xiaomi_plan_limits():
-    assert _PLAN_LIMITS_MONTHLY["lite"] == 4_100_000_000
-    assert _PLAN_LIMITS_MONTHLY["max"] == 82_000_000_000
+    limits = _plan_limits_monthly()
+    assert limits["lite"] == 4_100_000_000
+    assert limits["max"] == 82_000_000_000
 
 
 @pytest.mark.unit
 def test_zhipu_multipliers():
     p = ZhipuQuotaProvider({"enabled": True})
     mults = p.multipliers
-    glm52 = [m for m in mults if m.model == "glm-5.2"]
-    assert len(glm52) == 1
-    assert glm52[0].peak == 3.0
-    assert glm52[0].off_peak == 2.0
+    glm54 = [m for m in mults if m.model == "glm-5.4"]
+    assert len(glm54) == 1
+    # 当前积分制：Input 抵扣系数 4.6，非高峰 5 折
+    assert glm54[0].input_rate == 4.6
+    assert glm54[0].output_rate == 16.0
+    assert glm54[0].off_peak == 0.5
 
 
 # ── Zhipu API-key path (Coding Plan usage endpoint) ─────────────
@@ -180,13 +189,15 @@ def test_parse_coding_plan_level_and_filters():
                           level="ULTRA")
     )
     assert snap is not None and snap.plan_type == "pro"
-    # CREDIT_LIMIT accepted case-insensitively; unknown types ignored
+    assert snap.main_window.unit == "prompts"          # TOKENS_LIMIT → 历史 V2 制式
+    # CREDIT_LIMIT accepted case-insensitively → 积分制额度; unknown types ignored
     snap = p._parse_coding_plan_response(_coding_plan_body([
         {"type": "credit_limit", "unit": 3, "percentage": 25.0},
         {"type": "SOMETHING_ELSE", "unit": 6, "percentage": 99.0},
     ], level="lite"))
     assert snap is not None
-    assert snap.plan_type == "lite" and snap.main_window.total == 80.0
+    assert snap.plan_type == "lite" and snap.main_window.total == 2000.0
+    assert snap.main_window.unit == "credits"          # CREDIT_LIMIT → 积分制
     assert snap.extra_windows == []  # SOMETHING_ELSE filtered out
 
 
@@ -266,8 +277,12 @@ async def test_fetch_quota_routes_credential_types():
 def test_xiaomi_multipliers():
     p = XiaomiQuotaProvider({"enabled": True})
     mults = p.multipliers
+    names = {m.model for m in mults}
+    # mimo-v2.5 系列已于 2026-10-21 下线，卡片应展示 V2.6 系列
+    assert {"mimo-v2.6-pro", "mimo-v2.6-flash", "mimo-v2.6-pro-ultraspeed"} <= names
     # Night-time coefficient should be 0.8 for off-peak
     assert any(m.off_peak == 0.8 for m in mults)
+    assert any(m.input_rate == 300.0 for m in mults if m.model == "mimo-v2.6-pro")
 
 
 # ── Registry tests ──────────────────────────────────────────────

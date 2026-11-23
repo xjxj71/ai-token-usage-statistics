@@ -135,6 +135,11 @@ export interface ModelMultiplier {
   peak: number;
   off_peak: number;
   peak_hours: string;
+  off_peak_label: string;
+  input_rate: number | null;
+  cached_rate: number | null;
+  output_rate: number | null;
+  rate_unit: string;
 }
 
 export interface QuotaSnapshot {
@@ -147,6 +152,9 @@ export interface QuotaSnapshot {
   balance: number | null;
   free_balance: number | null;
   model_multipliers: ModelMultiplier[];
+  multiplier_note: string;
+  multiplier_source: string; // "live" | "cache" | "defaults"
+  multiplier_updated_at: string;
   expires_at: string | null;
   auto_renew: boolean | null;
   fetched_at: string;

@@ -39,6 +39,7 @@ import urllib.request
 from datetime import UTC, datetime, timedelta
 
 from backend.db import database as db_module
+from backend.quota import multipliers as mult_module
 from backend.quota.base import (
     ModelMultiplier,
     QuotaProvider,
@@ -50,32 +51,31 @@ logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://open.bigmodel.cn"
 
-# Official plan limits (prompts) — from the GLM Coding Plan documentation.
-_PLAN_LIMITS: dict[str, dict[str, int]] = {
-    "lite": {"window_5h": 80, "weekly": 400},
-    "pro": {"window_5h": 400, "weekly": 2000},
-    "max": {"window_5h": 1600, "weekly": 8000},
-}
-
-# Default model consumption multipliers.
-_DEFAULT_MULTIPLIERS = [
-    ModelMultiplier(model="glm-5.2", peak=3.0, off_peak=2.0, peak_hours="14-18"),
-    ModelMultiplier(model="glm-5-turbo", peak=3.0, off_peak=2.0, peak_hours="14-18"),
-    ModelMultiplier(model="glm-4.7", peak=1.0, off_peak=1.0),
-]
-
 
 class ZhipuQuotaProvider(QuotaProvider):
     provider_id = "zhipu"
     display_name = "智谱 GLM Coding Plan"
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+        # "credits" = 当前积分制套餐; "prompts" = 历史 V2 prompt 制套餐.
+        # auto: 从用量接口的 limits[].type 推断，未识别前默认按积分制展示。
+        self._detected_mode: str = ""
 
     @property
     def plan_type(self) -> str:
         return self.config.get("plan_type", "pro")
 
     @property
+    def mode(self) -> str:
+        configured = str(self.config.get("plan_mode", "auto")).strip().lower()
+        if configured in ("credits", "prompts"):
+            return configured
+        return self._detected_mode or "credits"
+
+    @property
     def multipliers(self) -> list[ModelMultiplier]:
-        return list(_DEFAULT_MULTIPLIERS)
+        return list(mult_module.get_set(self.provider_id, self.mode).models)
 
     async def fetch_quota(self) -> QuotaSnapshot:
         token = self.credential
@@ -179,14 +179,11 @@ class ZhipuQuotaProvider(QuotaProvider):
         # Plan level — trust the API when it names a known plan,
         # otherwise keep the user-configured plan_type.
         plan_type = self.plan_type
-        level = str(data.get("level") or "").strip().lower()
-        if level in _PLAN_LIMITS:
-            plan_type = level
-        limits = _PLAN_LIMITS.get(plan_type, _PLAN_LIMITS["pro"])
 
         five_hour: tuple[int | None, float] | None = None
         weekly: tuple[int | None, float] | None = None
         unclassified: list[tuple[int | None, float]] = []
+        seen_types: set[str] = set()
 
         for item in data.get("limits") or []:
             if not isinstance(item, dict):
@@ -194,6 +191,7 @@ class ZhipuQuotaProvider(QuotaProvider):
             limit_type = str(item.get("type") or "").upper()
             if limit_type not in ("TOKENS_LIMIT", "CREDIT_LIMIT"):
                 continue
+            seen_types.add(limit_type)
             try:
                 pct = float(item.get("percentage") or 0.0)
             except (TypeError, ValueError):
@@ -210,6 +208,22 @@ class ZhipuQuotaProvider(QuotaProvider):
             else:
                 # Unknown unit, or a duplicate for an already-filled slot.
                 unclassified.append(entry)
+
+        # 套餐制式：CREDIT_LIMIT → 新版积分制；TOKENS_LIMIT → 历史 V2 prompt 制。
+        if seen_types == {"CREDIT_LIMIT"}:
+            self._detected_mode = "credits"
+        elif seen_types == {"TOKENS_LIMIT"}:
+            self._detected_mode = "prompts"
+
+        mode = self.mode
+        plan_limits = mult_module.get_plan_limits(self.provider_id, mode)
+        # Plan level — trust the API when it names a known plan,
+        # otherwise keep the user-configured plan_type.
+        level = str(data.get("level") or "").strip().lower()
+        if level in plan_limits:
+            plan_type = level
+        limits = plan_limits.get(plan_type) or plan_limits.get("pro") or {}
+        unit = "credits" if mode == "credits" else "prompts"
 
         # Fallback heuristic: no-reset entries prefer the 5-hour slot,
         # then ascending reset time fills the remaining empty slot.
@@ -231,7 +245,7 @@ class ZhipuQuotaProvider(QuotaProvider):
             return QuotaWindow(
                 used=round(total * pct / 100.0, 1),
                 total=total,
-                unit="prompts",
+                unit=unit,
                 reset_at=reset_iso,
             )
 
@@ -245,9 +259,9 @@ class ZhipuQuotaProvider(QuotaProvider):
             plan_type=plan_type,
             main_window=main,
             extra_windows=extra,
-            model_multipliers=self.multipliers,
             fetched_at=datetime.now(UTC).isoformat(),
             source="api",
+            **mult_module.snapshot_kwargs(self.provider_id, mode),
         )
 
     # ── Session-token path (web-console endpoints) ─────────────
@@ -295,7 +309,7 @@ class ZhipuQuotaProvider(QuotaProvider):
             sub = sub_items[0]
             plan_name = sub.get("planName") or sub.get("plan_name") or sub.get("name", "Unknown")
             raw_type = (sub.get("planType") or sub.get("plan_type") or "").lower()
-            if raw_type in _PLAN_LIMITS:
+            if raw_type in mult_module.get_plan_limits(self.provider_id, self.mode):
                 plan_type = raw_type
             expires_at = sub.get("expireTime") or sub.get("expire_time") or sub.get("expiresAt")
             auto_renew = sub.get("autoRenew") or sub.get("auto_renew")
@@ -303,6 +317,7 @@ class ZhipuQuotaProvider(QuotaProvider):
         # --- Usage ---
         windows: list[QuotaWindow] = []
         u_data = usage_data.get("data") or usage_data or {}
+        unit = "credits" if self.mode == "credits" else "prompts"
 
         w5h_used = u_data.get("fiveHourUsed") or u_data.get("window_5h_used")
         w5h_total = u_data.get("fiveHourTotal") or u_data.get("window_5h_total")
@@ -311,7 +326,7 @@ class ZhipuQuotaProvider(QuotaProvider):
             windows.append(QuotaWindow(
                 used=float(w5h_used or 0),
                 total=float(w5h_total),
-                unit="prompts",
+                unit=unit,
                 reset_at=w5h_reset,
             ))
 
@@ -322,7 +337,7 @@ class ZhipuQuotaProvider(QuotaProvider):
             windows.append(QuotaWindow(
                 used=float(wk_used or 0),
                 total=float(wk_total),
-                unit="prompts",
+                unit=unit,
                 reset_at=wk_reset,
             ))
 
@@ -343,11 +358,11 @@ class ZhipuQuotaProvider(QuotaProvider):
             extra_windows=extra,
             balance=float(cash_balance) if cash_balance is not None else None,
             free_balance=float(gift_balance) if gift_balance is not None else None,
-            model_multipliers=self.multipliers,
             expires_at=expires_at,
             auto_renew=auto_renew,
             fetched_at=now_iso,
             source="api",
+            **mult_module.snapshot_kwargs(self.provider_id, self.mode),
         )
 
     # ── HTTP helper ────────────────────────────────────────────
@@ -363,58 +378,124 @@ class ZhipuQuotaProvider(QuotaProvider):
 
     # ── Local estimate fallback ────────────────────────────────
 
+    def _coefficients(self, model: str) -> tuple[float, float, float]:
+        """(input, cached, output) 抵扣系数 for a token_usage model name.
+
+        Falls back to the first set model (flagship) for unrecognised
+        historical names like ``glm-5.1``.
+        """
+        models = mult_module.get_set(self.provider_id, self.mode).models
+        name = (model or "").lower()
+        match: ModelMultiplier | None = None
+        for m in models:
+            if ((name == m.model or name.startswith(m.model))
+                    and (match is None or len(m.model) > len(match.model))):
+                match = m
+        if match is None and models:
+            match = models[0]
+        if match is None or match.input_rate is None:
+            return (0.0, 0.0, 0.0)
+        return (match.input_rate, match.cached_rate or 0.0, match.output_rate or 0.0)
+
+    async def _estimate_credits(self) -> tuple[float, float]:
+        """Estimate credit consumption from the local ``token_usage`` table.
+
+        模型消耗积分数 =（输入 × Input 抵扣系数 + 缓存命中 × Cached 抵扣系数
+        + 输出 × Output 抵扣系数）/ 10000
+        """
+        totals = {"5h": 0.0, "weekly": 0.0}
+        windows = {"5h": timedelta(hours=5), "weekly": timedelta(days=7)}
+        now = datetime.now(UTC)
+        try:
+            db = await db_module.get_db()
+            for slot, delta in windows.items():
+                rows = await db.execute_fetchall(
+                    """SELECT model,
+                              SUM(input_tokens) as input_tokens,
+                              SUM(output_tokens) as output_tokens,
+                              SUM(cache_read_tokens) as cache_read_tokens,
+                              SUM(cache_write_tokens) as cache_write_tokens
+                       FROM token_usage
+                       WHERE model LIKE 'glm-%'
+                         AND timestamp >= ?
+                         AND agent != 'openrouter'
+                       GROUP BY model""",
+                    [(now - delta).isoformat()],
+                )
+                credits = 0.0
+                for row in rows:
+                    inp = float(row["input_tokens"] or 0)
+                    out = float(row["output_tokens"] or 0)
+                    cache_read = float(row["cache_read_tokens"] or 0)
+                    cache_write = float(row["cache_write_tokens"] or 0)
+                    rate_in, rate_cache, rate_out = self._coefficients(row["model"] or "")
+                    cache_miss_input = max(0.0, inp - cache_read)
+                    credits += (
+                        (cache_miss_input + cache_write) * rate_in
+                        + cache_read * rate_cache
+                        + out * rate_out
+                    ) / 10_000.0
+                totals[slot] = credits
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Zhipu credit estimate failed: %s", exc)
+        return totals["5h"], totals["weekly"]
+
     async def _estimate(self) -> QuotaSnapshot:
         """Estimate consumption from the local ``token_usage`` table.
 
-        The Coding Plan measures in "prompts" (1 prompt ≈ 15-20 model
-        calls).  We estimate prompts by counting GLM model calls and
-        dividing by 15.
+        积分制套餐按 Token × 抵扣系数 折算积分；历史 V2 prompt 制套餐
+        按 GLM 调用次数 ÷ 15 估算 prompts（一次 prompt ≈ 15-30 次调用）。
         """
         now_iso = datetime.now(UTC).isoformat()
-        limits = _PLAN_LIMITS.get(self.plan_type, _PLAN_LIMITS["pro"])
-        avg_calls_per_prompt = 15  # official estimate
+        mode = self.mode
+        limits = mult_module.get_plan_limits(self.provider_id, mode).get(
+            self.plan_type
+        ) or {"window_5h": 0.0, "weekly": 0.0}
+        unit = "credits" if mode == "credits" else "prompts"
 
-        try:
-            db = await db_module.get_db()
-            # 5h window: count GLM model calls.
-            five_h_ago = (datetime.now(UTC) - timedelta(hours=5)).isoformat()
-            rows = await db.execute_fetchall(
-                """SELECT COUNT(*) as cnt
-                   FROM token_usage
-                   WHERE model LIKE 'glm-%'
-                     AND timestamp >= ?
-                     AND agent != 'openrouter'""",
-                [five_h_ago],
-            )
-            calls_5h = float(rows[0]["cnt"]) if rows else 0.0
-            estimated_5h = calls_5h / avg_calls_per_prompt
+        if mode == "credits":
+            estimated_5h, estimated_weekly = await self._estimate_credits()
+        else:
+            avg_calls_per_prompt = 15  # official estimate
+            try:
+                db = await db_module.get_db()
+                five_h_ago = (datetime.now(UTC) - timedelta(hours=5)).isoformat()
+                rows = await db.execute_fetchall(
+                    """SELECT COUNT(*) as cnt
+                       FROM token_usage
+                       WHERE model LIKE 'glm-%'
+                         AND timestamp >= ?
+                         AND agent != 'openrouter'""",
+                    [five_h_ago],
+                )
+                calls_5h = float(rows[0]["cnt"]) if rows else 0.0
+                estimated_5h = calls_5h / avg_calls_per_prompt
 
-            # Weekly window: 7 days.
-            week_ago = (datetime.now(UTC) - timedelta(days=7)).isoformat()
-            rows = await db.execute_fetchall(
-                """SELECT COUNT(*) as cnt
-                   FROM token_usage
-                   WHERE model LIKE 'glm-%'
-                     AND timestamp >= ?
-                     AND agent != 'openrouter'""",
-                [week_ago],
-            )
-            calls_weekly = float(rows[0]["cnt"]) if rows else 0.0
-            estimated_weekly = calls_weekly / avg_calls_per_prompt
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Zhipu local estimate failed: %s", exc)
-            estimated_5h = 0.0
-            estimated_weekly = 0.0
+                week_ago = (datetime.now(UTC) - timedelta(days=7)).isoformat()
+                rows = await db.execute_fetchall(
+                    """SELECT COUNT(*) as cnt
+                       FROM token_usage
+                       WHERE model LIKE 'glm-%'
+                         AND timestamp >= ?
+                         AND agent != 'openrouter'""",
+                    [week_ago],
+                )
+                calls_weekly = float(rows[0]["cnt"]) if rows else 0.0
+                estimated_weekly = calls_weekly / avg_calls_per_prompt
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Zhipu local estimate failed: %s", exc)
+                estimated_5h = 0.0
+                estimated_weekly = 0.0
 
         main_window = QuotaWindow(
             used=estimated_5h,
-            total=float(limits["window_5h"]),
-            unit="prompts",
+            total=float(limits.get("window_5h", 0.0)),
+            unit=unit,
         )
         weekly_window = QuotaWindow(
             used=estimated_weekly,
-            total=float(limits["weekly"]),
-            unit="prompts",
+            total=float(limits.get("weekly", 0.0)),
+            unit=unit,
         )
 
         return QuotaSnapshot(
@@ -424,7 +505,7 @@ class ZhipuQuotaProvider(QuotaProvider):
             plan_type=self.plan_type,
             main_window=main_window,
             extra_windows=[weekly_window],
-            model_multipliers=self.multipliers,
             fetched_at=now_iso,
             source="estimate",
+            **mult_module.snapshot_kwargs(self.provider_id, mode),
         )

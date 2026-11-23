@@ -35,6 +35,7 @@ data/*.db-wal
 data/*.db-shm
 data/collector_state.json
 data/exchange_rate.json
+data/model_multipliers.json
 data/app_settings.json
 data/maintenance_state.json
 data/backups/

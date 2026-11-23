@@ -64,6 +64,17 @@
     return n.toString().padStart(2, "0");
   }
 
+  function formatLocalDate(iso: string): string {
+    // 按本地时区显示日期（后端存 ISO 时间戳，直接切片会差一天）
+    try {
+      const d = new Date(iso);
+      if (!isNaN(d.getTime())) {
+        return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+      }
+    } catch { /* fall through */ }
+    return iso.slice(0, 10);
+  }
+
   function offPeakWindow(peakHours: string): string | null {
     // "HH-HH"（如 08-24）→ 非高峰时段的单段区间标签（如 00-08）；
     // 补集为两段（如 14-18 → 00-14 + 18-24）时无法用一个区间表达，返回 null。
@@ -293,25 +304,35 @@
 
           {#if snap.model_multipliers.length > 0}
             <div class="multipliers-area">
+              {#if snap.multiplier_note}
+                <div class="mult-note">{snap.multiplier_note}</div>
+              {/if}
               {#each snap.model_multipliers as mult (mult.model)}
                 {@const offWindow = mult.off_peak < 1 ? offPeakWindow(mult.peak_hours) : null}
-                <span class="mult-badge">
+                <span class="mult-badge" title={mult.rate_unit ? `输入/缓存/输出（${mult.rate_unit}）` : ""}>
                   {mult.model}
-                  {#if mult.peak !== 1}
-                    <span class="mult-coeff">{mult.peak_hours ? `高峰(${mult.peak_hours})` : "高峰"}{mult.peak}x</span>
-                  {/if}
-                  {#if mult.off_peak !== 1}
-                    {#if mult.off_peak < 1 && offWindow}
-                      <span class="mult-coeff green">夜间({offWindow}){mult.off_peak}x</span>
-                    {:else}
-                      <span class="mult-coeff">夜间{mult.off_peak}x</span>
+                  {#if mult.input_rate !== null}
+                    <span class="mult-coeff">{mult.input_rate}/{mult.cached_rate}/{mult.output_rate}</span>
+                  {:else}
+                    {#if mult.peak !== 1}
+                      <span class="mult-coeff">{mult.peak_hours ? `高峰(${mult.peak_hours})` : "高峰"}{mult.peak}x</span>
                     {/if}
-                  {/if}
-                  {#if mult.peak === 1 && mult.off_peak === 1}
-                    <span class="mult-coeff">1x</span>
+                    {#if mult.off_peak !== 1}
+                      {#if mult.off_peak < 1 && offWindow}
+                        <span class="mult-coeff green">{mult.off_peak_label || "夜间"}({offWindow}){mult.off_peak}x</span>
+                      {:else}
+                        <span class="mult-coeff">{mult.off_peak_label || "夜间"}{mult.off_peak}x</span>
+                      {/if}
+                    {/if}
+                    {#if mult.peak === 1 && mult.off_peak === 1}
+                      <span class="mult-coeff">1x</span>
+                    {/if}
                   {/if}
                 </span>
               {/each}
+              {#if snap.multiplier_updated_at}
+                <div class="mult-updated">倍率数据更新于 {formatLocalDate(snap.multiplier_updated_at)}</div>
+              {/if}
             </div>
           {/if}
         </div>
@@ -530,6 +551,12 @@
     display: flex;
     gap: 6px;
     flex-wrap: wrap;
+  }
+  .mult-note, .mult-updated {
+    flex-basis: 100%;
+    font-size: 10px;
+    color: var(--text-3);
+    line-height: 1.5;
   }
   .mult-badge {
     font-size: 10px;

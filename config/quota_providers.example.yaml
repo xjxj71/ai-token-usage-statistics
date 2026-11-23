@@ -14,6 +14,8 @@ providers:
     # 智谱 GLM Coding Plan，session_token 从 bigmodel.cn 登录后的 Cookie 中获取
     enabled: false
     plan_type: pro  # lite / pro / max
+    # 套餐制式：auto（默认，按用量接口自动识别）/ credits（新版积分制）/ prompts（历史 V2 制）
+    plan_mode: auto
     session_token: "YOUR_ZHIPU_SESSION_TOKEN"
 
   xiaomi:

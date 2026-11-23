@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **套餐倍率自动同步**：模型消耗倍率（抵扣系数/消耗倍率）不再硬编码，改为定时从官方文档中心抓取解析（`backend/quota/multipliers.py`：启动即拉取 + 每 12h 刷新 + `POST /api/quota/multipliers/refresh` 手动刷新，`data/model_multipliers.json` 持久化缓存，失败自动回退内置快照，卡片标注数据更新时间）
+  - 智谱：解析 `docs.bigmodel.cn/cn/coding-plan/overview.md`（积分抵扣系数 + 积分额度），历史 V2 prompt 制倍率取自套餐改版公告 `usage-revision.md`；`docs.z.ai` 同构英文页作备用源。用量接口返回 `CREDIT_LIMIT` / `TOKENS_LIMIT` 时自动识别套餐制式并匹配对应倍率与额度表
+  - 小米：解析 `mimo.mi.com` Token Plan 订阅文档（语言模型 Credits 折算表 + 夜间 0.8x + 月度额度）
+  - 卡片展示随官方数据变化：智谱 GLM-5.4 / GLM-5.3 / GLM-5.3-Flash（输入/缓存/输出抵扣系数，非高峰 5 折，高峰周一至五 14-18）、小米 mimo-v2.6-pro / flash / pro-ultraspeed（Credits/Token，夜间 00-08 0.8x）
+- 智谱本地估算按套餐制式区分：积分制按 Token × 抵扣系数 ÷ 10000 折算积分（新积分制额度 2000/12000/28000 credits），历史 V2 prompt 制保留调用次数估算；`quota_providers.yaml` 新增 `plan_mode`（auto/credits/prompts）供手动覆盖
 - **Qoder 采集器（国际版）**：监控 Qoder 桌面客户端（国际版）的 Token 用量。读取 `~/.qoder/` 下两类本地文件，零侵入、无需配置
   - 运行日志 `logs/runs/*/qodercli.log`：`[permission-check]` 权限检查的上下文转储中 assistant 消息携带每次模型请求的 `message.usage`，按消息 uuid 去重（同一响应会被后续工具调用反复转储）
   - 会话转录 `projects/**/*.jsonl`：压缩（compact）事件的 `compactUsage`（compaction 也是真实计费请求）；转录同时提供 会话→工作目录 映射，用于项目归属
@@ -45,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - CORS 默认来源收紧为本地开发服务器
 
 ### Fixed
+- 修复套餐卡片模型倍率过期：原展示的 glm-5.2 / glm-5-turbo / glm-4.7 与 mimo-v2.5 系列均已被官方套餐下线（mimo-v2.5 系列 2026-10-21 下线），倍率数值也不再适用；现展示当前官方模型与倍率并自动保持最新
 - 修复 OpenClaude 采集器被误改为 `openclaw` 导致的采集中断与数据混淆
 - custom 时间范围 `to` 日期整天纳入统计；非法 range 返回 400 而非静默回退
 - SSE 改为每客户端队列，消除多客户端通知丢失

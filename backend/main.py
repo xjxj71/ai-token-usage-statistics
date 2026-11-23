@@ -28,6 +28,7 @@ from backend.collectors.registry import start_polling, stop_polling
 from backend.config import settings
 from backend.db.database import close_db, init_db
 from backend.maintenance import start_maintenance, stop_maintenance
+from backend.quota.multipliers import start_refresh_loop, stop_refresh_loop
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,9 @@ async def lifespan(app: FastAPI):
     await init_db()
     start_polling()
     start_maintenance()
+    # 模型消耗倍率后台同步：启动即拉取官方文档，之后按周期刷新；
+    # 失败时沿用缓存/内置快照，不会阻塞启动。
+    start_refresh_loop()
 
     # Warm the exchange-rate cache in the background; failures fall back to
     # the configured static rate, so nothing needs to be awaited or surfaced.
@@ -51,6 +55,7 @@ async def lifespan(app: FastAPI):
     warmup_task = asyncio.create_task(_warm_rate())
     yield
     warmup_task.cancel()
+    stop_refresh_loop()
     stop_maintenance()
     stop_polling()
     await close_db()

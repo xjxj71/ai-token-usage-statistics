@@ -14,6 +14,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Re-exported for convenience — consumers serialise multipliers via to_dict().
+__all__ = ["ModelMultiplier", "QuotaProvider", "QuotaSnapshot", "QuotaWindow"]
+
 
 @dataclass
 class QuotaWindow:
@@ -36,12 +39,57 @@ class QuotaWindow:
 
 @dataclass
 class ModelMultiplier:
-    """Per-model consumption multiplier (e.g. GLM-5.2 costs 3x at peak)."""
+    """Per-model consumption multiplier / credit rates.
+
+    Two official pricing styles are represented:
+
+    * **Prompt-style** (legacy GLM Coding Plan V2) — per-model ``peak`` /
+      ``off_peak`` consumption multipliers plus ``peak_hours``.
+    * **Credit-style** (current GLM Coding Plan, MiMo Token Plan) —
+      per-token-type rates ``input_rate`` / ``cached_rate`` / ``output_rate``
+      with a uniform off-peak discount carried in ``off_peak``.
+    """
 
     model: str
     peak: float = 1.0       # multiplier during peak hours
     off_peak: float = 1.0   # multiplier during off-peak hours
     peak_hours: str = ""    # e.g. "14-18" (UTC+8)
+    off_peak_label: str = "夜间"  # UI wording: "夜间" | "非高峰"
+    input_rate: float | None = None    # 输入（未命中缓存）抵扣系数
+    cached_rate: float | None = None   # 输入（命中缓存）抵扣系数
+    output_rate: float | None = None   # 输出抵扣系数
+    rate_unit: str = ""    # e.g. "积分/万Token" | "Credits/Token"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "model": self.model,
+            "peak": self.peak,
+            "off_peak": self.off_peak,
+            "peak_hours": self.peak_hours,
+            "off_peak_label": self.off_peak_label,
+            "input_rate": self.input_rate,
+            "cached_rate": self.cached_rate,
+            "output_rate": self.output_rate,
+            "rate_unit": self.rate_unit,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> ModelMultiplier:
+        def _f(key: str) -> float | None:
+            v = d.get(key)
+            return float(v) if v is not None else None
+
+        return cls(
+            model=str(d.get("model", "")),
+            peak=float(d.get("peak") or 1.0),
+            off_peak=float(d.get("off_peak") or 1.0),
+            peak_hours=str(d.get("peak_hours") or ""),
+            off_peak_label=str(d.get("off_peak_label") or "夜间"),
+            input_rate=_f("input_rate"),
+            cached_rate=_f("cached_rate"),
+            output_rate=_f("output_rate"),
+            rate_unit=str(d.get("rate_unit") or ""),
+        )
 
 
 @dataclass
@@ -65,6 +113,9 @@ class QuotaSnapshot:
 
     # Model-level consumption multipliers.
     model_multipliers: list[ModelMultiplier] = field(default_factory=list)
+    multiplier_note: str = ""            # 单位/折扣/高峰时段说明
+    multiplier_source: str = "defaults"  # "live" | "cache" | "defaults"
+    multiplier_updated_at: str = ""      # ISO-8601 of the last docs fetch
 
     # Subscription lifecycle.
     expires_at: str | None = None      # ISO-8601 subscription expiry

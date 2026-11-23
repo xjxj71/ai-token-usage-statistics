@@ -25,6 +25,7 @@ import urllib.request
 from datetime import UTC, datetime, timedelta
 
 from backend.db import database as db_module
+from backend.quota import multipliers as mult_module
 from backend.quota.base import (
     ModelMultiplier,
     QuotaProvider,
@@ -36,24 +37,38 @@ logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://platform.xiaomimimo.com"
 
-# Official monthly plan limits (Credits) — from the MiMo Token Plan docs.
-_PLAN_LIMITS_MONTHLY: dict[str, int] = {
-    "lite": 4_100_000_000,       # 4.1 B
-    "standard": 11_000_000_000,  # 11 B
-    "pro": 38_000_000_000,       # 38 B
-    "max": 82_000_000_000,       # 82 B
+# 旧模型名 → 现行 V2.6 模型名（mimo-v2.5 系列已于 2026-10-21 下线）。
+# 历史 token_usage 行仍可能带旧名，本地估算按现行倍率折算。
+_MODEL_ALIASES: dict[str, str] = {
+    "mimo-v2.5-pro": "mimo-v2.6-pro",
+    "mimo-v2.5": "mimo-v2.6-flash",
+    "mimo-v2-pro": "mimo-v2.6-pro",
+    "mimo-v2": "mimo-v2.6-flash",
 }
 
-# Per-token Credit deduction rates for local estimation.
-#  key: (model, token_type) -> credits_per_token
-_TOKEN_RATES: dict[tuple[str, str], float] = {
-    ("mimo-v2.5-pro", "input_cache"): 2.5,
-    ("mimo-v2.5-pro", "input_miss"): 300.0,
-    ("mimo-v2.5-pro", "output"): 600.0,
-    ("mimo-v2.5", "input_cache"): 2.0,
-    ("mimo-v2.5", "input_miss"): 100.0,
-    ("mimo-v2.5", "output"): 200.0,
-}
+
+def _plan_limits_monthly() -> dict[str, float]:
+    """Monthly Credit totals per plan type (from the fetched docs)."""
+    limits = mult_module.get_plan_limits("xiaomi", "credits")
+    return {plan: windows.get("monthly", 0.0) for plan, windows in limits.items()}
+
+
+def _token_rates() -> dict[tuple[str, str], float]:
+    """Per-token Credit deduction rates for local estimation.
+
+    key: (model, token_type) -> credits_per_token, built from the fetched
+    MiMo Token Plan table（输入/缓存/输出），含旧模型名别名。
+    """
+    rates: dict[tuple[str, str], float] = {}
+    for m in mult_module.get_set("xiaomi", "credits").models:
+        if m.input_rate is None:
+            continue
+        names = [m.model] + [a for a, t in _MODEL_ALIASES.items() if t == m.model]
+        for name in names:
+            rates[(name, "input_cache")] = m.cached_rate or 0.0
+            rates[(name, "input_miss")] = m.input_rate
+            rates[(name, "output")] = m.output_rate or 0.0
+    return rates
 
 
 class XiaomiQuotaProvider(QuotaProvider):
@@ -66,20 +81,7 @@ class XiaomiQuotaProvider(QuotaProvider):
 
     @property
     def multipliers(self) -> list[ModelMultiplier]:
-        return [
-            ModelMultiplier(
-                model="mimo-v2.5-pro",
-                peak=1.0,
-                off_peak=0.8,
-                peak_hours="08-24",  # off-peak is 00:00-08:00 Beijing (UTC+8)
-            ),
-            ModelMultiplier(
-                model="mimo-v2.5",
-                peak=1.0,
-                off_peak=0.8,
-                peak_hours="08-24",
-            ),
-        ]
+        return list(mult_module.get_set(self.provider_id, "credits").models)
 
     async def fetch_quota(self) -> QuotaSnapshot:
         cookie = self.credential
@@ -130,7 +132,7 @@ class XiaomiQuotaProvider(QuotaProvider):
         if p_data:
             plan_name = p_data.get("planName") or p_data.get("plan_name", "Unknown")
             raw_type = (p_data.get("planCode") or p_data.get("planCode") or "").lower()
-            if raw_type in _PLAN_LIMITS_MONTHLY:
+            if raw_type in _plan_limits_monthly():
                 plan_type = raw_type
             expires_at = p_data.get("currentPeriodEnd") or p_data.get("expireTime")
             auto_renew = p_data.get("enableAutoRenew")
@@ -144,7 +146,7 @@ class XiaomiQuotaProvider(QuotaProvider):
         #   "monthUsage":{"items":[...],"percent":0.0389}
         # }}
         used_credits: float = 0.0
-        total_credits: float = float(_PLAN_LIMITS_MONTHLY.get(plan_type, 0))
+        total_credits: float = float(_plan_limits_monthly().get(plan_type, 0))
 
         u_data = usage_data.get("data") or {}
         usage_block = u_data.get("usage") or {}
@@ -170,11 +172,11 @@ class XiaomiQuotaProvider(QuotaProvider):
             plan_name=plan_name,
             plan_type=plan_type,
             main_window=main_window,
-            model_multipliers=self.multipliers,
             expires_at=expires_at,
             auto_renew=auto_renew,
             fetched_at=now_iso,
             source="api",
+            **mult_module.snapshot_kwargs(self.provider_id, "credits"),
         )
 
     # ── HTTP helper ────────────────────────────────────────────
@@ -193,7 +195,9 @@ class XiaomiQuotaProvider(QuotaProvider):
     async def _estimate(self) -> QuotaSnapshot:
         """Estimate Credits consumption from local ``token_usage`` table."""
         now_iso = datetime.now(UTC).isoformat()
-        total_credits = float(_PLAN_LIMITS_MONTHLY.get(self.plan_type, _PLAN_LIMITS_MONTHLY["pro"]))
+        limits = _plan_limits_monthly()
+        total_credits = float(limits.get(self.plan_type) or limits.get("pro") or 0)
+        token_rates = _token_rates()
 
         try:
             db = await db_module.get_db()
@@ -222,9 +226,9 @@ class XiaomiQuotaProvider(QuotaProvider):
 
                 # Approximate: cache_read → cache-hit rate, rest → cache-miss
                 cache_miss_input = max(0, inp - cache_read)
-                rate_cache = _TOKEN_RATES.get((model, "input_cache"), 0)
-                rate_miss = _TOKEN_RATES.get((model, "input_miss"), 0)
-                rate_out = _TOKEN_RATES.get((model, "output"), 0)
+                rate_cache = token_rates.get((model, "input_cache"), 0)
+                rate_miss = token_rates.get((model, "input_miss"), 0)
+                rate_out = token_rates.get((model, "output"), 0)
 
                 used_credits += (
                     cache_read * rate_cache
@@ -248,7 +252,7 @@ class XiaomiQuotaProvider(QuotaProvider):
             plan_name=self.plan_type.capitalize(),
             plan_type=self.plan_type,
             main_window=main_window,
-            model_multipliers=self.multipliers,
             fetched_at=now_iso,
             source="estimate",
+            **mult_module.snapshot_kwargs(self.provider_id, "credits"),
         )
