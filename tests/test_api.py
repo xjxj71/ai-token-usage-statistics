@@ -168,6 +168,36 @@ async def test_agents_endpoint(client):
     assert "hermes" in data
 
 
+@pytest.mark.unit
+def test_supported_agents_covers_registered_collectors():
+    """Every registered collector must be in the /api/agents whitelist.
+
+    The whitelist silently hides agents it doesn't know — adding a
+    collector without adding its name here made qoder's records invisible
+    in the filter bar.
+    """
+    from backend.api.constants import SUPPORTED_AGENTS
+    from backend.collectors.registry import COLLECTORS
+
+    registered = {c.name for c in COLLECTORS}
+    assert registered <= SUPPORTED_AGENTS, (
+        f"collectors missing from SUPPORTED_AGENTS: {registered - SUPPORTED_AGENTS}"
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_agents_endpoint_shows_qoder(client):
+    db = await db_module.get_db()
+    await insert_records(db, [
+        TokenRecord(timestamp="2026-11-23T05:48:10.642Z", agent="qoder", model="kmodel-latest"),
+    ])
+
+    res = await client.get("/api/agents")
+    assert res.status_code == 200
+    assert "qoder" in res.json()
+
+
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_pricing_endpoint(client):
