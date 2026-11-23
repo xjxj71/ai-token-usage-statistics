@@ -1,6 +1,6 @@
 # AI Token Usage Statistics
 
-Token usage tracking and analysis for AI coding assistants (Claude Code, OpenClaw, Hermes, Hermes-Win, OpenClaude, Codex).
+Token usage tracking and analysis for AI coding assistants (Claude Code, OpenClaw, Hermes, Hermes-Win, OpenClaude, Codex, Qoder).
 
 ## Project Structure
 
@@ -49,6 +49,8 @@ cd frontend && npm install && npm run dev
 支持查询大模型套餐剩余用量，当前支持：
 - **智谱 GLM Coding Plan**（Lite/Pro/Max，5小时窗口 + 周额度）
 - **小米 MiMo Token Plan**（Lite/Standard/Pro/Max，月度 Credits）
+
+套餐卡片底部展示各模型的消耗倍数（高峰/夜间倍率及生效时段，如「高峰(14-18)3x · 夜间2x」）。
 
 配置方式：编辑 `config/quota_providers.yaml`，或在前端"设置"面板中填写。
 

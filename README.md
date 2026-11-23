@@ -12,14 +12,14 @@
 
 ## 功能特性
 
-- **多 Agent 支持**：采集 Claude Code、Hermes（WSL + Windows）、OpenClaw、OpenClaude、MimoCode、OpenCode、ZCode、Codex 的 Token 用量
+- **多 Agent 支持**：采集 Claude Code、Hermes（WSL + Windows）、OpenClaw、OpenClaude、MimoCode、OpenCode、ZCode、Codex、Qoder（国际版）的 Token 用量
 - **实时仪表盘**：基于 SSE 推送更新，无需刷新页面
-- **项目维度分析**：按工作目录统计各项目（repo）的 Token 消耗与费用，支持项目筛选（数据来自 claude-code / openclaude / zcode / codex 的会话目录）
+- **项目维度分析**：按工作目录统计各项目（repo）的 Token 消耗与费用，支持项目筛选（数据来自 claude-code / openclaude / zcode / codex / qoder 的会话目录）
 - **思考 Token 统计**：单独统计推理模型的思考（reasoning）Token，覆盖 zcode / opencode / mimocode / codex
 - **会话明细钻取**：会话级汇总列表，点击行内展开查看该会话的每条请求明细
 - **环比对比**：统计卡展示较上一周期（今日→昨日同时段、7 天→前 7 天）的涨跌
 - **用量报告**：一键生成日报/周报（消耗概览、Top Agent/模型/项目、套餐余量），支持复制 Markdown
-- **套餐余量监控**：实时查询智谱 GLM Coding Plan、小米 MiMo Token Plan 的剩余用量（需提供浏览器 Cookie / Session Token）
+- **套餐余量监控**：实时查询智谱 GLM Coding Plan、小米 MiMo Token Plan 的剩余用量（需提供浏览器 Cookie / Session Token）；卡片底部展示各模型的消耗倍数（高峰/夜间倍率及生效时段）
 - **费用估算**：内置各模型定价（YAML 配置，支持热更新），自动计算使用成本
 - **人民币显示**：所有费用以人民币（¥）显示，汇率支持自动获取（含刷新按钮），支持一键从 OpenRouter 获取最新定价
 - **数据管理**：明细保留策略（超期数据先按天聚合归档再删除，趋势与汇总历史永久保留）+ SQLite 自动/手动备份
@@ -54,6 +54,7 @@ Windows 原生 或 WSL 内运行
                              │  OpenCode (用户)        │
                              │  ZCode (用户)           │
                              │  Codex (用户)           │
+                             │  Qoder (用户)           │
                              └────────────────────────┘
 ```
 
@@ -141,6 +142,7 @@ npm run build      # 生产构建（由 FastAPI 托管）
 | OpenCode | opencode.db (SQLite) | — | `~/.local/share/opencode/opencode.db`（Windows 本地，直接读取） |
 | ZCode | db.sqlite (SQLite) | — | `~/.zcode/cli/db/db.sqlite`（Windows 本地，快照后读取） |
 | Codex | session JSONL | — | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`（Windows 本地，直接读取） |
+| Qoder（国际版） | qodercli.log + 会话 JSONL | — | `~/.qoder/logs/runs/*/qodercli.log`、`~/.qoder/projects/**/*.jsonl`（Windows 本地，直接读取） |
 
 > **权限说明**：Hermes（WSL）和 OpenClaw 的数据在 `/root/` 下（权限 700），WSL 默认用户 `claude` 无法通过 UNC 访问。采集器会在每次采集前通过 `wsl_copy_to_tmp()` 将文件复制到 `/tmp/`（chmod 644），然后读取副本。Windows 部署时用 `wsl.exe -u root -- cp` 执行复制；WSL 内测试时直接用 `shutil.copy2`。Claude Code 的数据在 `claude` 用户目录下，无权限问题。Hermes（Windows）的数据在 `%LOCALAPPDATA%` 下，当前用户直接可读。
 
@@ -154,6 +156,7 @@ npm run build      # 生产构建（由 FastAPI 托管）
 - **OpenCode**：无需配置。采集器读取 `~/.local/share/opencode/opencode.db` SQLite 数据库，数据格式与 MimoCode 相同（MiMoCode 是 OpenCode 的 fork）。
 - **ZCode**：无需配置。采集器读取 `~/.zcode/cli/db/db.sqlite` 的 `model_usage` 表（每次模型请求一行，token 字段完整）。数据库为 WAL 模式且被 ZCode 持续写入，采集时会先复制主库 + WAL 副本再查询；进行中的请求在完成后自动补收。
 - **Codex**：无需配置。采集器扫描 `~/.codex/sessions/` 下按日期分目录的 rollout JSONL，读取每次响应的 `token_usage_record`（旧版 CLI 兜底解析 `token_count` 事件）。Codex 的 `cached_input_tokens` 计在 `input_tokens` 内（OpenAI 口径），入库时拆分为未缓存输入 + 缓存读取；`reasoning_output_tokens` 记入思考 Token。
+- **Qoder（国际版）**：无需配置。采集器读取 `~/.qoder/`（国际版数据根目录；国内版在 `~/.qoder-cn`，暂不支持）下两类本地文件：① 运行日志 `logs/runs/*/qodercli.log` 中 `[permission-check]` 工具权限检查的上下文转储——其中的 assistant 消息携带每次模型请求的 `message.usage`（按消息 uuid 去重）；② 会话转录 `projects/**/*.jsonl` 中压缩（compact）事件的 `compactUsage`，并从转录建立会话→工作目录映射用于项目归属。Qoder 的 `input_tokens` 为含缓存的提示词总量（OpenAI 口径），入库时拆分为未缓存输入 + 缓存读取 + 缓存写入。已知盲区：转录落盘时会剥离 `message.usage`，`turn.finished` 事件的 token 字段在当前版本恒为 0（未计入，避免与逐请求记录重复）；纯对话无工具调用的请求若未触发权限检查则本地无明文用量可采。
 
 详见 [Agent 配置指南](docs/agent-setup-guide.md)。
 

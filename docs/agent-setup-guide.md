@@ -14,6 +14,7 @@
 | OpenClaw | sessions.json | `/root/.openclaw/agents/main/sessions/sessions.json` → 复制到 `/tmp/openclaw_sessions.json` | `\\wsl$\project-claude\tmp\openclaw_sessions.json` |
 | OpenClaude | session JSONL | — | `%USERPROFILE%\.openclaude\projects\**\*.jsonl`（Windows 本地，直接读取） |
 | Codex | session JSONL | — | `%USERPROFILE%\.codex\sessions\YYYY\MM\DD\rollout-*.jsonl`（Windows 本地，直接读取） |
+| Qoder（国际版） | qodercli.log + 会话 JSONL | — | `%USERPROFILE%\.qoder\logs\runs\*\qodercli.log`、`%USERPROFILE%\.qoder\projects\**\*.jsonl`（Windows 本地，直接读取） |
 
 ### 权限与数据复制机制
 
@@ -312,6 +313,43 @@ Select-String -Path (Get-ChildItem "$env:USERPROFILE\.codex\sessions" -Recurse -
 
 ---
 
+## 5c. Qoder（国际版）
+
+### 无需配置
+
+Qoder 桌面客户端（国际版）把数据写在 `~/.qoder/`（国内版在 `~/.qoder-cn`，暂不支持），采集器直接轮询读取，零侵入。客户端安装位置（如 `F:\Qoder`）只存放程序本体，用量数据始终在用户目录下。
+
+### 数据位置
+
+- **运行日志**：`~/.qoder/logs/runs/<run_id>/qodercli.log` —— 每次工具权限检查的 `[permission-check] ... context={"messages":[...]}` 行会转储当前请求上下文，其中 assistant 消息带 `message.usage`（每次模型请求的完整 token 记录：`input_tokens` / `output_tokens` / `cache_read_input_tokens` / `cache_creation_input_tokens`）
+- **会话转录**：`~/.qoder/projects/**/*.jsonl` —— Claude Code 风格的会话文件；压缩（compact）事件带 `compactUsage`（compaction 请求的真实用量），并提供 会话 id → 工作目录 的映射
+- **模型名**：消息内 `model` 可能是路由别名 `auto`，此时取用户事件的 `businessModelKey`（如 `kmodel_latest`）或转录 `runtime-config` 事件的 `model`
+
+### 工作原理
+
+1. 运行日志：以「`"usage":` + `"type":"assistant"`」子串粗筛行，按 assistant 消息 uuid 去重——同一响应会在后续每次工具调用的上下文转储里重复出现
+2. 会话转录：按事件结构解析（非文本匹配）建立 `sessionId → cwd` 映射，供日志记录做项目归属；compact 事件按 uuid 去重
+3. token 口径转换：Qoder 的 `input_tokens` 为含缓存的提示词总量（`context_usage_ratio == input_tokens / 窗口`，OpenAI 口径），入库时拆为「未缓存输入 + 缓存读取 + 缓存写入」
+4. 按文件字节偏移水位增量读取；半行写入的尾部留待下一轮；文件被截断/替换时水位自动归零
+
+### 已知盲区（有意不计）
+
+- 转录落盘时会剥离 `message.usage`（1.1.86 实测），会话状态文件的用量段是加密的——本地明文用量只存在于运行日志的上下文转储与 compact 事件中
+- `turn.finished` / `fork.agent.completed` 事件的 token 字段当前版本恒为 0；即使未来填实，其语义是整轮聚合，计入会与逐请求记录重复
+- 纯对话、无工具调用的请求若未触发权限检查，其响应不会出现在任何上下文转储里，本地无明文用量可采
+
+### 验证数据是否存在
+
+```powershell
+# Windows PowerShell：运行日志中的用量转储行数
+Get-ChildItem "$env:USERPROFILE\.qoder\logs\runs" -Recurse -Filter qodercli.log | ForEach-Object { (Select-String -Path $_.FullName -Pattern '"usage":').Count }
+
+# 会话转录中的 compact 用量事件
+Get-ChildItem "$env:USERPROFILE\.qoder\projects" -Recurse -Filter *.jsonl | ForEach-Object { (Select-String -Path $_.FullName -Pattern 'compactUsage').Count }
+```
+
+---
+
 ## 6. Token 统计工具配置
 
 通过环境变量或 `config.py` 配置采集器：
@@ -354,6 +392,7 @@ uvicorn backend.main:app --reload
 | Hanako | 无 | `~/.hanako/agents/hanako/sessions/**/*.jsonl` (JSONL) | Windows 本地直接读取 |
 | ZCode | 无 | `~/.zcode/cli/db/db.sqlite` 的 `model_usage` 表 (SQLite) | 复制主库 + WAL 副本后读取 |
 | Codex | 无 | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` (JSONL) | Windows 本地直接读取 |
+| Qoder（国际版） | 无 | `~/.qoder/logs/runs/*/qodercli.log` + `~/.qoder/projects/**/*.jsonl` | Windows 本地直接读取 |
 
 ---
 
@@ -366,3 +405,4 @@ uvicorn backend.main:app --reload
 | OpenClaw | 70 条 | 模型包括 mimo-v2-pro, mimo-v2.5-pro, deepseek-v4 等 |
 | OpenClaude | 78 条 | Windows 本地采集，模型 mimo-v2.5-pro，3 个 session |
 | ZCode | 226 条 | Windows 本地采集，`model_usage` 表直读，模型 glm-5.3，覆盖 2026-08-29 |
+| Qoder | 9 条 | Windows 本地采集（国际版），7 条逐请求（权限检查转储）+ 2 条 compact，模型 kmodel_latest，覆盖 2026-11-23 |

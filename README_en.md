@@ -12,14 +12,14 @@ A web dashboard for monitoring and visualizing token consumption and costs of mu
 
 ## Features
 
-- **Multi-Agent Support**: Collects token usage from Claude Code, Hermes (WSL + Windows), OpenClaw, OpenClaude, MimoCode, OpenCode, ZCode, and Codex
+- **Multi-Agent Support**: Collects token usage from Claude Code, Hermes (WSL + Windows), OpenClaw, OpenClaude, MimoCode, OpenCode, ZCode, Codex, and Qoder (international)
 - **Real-time Dashboard**: SSE-based push updates, no page refresh needed
-- **Project Analytics**: Token usage and cost per project (repo), derived from session working directories (claude-code / openclaude / zcode / codex), with project filtering
+- **Project Analytics**: Token usage and cost per project (repo), derived from session working directories (claude-code / openclaude / zcode / codex / qoder), with project filtering
 - **Reasoning Tokens**: Reasoning (thinking) tokens tracked separately for zcode / opencode / mimocode / codex
 - **Session Drill-down**: Session-level aggregates with click-to-expand per-request details
 - **Period Comparison**: Stat cards show deltas vs the previous period (today→yesterday same time, 7d→prior 7d)
 - **Usage Report**: One-click daily/weekly report (overview, Top agents/models/projects, plan quota) with Markdown copy
-- **Quota Monitoring**: Live remaining quota for Zhipu GLM Coding Plan and Xiaomi MiMo Token Plan (requires browser cookie / session token)
+- **Quota Monitoring**: Live remaining quota for Zhipu GLM Coding Plan and Xiaomi MiMo Token Plan (requires browser cookie / session token); each card shows per-model consumption multipliers (peak / off-peak rates with their effective windows)
 - **Cost Estimation**: Built-in model pricing (YAML config with hot-reload), automatic cost calculation
 - **CNY Display**: All costs displayed in Chinese Yuan (CNY) with auto-fetched exchange rate (plus manual refresh), one-click pricing refresh from OpenRouter
 - **Data Management**: Retention policy (raw details archived into daily aggregates before deletion — trend/summary history is preserved forever) and SQLite backups (daily auto + manual)
@@ -54,6 +54,7 @@ Running on Windows Native or WSL
                              │  OpenCode (user)        │
                              │  ZCode (user)           │
                              │  Codex (user)           │
+                             │  Qoder (user)           │
                              └────────────────────────┘
 ```
 
@@ -141,6 +142,7 @@ Configure via environment variables or `config.py` (prefix `TOKEN_STAT_`):
 | OpenCode | opencode.db (SQLite) | — | `~/.local/share/opencode/opencode.db` (Windows local, direct read) |
 | ZCode | db.sqlite (SQLite) | — | `~/.zcode/cli/db/db.sqlite` (Windows local, snapshot read) |
 | Codex | session JSONL | — | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` (Windows local, direct read) |
+| Qoder (international) | qodercli.log + session JSONL | — | `~/.qoder/logs/runs/*/qodercli.log`, `~/.qoder/projects/**/*.jsonl` (Windows local, direct read) |
 
 > **Permissions**: Hermes (WSL) and OpenClaw data is under `/root/` (mode 700), inaccessible to the default WSL user `claude` via UNC. The collector copies files to `/tmp/` (chmod 644) before reading. On Windows, `wsl.exe -u root -- cp` is used; inside WSL, `shutil.copy2` is used directly. Claude Code data is under the `claude` user directory with no permission issues. Hermes (Windows) data is under `%LOCALAPPDATA%`, readable by the current user.
 
@@ -154,6 +156,7 @@ Configure via environment variables or `config.py` (prefix `TOKEN_STAT_`):
 - **OpenCode**: No configuration needed. Collector reads `~/.local/share/opencode/opencode.db` SQLite database, same data format as MimoCode (MiMoCode is a fork of OpenCode).
 - **ZCode**: No configuration needed. Collector reads the `model_usage` table (one row per model request with full token accounting) from `~/.zcode/cli/db/db.sqlite`. The db is WAL-mode and actively written by ZCode, so a main+WAL snapshot is copied before querying; in-flight requests are picked up automatically once completed.
 - **Codex**: No configuration needed. Collector scans date-partitioned rollout JSONL files under `~/.codex/sessions/`, reading the `token_usage_record` of each response (older CLIs fall back to `token_count` events). Codex counts `cached_input_tokens` inside `input_tokens` (OpenAI semantics); on ingest they are split into uncached input + cache read, and `reasoning_output_tokens` is recorded as reasoning tokens.
+- **Qoder (international)**: No configuration needed. The collector reads two local sources under `~/.qoder/` (international build's data root; the CN build uses `~/.qoder-cn` and is not covered): ① run logs `logs/runs/*/qodercli.log`, where `[permission-check]` tool-permission context dumps embed assistant events carrying per-request `message.usage` (deduplicated by message uuid); ② session transcripts `projects/**/*.jsonl`, where compaction events keep a `compactUsage` object and which also provide the session→cwd map used for project attribution. Qoder reports `input_tokens` as the cache-inclusive prompt total (OpenAI semantics); on ingest it is split into uncached input + cache read + cache write. Known gaps: persisted transcripts strip `message.usage`, and `turn.finished` token fields are always zero in current builds (deliberately not counted — they would double-count the per-request records); pure-chat requests that never trigger a permission check leave no plaintext usage locally.
 
 See [Agent Setup Guide](docs/agent-setup-guide.md) for details.
 

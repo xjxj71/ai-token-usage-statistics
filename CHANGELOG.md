@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Qoder 采集器（国际版）**：监控 Qoder 桌面客户端（国际版）的 Token 用量。读取 `~/.qoder/` 下两类本地文件，零侵入、无需配置
+  - 运行日志 `logs/runs/*/qodercli.log`：`[permission-check]` 权限检查的上下文转储中 assistant 消息携带每次模型请求的 `message.usage`，按消息 uuid 去重（同一响应会被后续工具调用反复转储）
+  - 会话转录 `projects/**/*.jsonl`：压缩（compact）事件的 `compactUsage`（compaction 也是真实计费请求）；转录同时提供 会话→工作目录 映射，用于项目归属
+  - token 口径转换：Qoder 的 `input_tokens` 为含缓存的提示词总量（OpenAI 口径），入库时拆为「未缓存输入 + 缓存读取 + 缓存写入」
+  - 已知盲区（有意不计）：转录落盘时剥离 `message.usage`；`turn.finished` 事件 token 字段当前恒为 0，且语义上是逐请求记录的聚合，计入会重复计数
+  - 前端 FilterBar / 会话明细 / 使用记录新增 qoder 标签色（天蓝）
 - **Codex 采集器**：监控 OpenAI Codex CLI 的 Token 用量。读取 `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` 中的 `token_usage_record` 事件（旧版 CLI 兜底解析 `token_count`），零侵入、无需配置
   - token 口径转换：Codex 的 `input_tokens` 含缓存命中，入库时拆为「未缓存输入 + 缓存读取」；`reasoning_output_tokens` 计入思考 Token
   - 按文件字节偏移水位增量读取；session_id / cwd / 模型上下文按文件缓存，续读时仍可正确归属项目与模型
@@ -46,6 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - 采集循环中的阻塞 IO（wsl.exe、UNC 复制、JSONL 扫描、SQLite、YAML）全部移入线程池
 - 筛选栏 agent/模型列表改为随 SSE 实时刷新——页面打开期间新出现的 agent 自动进入筛选栏，无需手动刷新页面
 - 修复新模型自动入库时一律以 0 价插入、挡住 YAML 已配置定价的问题（`glm-5.3` 费用显示为 0 的根因）；已有 0 价行可通过定价表或 API 修正
+- 修复套餐卡片模型消耗倍数展示不全：旧条件 `off_peak < 1` 导致智谱 glm-5.2 / glm-5-turbo 的「夜间 2x」加成倍数被隐藏；现在高峰/夜间倍数完整展示、标注生效时段（智谱 高峰 14-18、小米 夜间 00-08），1x 模型（glm-4.7）也以「1x」角标显示
 
 ## [0.4.0] - 2026-07-08
 
