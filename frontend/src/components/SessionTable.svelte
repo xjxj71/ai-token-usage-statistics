@@ -103,6 +103,7 @@
     opencode: { bg: "rgba(20,184,166,.2)", text: "#2DD4BF" },
     zcode: { bg: "rgba(249,115,22,.2)", text: "#FB923C" },
     codex: { bg: "rgba(148,163,184,.2)", text: "#CBD5E1" },
+    qoder: { bg: "rgba(96,165,250,.2)", text: "#93C5FD" },
   };
 
   function getAgentColor(agent: string) {

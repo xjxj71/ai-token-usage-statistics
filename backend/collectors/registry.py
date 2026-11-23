@@ -14,6 +14,7 @@ from backend.collectors.mimo_code import MimoCodeCollector
 from backend.collectors.open_code import OpenCodeCollector
 from backend.collectors.openclaude import OpenClaudeCollector
 from backend.collectors.openclaw import OpenClawCollector
+from backend.collectors.qoder import QoderCollector
 from backend.collectors.zcode import ZcodeCollector
 from backend.config import settings
 from backend.db.database import get_db
@@ -43,6 +44,7 @@ COLLECTORS: list[BaseCollector] = [
     OpenCodeCollector(),
     ZcodeCollector(),
     CodexCollector(),
+    QoderCollector(),
 ]
 
 _task: asyncio.Task | None = None

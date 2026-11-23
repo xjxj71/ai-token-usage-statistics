@@ -9,6 +9,7 @@ from backend.collectors.claude_code import ClaudeCodeCollector
 from backend.collectors.codex import CodexCollector
 from backend.collectors.jsonl_utils import build_token_record, parse_jsonl_line, parse_timestamp
 from backend.collectors.openclaw import OpenClawCollector
+from backend.collectors.qoder import QoderCollector
 from backend.collectors.zcode import ZcodeCollector
 
 
@@ -765,3 +766,246 @@ class TestJsonlUtils:
             },
         }
         assert build_token_record(data, "test-agent") is None
+
+
+class TestQoderCollector:
+    """Qoder run-log dumps + transcript compaction — shapes from Qoder 1.1.86."""
+
+    SESSION_ID = "105b1459-2c08-4f7a-b9a2-367b55350152"
+    UUID_WITH_USAGE = "550895cb-fdcb-496d-adbd-1046c51408b8"
+    UUID_NO_USAGE = "df529bc2-879b-4e74-871f-83d40d9fb2d1"
+    CWD = r"C:\Users\me\demo-project"
+
+    # ── fixture builders (compact serialization, as in permission dumps) ──
+
+    @staticmethod
+    def _assistant_event(uuid: str, ts: str = "2026-11-23T05:48:10.642Z", usage: dict | None = None) -> str:
+        msg: dict = {
+            "id": "chatcmpl-6b03d35cbf689e852635f116",
+            "type": "message",
+            "role": "assistant",
+            "model": "auto",
+            "stop_reason": "tool_use" if usage is not None else None,
+            "stop_sequence": None,
+            "container": None,
+            "context_management": None,
+        }
+        if usage is not None:
+            msg["usage"] = usage
+        msg["content"] = [{"type": "text", "text": "ok"}]
+        event = {
+            "type": "assistant",
+            "uuid": uuid,
+            "timestamp": ts,
+            "message": msg,
+            "requestId": "req-1",
+            "responseGroupId": "grp-1",
+            "requestTokenAnchor": {"request": "aa", "response": "bb", "requestId": "req-1"},
+            "sessionId": TestQoderCollector.SESSION_ID,
+            "session_id": TestQoderCollector.SESSION_ID,
+        }
+        return json.dumps(event, ensure_ascii=False, separators=(",", ":"))
+
+    @staticmethod
+    def _dump_line(events: list[str]) -> str:
+        """One [permission-check] context line carrying the given events."""
+        user = {
+            "type": "user",
+            "uuid": "b514aa50-7c47-49bc-a790-52d6ac5d9b2d",
+            "timestamp": "2026-11-23T05:47:08.576Z",
+            "message": {"role": "user", "content": "hi"},
+            "businessModelKey": "kmodel-latest",
+            "businessIdentity": {"product": "app"},
+            "sessionId": TestQoderCollector.SESSION_ID,
+        }
+        body = '{"messages":[' + ",".join(
+            [json.dumps(user, ensure_ascii=False, separators=(",", ":"))] + events
+        ) + '],"agentId":"a1","scene":"tool"}'
+        return (
+            "2026-11-23T13:48:10.692+08:00 INFO  debug.message [permission-check] "
+            f"context tool=Bash callId=1 agentId=a1 context={body}"
+        )
+
+    @staticmethod
+    def _usage() -> dict:
+        return {
+            "input_tokens": 8474,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 7424,
+            "output_tokens": 855,
+        }
+
+    @staticmethod
+    def _transcript_runtime_config() -> str:
+        return json.dumps({
+            "type": "runtime-config",
+            "sessionId": TestQoderCollector.SESSION_ID,
+            "model": "kmodel-latest",
+            "reasoningEffort": None,
+            "contextWindow": None,
+            "generation": None,
+            "timestamp": 1795412737478,
+        }, ensure_ascii=False)
+
+    @staticmethod
+    def _transcript_compact() -> str:
+        return json.dumps({
+            "type": "system",
+            "uuid": "713ad13a-a7c1-48c9-9627-2cda6d39cc79",
+            "timestamp": "2026-11-23T06:03:25.830Z",
+            "subtype": "compact_boundary",
+            "content": "Conversation compacted",
+            "level": "info",
+            "compactUsage": {
+                "input_tokens": 164173,
+                "output_tokens": 6240,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 162816,
+                "credits": 7.78,
+            },
+            "modelRequestIds": ["5a204245"],
+            "isSidechain": False,
+            "cwd": TestQoderCollector.CWD,
+            "sessionId": TestQoderCollector.SESSION_ID,
+        }, ensure_ascii=False)
+
+    @pytest.fixture
+    def collector(self):
+        return QoderCollector()
+
+    @pytest.mark.unit
+    def test_name(self, collector):
+        assert collector.name == "qoder"
+
+    @pytest.mark.asyncio
+    async def test_collect_no_dir(self, collector, tmp_path):
+        with (
+            patch("backend.collectors.qoder._QODER_RUNS_DIR", tmp_path / "missing-runs"),
+            patch("backend.collectors.qoder._QODER_PROJECTS_DIR", tmp_path / "missing-proj"),
+        ):
+            records = await collector.collect()
+        assert records == []
+
+    @pytest.mark.asyncio
+    async def test_log_maps_fields(self, collector, tmp_path):
+        log = tmp_path / "run-1" / "qodercli.log"
+        log.parent.mkdir()
+        # Two events: one with usage (counted), one without (skipped).
+        line = self._dump_line([
+            self._assistant_event(self.UUID_WITH_USAGE, usage=self._usage()),
+            self._assistant_event(self.UUID_NO_USAGE),
+        ])
+        log.write_text(line + "\n", encoding="utf-8")
+
+        with (
+            patch("backend.collectors.qoder._QODER_RUNS_DIR", tmp_path),
+            patch("backend.collectors.qoder._QODER_PROJECTS_DIR", tmp_path / "missing-proj"),
+            patch.object(collector, "_load_state", return_value={
+                "session_cwd": {self.SESSION_ID: self.CWD},
+            }),
+            patch.object(collector, "_save_state") as save_state,
+        ):
+            records = await collector.collect()
+
+        assert len(records) == 1
+        r = records[0]
+        assert r.agent == "qoder"
+        assert r.timestamp == "2026-11-23T05:48:10.642Z"
+        # model "auto" falls back to the user event's businessModelKey
+        assert r.model == "kmodel-latest"
+        assert r.session_id == self.SESSION_ID
+        # cache-inclusive input split: 8474 - 7424
+        assert r.input_tokens == 1050
+        assert r.output_tokens == 855
+        assert r.cache_read_tokens == 7424
+        assert r.cache_write_tokens == 0
+        # project comes from the transcript-derived session_cwd map
+        assert r.project == "demo-project"
+        raw = json.loads(r.raw_data)
+        assert raw["uuid"] == self.UUID_WITH_USAGE
+        assert raw["source"] == "log-context"
+
+        state = save_state.call_args[0][0]
+        pos_key, pos_val = next(iter(state["log_positions"].items()))
+        assert pos_key.endswith("qodercli.log")
+        assert pos_val == log.stat().st_size
+
+    @pytest.mark.asyncio
+    async def test_log_dedupes_repeated_dump(self, collector, tmp_path):
+        """The same response is re-dumped on every tool check — count it once."""
+        log = tmp_path / "run-1" / "qodercli.log"
+        log.parent.mkdir()
+        line = self._dump_line([self._assistant_event(self.UUID_WITH_USAGE, usage=self._usage())])
+        log.write_text(line + "\n" + line + "\n", encoding="utf-8")
+
+        with (
+            patch("backend.collectors.qoder._QODER_RUNS_DIR", tmp_path),
+            patch("backend.collectors.qoder._QODER_PROJECTS_DIR", tmp_path / "missing-proj"),
+            patch.object(collector, "_load_state", return_value={}),
+            patch.object(collector, "_save_state"),
+        ):
+            records = await collector.collect()
+
+        assert len(records) == 1
+
+    @pytest.mark.asyncio
+    async def test_zero_usage_skipped(self, collector, tmp_path):
+        log = tmp_path / "run-1" / "qodercli.log"
+        log.parent.mkdir()
+        zero = {
+            "input_tokens": 0, "output_tokens": 0,
+            "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0,
+        }
+        line = self._dump_line([self._assistant_event(self.UUID_WITH_USAGE, usage=zero)])
+        log.write_text(line + "\n", encoding="utf-8")
+
+        with (
+            patch("backend.collectors.qoder._QODER_RUNS_DIR", tmp_path),
+            patch("backend.collectors.qoder._QODER_PROJECTS_DIR", tmp_path / "missing-proj"),
+            patch.object(collector, "_load_state", return_value={}),
+            patch.object(collector, "_save_state"),
+        ):
+            records = await collector.collect()
+
+        assert records == []
+
+    @pytest.mark.asyncio
+    async def test_transcript_compact_record(self, collector, tmp_path):
+        proj = tmp_path / "projects" / "demo"
+        proj.mkdir(parents=True)
+        f = proj / f"{self.SESSION_ID}.jsonl"
+        f.write_text(
+            self._transcript_runtime_config() + "\n"
+            + json.dumps({"type": "user", "uuid": "u1", "sessionId": self.SESSION_ID,
+                          "cwd": self.CWD, "timestamp": "2026-11-23T05:45:41.025Z"}) + "\n"
+            + self._transcript_compact() + "\n",
+            encoding="utf-8",
+        )
+
+        with (
+            patch("backend.collectors.qoder._QODER_RUNS_DIR", tmp_path / "missing-runs"),
+            patch("backend.collectors.qoder._QODER_PROJECTS_DIR", tmp_path / "projects"),
+            patch.object(collector, "_load_state", return_value={}),
+            patch.object(collector, "_save_state") as save_state,
+        ):
+            records = await collector.collect()
+
+        assert len(records) == 1
+        r = records[0]
+        assert r.agent == "qoder"
+        assert r.model == "kmodel-latest"
+        assert r.timestamp == "2026-11-23T06:03:25.830Z"
+        assert r.session_id == self.SESSION_ID
+        assert r.project == "demo-project"
+        # cache-inclusive input split: 164173 - 162816
+        assert r.input_tokens == 1357
+        assert r.output_tokens == 6240
+        assert r.cache_read_tokens == 162816
+        raw = json.loads(r.raw_data)
+        assert raw["source"] == "compact"
+        assert raw["credits"] == 7.78
+
+        state = save_state.call_args[0][0]
+        assert state["session_cwd"][self.SESSION_ID] == self.CWD
+        ctx_key = next(iter(state["transcript_context"]))
+        assert state["transcript_context"][ctx_key]["model"] == "kmodel-latest"

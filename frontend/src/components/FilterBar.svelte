@@ -65,6 +65,7 @@
     opencode: "#14B8A6",
     zcode: "#F97316",
     codex: "#94A3B8",
+    qoder: "#60A5FA",
   };
 </script>
 

@@ -54,6 +54,7 @@
     openclaude: { bg: "rgba(245,158,11,.2)", text: "#FBBF24" },
     zcode: { bg: "rgba(249,115,22,.2)", text: "#FB923C" },
     codex: { bg: "rgba(148,163,184,.2)", text: "#CBD5E1" },
+    qoder: { bg: "rgba(96,165,250,.2)", text: "#93C5FD" },
   };
 
   function getAgentColor(agent: string) {

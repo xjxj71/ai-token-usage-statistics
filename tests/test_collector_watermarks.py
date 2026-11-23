@@ -240,3 +240,130 @@ def test_codex_partial_line_not_consumed(tmp_path: Path):
     f.write_text(complete + full_second, encoding="utf-8", newline="")
     records2, _, _ = scan_codex_directory(tmp_path, "codex", positions, {})
     assert len(records2) == 1
+
+
+# ── Qoder run logs / transcripts ──────────────────────────────────
+
+def _qoder_dump_line(i: int) -> str:
+    """One [permission-check] context line with a single usage-carrying event."""
+    event = {
+        "type": "assistant",
+        "uuid": f"550895cb-fdcb-496d-adbd-1046c514{i:04d}",
+        "timestamp": f"2026-11-23T05:48:1{i}.642Z",
+        "message": {
+            "id": f"chatcmpl-{i}",
+            "type": "message",
+            "role": "assistant",
+            "model": "auto",
+            "stop_reason": "tool_use",
+            "stop_sequence": None,
+            "container": None,
+            "context_management": None,
+            "usage": {
+                "input_tokens": 8474,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 7424,
+                "output_tokens": 855,
+            },
+            "content": [{"type": "text", "text": "ok"}],
+        },
+        "requestId": f"req-{i}",
+        "responseGroupId": "grp-1",
+        "requestTokenAnchor": {"request": "aa", "response": "bb", "requestId": f"req-{i}"},
+        "sessionId": "105b1459-2c08-4f7a-b9a2-367b55350152",
+        "session_id": "105b1459-2c08-4f7a-b9a2-367b55350152",
+    }
+    body = '{"messages":[' + json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "]}"
+    return (
+        "2026-11-23T13:48:10.692+08:00 INFO  debug.message [permission-check] "
+        f"context tool=Bash callId={i} agentId=a1 context={body}"
+    )
+
+
+def _qoder_compact_line(i: int) -> str:
+    return json.dumps({
+        "type": "system",
+        "uuid": f"713ad13a-a7c1-48c9-9627-2cda6d39cc{i:02d}",
+        "timestamp": f"2026-11-23T06:03:2{i}.830Z",
+        "subtype": "compact_boundary",
+        "compactUsage": {
+            "input_tokens": 164173,
+            "output_tokens": 6240,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 162816,
+        },
+        "cwd": r"C:\Users\me\demo",
+        "sessionId": "105b1459-2c08-4f7a-b9a2-367b55350152",
+    }, ensure_ascii=False)
+
+
+def test_qoder_log_positions_persist_and_incremental(tmp_path: Path):
+    from backend.collectors.qoder import scan_qoder_logs
+
+    f = tmp_path / "run-1" / "qodercli.log"
+    f.parent.mkdir()
+    f.write_text(_qoder_dump_line(1) + "\n", encoding="utf-8")
+
+    records, positions = scan_qoder_logs(tmp_path, "qoder", {}, {})
+    assert len(records) == 1
+    assert positions == {str(f.relative_to(tmp_path)): f.stat().st_size}
+
+    # No growth: nothing new, positions carried forward unchanged.
+    records2, positions2 = scan_qoder_logs(tmp_path, "qoder", positions, {})
+    assert records2 == []
+    assert positions2 == positions
+
+    with open(f, "a", encoding="utf-8") as fh:
+        fh.write(_qoder_dump_line(2) + "\n")
+    records3, positions3 = scan_qoder_logs(tmp_path, "qoder", positions, {})
+    assert len(records3) == 1
+    assert records3[0].timestamp.endswith("2.642Z")
+    assert positions3[str(f.relative_to(tmp_path))] == f.stat().st_size
+
+
+def test_qoder_log_partial_line_not_consumed(tmp_path: Path):
+    from backend.collectors.qoder import scan_qoder_logs
+
+    f = tmp_path / "qodercli.log"
+    complete = _qoder_dump_line(1) + "\n"
+    full_second = _qoder_dump_line(2) + "\n"
+    partial = full_second[:40]
+    f.write_text(complete + partial, encoding="utf-8", newline="")
+    size_after_complete = len(complete.encode("utf-8"))
+
+    records, positions = scan_qoder_logs(tmp_path, "qoder", {}, {})
+    assert len(records) == 1
+    assert positions == {str(f.relative_to(tmp_path)): size_after_complete}
+
+    f.write_text(complete + full_second, encoding="utf-8", newline="")
+    records2, _ = scan_qoder_logs(tmp_path, "qoder", positions, {})
+    assert len(records2) == 1
+
+
+def test_qoder_transcript_truncation_resets(tmp_path: Path):
+    from backend.collectors.qoder import scan_qoder_transcripts
+
+    f = tmp_path / "session.jsonl"
+    f.write_text(
+        json.dumps({"type": "runtime-config", "sessionId": "s1", "model": "kmodel-latest"}) + "\n"
+        + _qoder_compact_line(1) + "\n",
+        encoding="utf-8",
+    )
+
+    records, positions, context, session_cwd = scan_qoder_transcripts(tmp_path, "qoder", {}, {})
+    assert len(records) == 1
+    key = str(f.relative_to(tmp_path))
+    assert positions[key] == f.stat().st_size
+    assert context[key]["model"] == "kmodel-latest"
+    assert session_cwd["105b1459-2c08-4f7a-b9a2-367b55350152"] == r"C:\Users\me\demo"
+
+    # Truncate to a strictly shorter replacement: stale watermark and the
+    # learned model context must both reset.
+    f.write_text(_qoder_compact_line(2) + "\n", encoding="utf-8")
+    records2, positions2, context2, _ = scan_qoder_transcripts(
+        tmp_path, "qoder", positions, context
+    )
+    assert len(records2) == 1
+    assert records2[0].model == "unknown"
+    assert positions2[key] == f.stat().st_size
+    assert context2.get(key, {}).get("model") is None
