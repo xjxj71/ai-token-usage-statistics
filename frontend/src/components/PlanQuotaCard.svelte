@@ -60,6 +60,23 @@
     return "本月额度";
   }
 
+  function pad2(n: number): string {
+    return n.toString().padStart(2, "0");
+  }
+
+  function offPeakWindow(peakHours: string): string | null {
+    // "HH-HH"（如 08-24）→ 非高峰时段的单段区间标签（如 00-08）；
+    // 补集为两段（如 14-18 → 00-14 + 18-24）时无法用一个区间表达，返回 null。
+    const m = /^(\d{1,2})-(\d{1,2})$/.exec(peakHours || "");
+    if (!m) return null;
+    const start = parseInt(m[1], 10);
+    const end = parseInt(m[2], 10);
+    if (!(start >= 0 && end <= 24 && start < end)) return null;
+    if (end === 24 && start > 0) return `${pad2(0)}-${pad2(start)}`;
+    if (start === 0 && end < 24) return `${pad2(end)}-${pad2(24)}`;
+    return null;
+  }
+
   async function loadData() {
     loading = true;
     try {
@@ -276,14 +293,22 @@
 
           {#if snap.model_multipliers.length > 0}
             <div class="multipliers-area">
-              {#each snap.model_multipliers.filter((m) => m.peak > 1 || m.off_peak < 1) as mult (mult.model)}
+              {#each snap.model_multipliers as mult (mult.model)}
+                {@const offWindow = mult.off_peak < 1 ? offPeakWindow(mult.peak_hours) : null}
                 <span class="mult-badge">
                   {mult.model}
-                  {#if mult.peak > 1}
-                    <span class="mult-coeff">高峰{mult.peak}x</span>
+                  {#if mult.peak !== 1}
+                    <span class="mult-coeff">{mult.peak_hours ? `高峰(${mult.peak_hours})` : "高峰"}{mult.peak}x</span>
                   {/if}
-                  {#if mult.off_peak < 1}
-                    <span class="mult-coeff green">夜间{mult.off_peak}x</span>
+                  {#if mult.off_peak !== 1}
+                    {#if mult.off_peak < 1 && offWindow}
+                      <span class="mult-coeff green">夜间({offWindow}){mult.off_peak}x</span>
+                    {:else}
+                      <span class="mult-coeff">夜间{mult.off_peak}x</span>
+                    {/if}
+                  {/if}
+                  {#if mult.peak === 1 && mult.off_peak === 1}
+                    <span class="mult-coeff">1x</span>
                   {/if}
                 </span>
               {/each}
