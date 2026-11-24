@@ -225,12 +225,15 @@ class TestZcodeCollector:
         first = records[0]
         assert first.model == "glm-5.3"
         assert first.session_id == "sess-1"
-        assert first.input_tokens == 15391
+        # ZCode's input_tokens is the whole prompt (cache included): the record
+        # keeps the cache-miss part only, with cache read/write in their columns.
+        assert first.input_tokens == 15391 - 11200 - 64
         assert first.output_tokens == 926
         assert first.cache_read_tokens == 11200
         assert first.cache_write_tokens == 64
         assert first.timestamp == "2025-05-02T09:40:00.900Z"
         raw = json.loads(first.raw_data)
+        assert raw["prompt_tokens"] == 15391
         assert raw["cwd"] == "D:\\proj"
         assert raw["query_source"] == "main_turn"
         # Watermark advances to the max completed_at of kept rows

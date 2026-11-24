@@ -20,7 +20,7 @@ A web dashboard for monitoring and visualizing token consumption and costs of mu
 - **Period Comparison**: Stat cards show deltas vs the previous period (today→yesterday same time, 7d→prior 7d)
 - **Usage Report**: One-click daily/weekly report (overview, Top agents/models/projects, plan quota) with Markdown copy
 - **Quota Monitoring**: Live remaining quota for Zhipu GLM Coding Plan and Xiaomi MiMo Token Plan (requires browser cookie / session token); each card shows per-model consumption multipliers / credit rates with off-peak discounts and effective windows, kept up to date automatically from the vendors' documentation centres
-- **Cost Estimation**: Built-in model pricing (YAML config with hot-reload), automatic cost calculation
+- **Cost Estimation**: Costs are computed from the pricing table — editable in the UI and refreshable from OpenRouter in one click, taking effect on new records immediately. Built-in defaults come from `config/model_pricing.yaml` (official list prices for GLM / MiMo; labelled estimates where a model is retired or has no published price)
 - **CNY Display**: All costs displayed in Chinese Yuan (CNY) with auto-fetched exchange rate (plus manual refresh), one-click pricing refresh from OpenRouter
 - **Data Management**: Retention policy (raw details archived into daily aggregates before deletion — trend/summary history is preserved forever) and SQLite backups (daily auto + manual)
 - **Rich Charts**: Agent token comparison, agent consumption pie chart, model/project distribution bar charts, cache hit-ratio analysis (ECharts)

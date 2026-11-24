@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from backend.db import database as db_module
-from backend.db.models import TokenRecord, insert_records, uncached_input
+from backend.db.models import TokenRecord, insert_records
 from backend.quota import multipliers as mult_module
 from backend.quota.base import QuotaSnapshot, QuotaWindow
 from backend.quota.registry import get_registry
@@ -290,95 +290,56 @@ def test_xiaomi_multipliers():
 # ── Local estimates (no credential / API failure fallback) ──────
 
 
-@pytest.mark.unit
-def test_uncached_input_follows_agent_convention():
-    """token_usage.input_tokens 的口径随采集器而异：zcode 沿用 ZCode 原值（含缓存
-    读取），其余采集器入库即为未命中输入。"""
-    assert uncached_input("zcode", 5000, 4000) == 1000
-    assert uncached_input("zcode", 5000, 4000, 500) == 500   # 缓存写入同属提示词
-    assert uncached_input("zcode", 3000, 4000) == 0          # 不为负
-    assert uncached_input("hermes", 1000, 5000) == 1000      # 原样
-    assert uncached_input("", 1000) == 1000
-
-
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_xiaomi_estimate_normalises_collector_conventions(client):
-    """估算必须先把各采集器的入库口径统一，再套官方费率。
-
-    实测教训（2026-11-25）：
-    - ZCode 的 inputTokens 是含缓存读取的完整提示词长度（raw usage:
-      totalTokens = inputTokens + outputTokens），未命中只占 ~2-4%。
-    - Hermes 系采集器每行是会话「到该小时为止的累计值」，直接按行求和
-      会重复计数（真实数据 30 天窗口内 3.4 倍）。
-    """
+async def test_xiaomi_estimate_sums_increment_rows(client):
+    """估算按行直接求和。入库的行已是统一口径——``input_tokens`` 为未命中输入、
+    每行是真实增量——归一工作由采集器和 user_version=2 迁移完成。"""
     now = datetime.now(UTC)
-
-    def ts(**delta: int) -> str:
-        return (now - timedelta(**delta)).isoformat()
-
     db = await db_module.get_db()
     await insert_records(db, [
-        # hermes（逐会话单条快照）：input 即未命中输入
-        TokenRecord(timestamp=ts(minutes=5), agent="hermes", model="mimo-v2.6-pro",
-                    session_id="h1", input_tokens=1000, output_tokens=100, cache_read_tokens=5000),
-        # zcode：input 含缓存读取 → 未命中 = 5000 - 4000
-        TokenRecord(timestamp=ts(minutes=5), agent="zcode", model="mimo-v2.6-pro",
-                    input_tokens=5000, output_tokens=100, cache_read_tokens=4000),
-        # hermes-win 会话 A（完全在窗口内）：3 个小时的累计快照 → 取最终值 400/4000/40
-        TokenRecord(timestamp=ts(hours=3), agent="hermes-win", model="mimo-v2.6-pro",
-                    session_id="A", input_tokens=100, cache_read_tokens=1000, output_tokens=10),
-        TokenRecord(timestamp=ts(hours=2), agent="hermes-win", model="mimo-v2.6-pro",
-                    session_id="A", input_tokens=250, cache_read_tokens=2600, output_tokens=25),
-        TokenRecord(timestamp=ts(hours=1), agent="hermes-win", model="mimo-v2.6-pro",
-                    session_id="A", input_tokens=400, cache_read_tokens=4000, output_tokens=40),
-        # hermes-win 会话 B（跨窗口起点）：40 天前基线 1000/5000/100 → 增量 1200/4000/200
-        TokenRecord(timestamp=ts(days=40), agent="hermes-win", model="mimo-v2.6-pro",
-                    session_id="B", input_tokens=1000, cache_read_tokens=5000, output_tokens=100),
-        TokenRecord(timestamp=ts(hours=1), agent="hermes-win", model="mimo-v2.6-pro",
-                    session_id="B", input_tokens=2200, cache_read_tokens=9000, output_tokens=300),
+        # Hermes：会话关闭后的一行总量 + 另一会话的小时增量
+        TokenRecord(timestamp=now.isoformat(), agent="hermes-win", model="mimo-v2.6-pro",
+                    session_id="A", input_tokens=1000, output_tokens=100, cache_read_tokens=5000),
+        TokenRecord(timestamp=(now - timedelta(hours=1)).isoformat(), agent="hermes-win",
+                    model="mimo-v2.6-pro", session_id="B",
+                    input_tokens=2000, output_tokens=300, cache_read_tokens=9000),
+        # zcode：入库时已换算成未命中输入
+        TokenRecord(timestamp=now.isoformat(), agent="zcode", model="mimo-v2.6-pro",
+                    input_tokens=500, output_tokens=50, cache_read_tokens=4000),
     ])
     snap = await XiaomiQuotaProvider({"enabled": True, "plan_type": "pro"})._estimate()
-    # hermes  : 1000×300 + 5000×2.5 + 100×600 = 372,500
-    # zcode   : 1000×300 + 4000×2.5 + 100×600 = 370,000
-    # 会话 A  :  400×300 + 4000×2.5 +  40×600 = 154,000   （按行求和会是 289,000）
-    # 会话 B  : 1200×300 + 4000×2.5 + 200×600 = 490,000
-    assert snap.main_window.used == pytest.approx(1_386_500.0)
+    # 1000×300 + 5000×2.5 + 100×600 = 372,500
+    # 2000×300 + 9000×2.5 + 300×600 = 802,500
+    #  500×300 + 4000×2.5 +  50×600 = 190,000
+    assert snap.main_window.used == pytest.approx(1_365_000.0)
     assert snap.main_window.total == 38_000_000_000.0
     assert snap.main_window.unit == "credits"
+    assert snap.source == "estimate"
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_zhipu_credit_estimate_formula(client):
     """积分制估算 =（未命中输入×Input + 缓存命中×Cached + 输出×Output）/ 10000，
-    未命中输入按采集器口径还原，累计快照按会话取窗口增量。"""
+    5 小时与周窗口各算一次，openrouter 行不计入。"""
     now = datetime.now(UTC)
-
-    def ts(**delta: int) -> str:
-        return (now - timedelta(**delta)).isoformat()
-
     db = await db_module.get_db()
     await insert_records(db, [
-        TokenRecord(timestamp=ts(minutes=5), agent="hermes", model="glm-5.4",
-                    session_id="h1", input_tokens=10_000, output_tokens=1_000,
-                    cache_read_tokens=50_000),
-        TokenRecord(timestamp=ts(minutes=5), agent="zcode", model="glm-5.3",
-                    input_tokens=60_000, output_tokens=1_000, cache_read_tokens=50_000),
-        # hermes-win 累计快照：最终值 400/4000/40
-        TokenRecord(timestamp=ts(hours=2), agent="hermes-win", model="glm-5.4",
-                    session_id="A", input_tokens=100, cache_read_tokens=1000, output_tokens=10),
-        TokenRecord(timestamp=ts(hours=1), agent="hermes-win", model="glm-5.4",
-                    session_id="A", input_tokens=400, cache_read_tokens=4000, output_tokens=40),
+        TokenRecord(timestamp=now.isoformat(), agent="hermes-win", model="glm-5.4",
+                    session_id="A", input_tokens=1000, output_tokens=100, cache_read_tokens=5000),
+        TokenRecord(timestamp=(now - timedelta(hours=1)).isoformat(), agent="zcode",
+                    model="glm-5.3", input_tokens=2000, output_tokens=100, cache_read_tokens=5000),
+        TokenRecord(timestamp=now.isoformat(), agent="openrouter", model="glm-5.4",
+                    input_tokens=999_999, output_tokens=1, cache_read_tokens=1),
     ])
     p = ZhipuQuotaProvider({"enabled": True, "plan_type": "pro"})
     assert p.mode == "credits"
     snap = await p._estimate()
-    # hermes glm-5.4: (10000×4.6 + 50000×1.1 + 1000×16) / 10000 = 11.7
-    # zcode  glm-5.3: (10000×6.9 + 50000×1.7 + 1000×24) / 10000 = 17.8
-    # 会话 A glm-5.4: (400×4.6 + 4000×1.1 + 40×16) / 10000 = 0.688
-    assert snap.main_window.used == pytest.approx(30.188)
-    assert snap.extra_windows[0].used == pytest.approx(30.188)
+    # hermes-win glm-5.4: (1000×4.6 + 5000×1.1 + 100×16) / 10000 = 1.17
+    # zcode      glm-5.3: (2000×6.9 + 5000×1.7 + 100×24) / 10000 = 2.47
+    assert snap.main_window.used == pytest.approx(3.64)
+    assert snap.extra_windows[0].used == pytest.approx(3.64)
     assert snap.main_window.total == 12_000.0
     assert snap.main_window.unit == "credits"
     assert snap.source == "estimate"

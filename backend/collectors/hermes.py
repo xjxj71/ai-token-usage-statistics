@@ -4,8 +4,9 @@ import asyncio
 import json
 import logging
 import os
+import sqlite3
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 import aiosqlite
@@ -22,18 +23,23 @@ logger = logging.getLogger(__name__)
 class HermesCollector(BaseCollector):
     """Collect token usage from Hermes state.db (sessions table).
 
-    Dual-mode lifecycle:
-    - **Closed sessions** (ended_at IS NOT NULL): inserted once with final
-      cumulative token values.  Tracked in ``finalized_ids`` to avoid
-      redundant re-reads.
-    - **Open sessions** (ended_at IS NULL): upserted every poll with
-      **cumulative** (not delta) values so the dashboard always shows the
-      correct total for "today" queries.  Each poll replaces the previous
-      cumulative snapshot via upsert on (timestamp, agent, session_id, model).
+    Hermes keeps **cumulative per-session counters**.  Every row this
+    collector writes is nevertheless a true increment, so the rest of the
+    app can SUM rows for Hermes exactly like it does for every other agent
+    (summing cumulative snapshots used to count a session's tokens once per
+    hour it stayed open — 3.4x on real data).
 
-    ``last_tokens`` is a dict keyed by session_id capturing the most recent
-    token snapshot, used only to detect *whether* tokens changed (skip
-    redundant writes when nothing moved).
+    - **Open session** — one row per (session, hour) holding that hour's
+      usage.  The rows are re-derived on every poll from ``session_marks``
+      (the counters at the start of each hour), so a repeated poll upserts
+      the same absolute values rather than adding to them: a lost or corrupt
+      state file can never double count.
+    - **Closed session** — the session's rows are replaced by a single row
+      with the final totals taken straight from state.db, which also heals
+      whatever the hourly rows looked like.
+
+    ``last_tokens`` only tells *whether* a session's counters moved;
+    unchanged sessions are skipped.
     """
 
     upsert_mode = True
@@ -54,11 +60,6 @@ class HermesCollector(BaseCollector):
             return []
 
         state = self._load_state()
-        closed_up_to_rowid: int = state.get("closed_up_to_rowid", 0)
-        open_session_ids: list[str] = state.get("open_session_ids", [])
-        finalized_ids: list[str] = state.get("finalized_ids", [])
-        last_tokens: dict[str, dict[str, int]] = state.get("last_tokens", {})
-        last_seen: dict[str, str] = state.get("last_seen", {})
 
         # Fast-path: skip if source DB did not change since last poll.
         # Use the platform-appropriate path for stat: UNC on Windows,
@@ -80,20 +81,12 @@ class HermesCollector(BaseCollector):
 
         src_stat = await asyncio.to_thread(_stat, src_path)
 
-        if src_stat is not None:
-            prev_mtime = state.get("source_mtime")
-            prev_size = state.get("source_size")
-            if (
-                prev_mtime is not None
-                and prev_size is not None
-                and src_stat.st_mtime == prev_mtime
-                and src_stat.st_size == prev_size
-            ):
-                logger.debug(
-                    "Hermes: source db unchanged (mtime=%s), skipping poll",
-                    src_stat.st_mtime,
-                )
-                return []
+        if src_stat is not None and self._source_unchanged(state, src_stat):
+            logger.debug(
+                "Hermes: source db unchanged (mtime=%s), skipping poll",
+                src_stat.st_mtime,
+            )
+            return []
 
         if not await asyncio.to_thread(
             settings.wsl_copy_to_tmp, "/root/.hermes/state.db", "/tmp/hermes_state.db"
@@ -122,9 +115,7 @@ class HermesCollector(BaseCollector):
         logger.info("Hermes: temp copy at %s", tmp_path)
 
         try:
-            records, still_open, new_closed_up_to, new_finalized, new_last_tokens, new_last_seen = await self._read_sessions(
-                tmp_path, closed_up_to_rowid, open_session_ids, finalized_ids, last_tokens, last_seen,
-            )
+            records, new_state = await self._read_sessions(tmp_path, state)
         finally:
             Path(tmp_path).unlink(missing_ok=True)
 
@@ -138,21 +129,31 @@ class HermesCollector(BaseCollector):
 
         self._save_state(
             {
-                "closed_up_to_rowid": new_closed_up_to,
-                "open_session_ids": still_open,
-                "finalized_ids": new_finalized,
-                "last_tokens": new_last_tokens,
-                "last_seen": new_last_seen,
+                **new_state,
                 "source_mtime": fresh_stat.st_mtime if fresh_stat else None,
                 "source_size": fresh_stat.st_size if fresh_stat else None,
             }
         )
-
-        logger.info(
-            "Hermes: collected %d records (open: %d, closed_up_to: %d)",
-            len(records), len(still_open), new_closed_up_to,
-        )
+        self._log_cycle(records, new_state)
         return records
+
+    @staticmethod
+    def _source_unchanged(state: dict, src_stat: os.stat_result) -> bool:
+        prev_mtime = state.get("source_mtime")
+        prev_size = state.get("source_size")
+        return (
+            prev_mtime is not None
+            and prev_size is not None
+            and src_stat.st_mtime == prev_mtime
+            and src_stat.st_size == prev_size
+        )
+
+    def _log_cycle(self, records: list[TokenRecord], state: dict) -> None:
+        logger.info(
+            "%s: collected %d records (open: %d, closed_up_to: %d)",
+            self.name, len(records), len(state.get("open_session_ids", [])),
+            state.get("closed_up_to_rowid", 0),
+        )
 
     async def _copy_to_temp(self, db_path: str) -> str | None:
         """Copy the source db (plus WAL/SHM sidecars) to a temp snapshot.
@@ -163,46 +164,40 @@ class HermesCollector(BaseCollector):
         return await asyncio.to_thread(copy_sqlite_with_wal, db_path)
 
     async def _read_sessions(
-        self,
-        db_path: str,
-        closed_up_to_rowid: int,
-        open_session_ids: list[str],
-        finalized_ids: list[str],
-        last_tokens: dict[str, dict[str, int]],
-        last_seen: dict[str, str],
-        seed_mode: bool = False,
-    ) -> tuple[list[TokenRecord], list[str], int, list[str], dict[str, dict[str, int]], dict[str, str]]:
-        """Read sessions and produce token records.
+        self, db_path: str, state: dict
+    ) -> tuple[list[TokenRecord], dict]:
+        """Read sessions past the watermark and turn their counters into
+        increment records.
 
-        Dual-mode strategy:
-        - **Closed sessions** (ended_at IS NOT NULL): inserted once with
-          final cumulative values.  Tracked in ``finalized_ids`` to avoid
-          redundant re-reads.
-        - **Open sessions** (ended_at IS NULL): upserted every poll with
-          **cumulative** (not delta) values so that the dashboard always
-          shows the correct total when querying "today".
-
-        Staleness filter: open sessions with no token change in >24h
-        are skipped to prevent old idle sessions from appearing in
-        "today" dashboard.
-
-        Seed mode (first run): only populates last_tokens/last_seen
-        snapshots without writing records — prevents dumping all
-        sessions into "today" on startup.
-
-        Returns:
-            (records, still_open_ids, new_closed_up_to_rowid, finalized_ids, new_last_tokens, new_last_seen)
+        Returns ``(records, new_state)``.  A failed query hands the input
+        state back untouched so the watermark does not move past rows that
+        were never read.
         """
         records: list[TokenRecord] = []
+        closed_up_to_rowid: int = state.get("closed_up_to_rowid", 0)
+        open_session_ids: list[str] = state.get("open_session_ids", [])
+        finalized_ids: list[str] = state.get("finalized_ids", [])
+        last_tokens: dict[str, dict[str, int]] = state.get("last_tokens", {})
+        session_marks: dict[str, dict] = state.get("session_marks", {})
+        last_poll_at: str | None = state.get("last_poll_at")
+
+        now_utc = datetime.now(UTC)
+        hour_now = now_utc.replace(minute=0, second=0, microsecond=0).isoformat()
+        last_poll_ts: float | None = None
+        if last_poll_at:
+            try:
+                last_poll_ts = datetime.fromisoformat(last_poll_at).timestamp()
+            except ValueError:
+                last_poll_ts = None
 
         async with aiosqlite.connect(db_path) as db:
             db.row_factory = aiosqlite.Row
 
-            # Build query: new sessions (rowid past watermark) OR sessions
-            # we're still tracking because they were open last cycle.
-            # Exclude finalized sessions ONLY if they are actually closed
-            # (ended_at IS NOT NULL).  A session that was once closed but
-            # reopened (ended_at reset to NULL) must NOT be excluded.
+            # New sessions (rowid past the watermark) OR sessions still
+            # tracked because they were open last cycle.  Finalized sessions
+            # are excluded only while they are really closed — one that was
+            # closed and then reopened (ended_at back to NULL) must show up
+            # again.
             conditions = ["rowid > ?"]
             params: list = [closed_up_to_rowid]
 
@@ -212,7 +207,6 @@ class HermesCollector(BaseCollector):
                 params += open_session_ids
 
             if finalized_ids:
-                # Only exclude finalized sessions that are truly closed
                 placeholders = ",".join("?" for _ in finalized_ids)
                 conditions.append(f"NOT (id IN ({placeholders}) AND ended_at IS NOT NULL)")
                 params += finalized_ids
@@ -229,9 +223,9 @@ class HermesCollector(BaseCollector):
 
             try:
                 rows = await db.execute_fetchall(query, params)
-            except aiosqlite.OperationalError as e:
+            except sqlite3.Error as e:
                 logger.warning("Hermes DB query failed: %s", e)
-                return records, open_session_ids, closed_up_to_rowid, finalized_ids, last_tokens, last_seen
+                return records, state
 
             logger.info(
                 "Hermes: query returned %d rows (conditions: %s)",
@@ -242,12 +236,13 @@ class HermesCollector(BaseCollector):
             max_closed_rowid = closed_up_to_rowid
             new_finalized = list(finalized_ids)
             new_last_tokens = dict(last_tokens)
-            new_last_seen = dict(last_seen)
+            new_marks = dict(session_marks)
 
             for row in rows:
                 row_id = row["rowid"]
                 session_id = str(row["id"] or "")
                 ended_at = row["ended_at"]
+                started_at = row["started_at"]
                 model = row["model"] or "unknown"
 
                 # Track session lifecycle
@@ -262,112 +257,133 @@ class HermesCollector(BaseCollector):
                     if session_id in new_finalized:
                         new_finalized.remove(session_id)
 
-                # Current cumulative values from state.db
-                cur_input = row["input_tokens"] or 0
-                cur_output = row["output_tokens"] or 0
-                cur_cr = row["cache_read_tokens"] or 0
-                cur_cw = row["cache_write_tokens"] or 0
-
-                # Detect whether tokens changed since last poll
-                prev = new_last_tokens.get(session_id, {})
-                tokens_changed = (
-                    cur_input != prev.get("input", 0)
-                    or cur_output != prev.get("output", 0)
-                    or cur_cr != prev.get("cache_read", 0)
-                    or cur_cw != prev.get("cache_write", 0)
+                # Cumulative counters so far in this session
+                cur = (
+                    row["input_tokens"] or 0,
+                    row["output_tokens"] or 0,
+                    row["cache_read_tokens"] or 0,
+                    row["cache_write_tokens"] or 0,
                 )
 
-                # Update snapshot
+                prev = new_last_tokens.get(session_id, {})
+                tokens_changed = (
+                    cur[0] != prev.get("input", 0)
+                    or cur[1] != prev.get("output", 0)
+                    or cur[2] != prev.get("cache_read", 0)
+                    or cur[3] != prev.get("cache_write", 0)
+                )
                 new_last_tokens[session_id] = {
-                    "input": cur_input,
-                    "output": cur_output,
-                    "cache_read": cur_cr,
-                    "cache_write": cur_cw,
+                    "input": cur[0],
+                    "output": cur[1],
+                    "cache_read": cur[2],
+                    "cache_write": cur[3],
                 }
-
-                # Track last time tokens actually changed
-                if tokens_changed:
-                    new_last_seen[session_id] = datetime.now(UTC).isoformat()
-
-                # Seed mode: only populate snapshots, don't write records
-                if seed_mode:
-                    continue
-
-                # Skip if nothing changed since last poll
                 if not tokens_changed:
                     continue
 
-                # Skip stale open sessions: if the last token change was
-                # more than 24 hours ago, don't write a record.  This
-                # prevents old idle sessions from being attributed to
-                # "today" in the dashboard.
-                if ended_at is None:
-                    last_seen_str = new_last_seen.get(session_id)
-                    if last_seen_str:
-                        try:
-                            last_seen_dt = datetime.fromisoformat(last_seen_str)
-                            if datetime.now(UTC) - last_seen_dt > timedelta(hours=24):
-                                logger.info(
-                                    "Hermes: skipping stale session %s (last seen %s)",
-                                    session_id[:20], last_seen_str[:19],
-                                )
-                                continue
-                        except (ValueError, TypeError):
-                            pass
-
                 # Cost: prefer actual_cost if available, else calculate
-                # from cumulative values
+                # from the cumulative values
                 actual_cost = row["actual_cost_usd"]
-                cost = (
+                cum_cost = (
                     actual_cost
                     if actual_cost and actual_cost > 0
-                    else calculate_cost(
-                        model, cur_input, cur_output, cur_cr, cur_cw
-                    )
+                    else calculate_cost(model, *cur)
                 )
+                seen_at = now_utc.isoformat()
 
-                # Timestamp: round to the hour (floor) so that each hour
-                # gets its own cumulative snapshot.  The upsert key includes
-                # timestamp, so same-hour polls update the same record while
-                # different hours create new ones — preserving history.
-                started_at = row["started_at"]
-                now_utc = datetime.now(UTC)
-                if ended_at is None:
-                    # Open session — round current time to hour
-                    hour_ts = now_utc.replace(minute=0, second=0, microsecond=0)
-                elif started_at:
-                    # Closed session — round creation time to hour
-                    hour_ts = datetime.fromtimestamp(started_at, tz=UTC).replace(
-                        minute=0, second=0, microsecond=0
+                if ended_at is not None:
+                    # Closed: one row with the session's final totals replaces
+                    # every hourly row the open phase left behind.
+                    new_marks.pop(session_id, None)
+                    started = (
+                        datetime.fromtimestamp(started_at, tz=UTC) if started_at else now_utc
                     )
-                else:
-                    hour_ts = now_utc.replace(minute=0, second=0, microsecond=0)
-                ts = hour_ts.isoformat()
-
-                records.append(
-                    TokenRecord(
-                        timestamp=ts,
-                        agent=self.name,
-                        model=model,
-                        session_id=session_id,
-                        input_tokens=cur_input,
-                        output_tokens=cur_output,
-                        cache_read_tokens=cur_cr,
-                        cache_write_tokens=cur_cw,
-                        cost_usd=round(cost, 6),
-                        raw_data=json.dumps(
-                            {
-                                "_row_id": row_id,
-                                "ended": ended_at is not None,
-                                "last_seen": datetime.now(UTC).isoformat(),
-                            },
-                            ensure_ascii=False,
-                        ),
+                    ts = started.replace(minute=0, second=0, microsecond=0).isoformat()
+                    records.append(
+                        TokenRecord(
+                            timestamp=ts,
+                            agent=self.name,
+                            model=model,
+                            session_id=session_id,
+                            input_tokens=cur[0],
+                            output_tokens=cur[1],
+                            cache_read_tokens=cur[2],
+                            cache_write_tokens=cur[3],
+                            cost_usd=round(cum_cost, 6),
+                            replace_session=True,
+                            raw_data=json.dumps(
+                                {"_row_id": row_id, "ended": True, "last_seen": seen_at},
+                                ensure_ascii=False,
+                            ),
+                        )
                     )
-                )
+                    continue
 
+                # Open: one row per hour holding that hour's usage.  ``hours``
+                # keeps the counters at the start of each hour, so a row is
+                # always (next start − this start) and re-polling rewrites the
+                # same absolute values.
+                mark = new_marks.get(session_id)
+                if mark is None:
+                    # First sight of this session.  One created since the
+                    # previous poll starts from zero; anything older may
+                    # carry usage from before we watched it, so its current
+                    # counters become the baseline.
+                    is_new = (
+                        last_poll_ts is not None
+                        and bool(started_at)
+                        and started_at > last_poll_ts
+                    )
+                    base = [0, 0, 0, 0, 0.0] if is_new else [*cur, cum_cost]
+                    mark = {"hours": [[hour_now, *base]], "last": [*cur, cum_cost]}
+                    new_marks[session_id] = mark
+                if mark["hours"][-1][0] != hour_now:
+                    mark["hours"].append([hour_now, *mark["last"]])
+                mark["last"] = [*cur, cum_cost]
+
+                hours = mark["hours"]
+                for i, start in enumerate(hours):
+                    end = hours[i + 1][1:] if i + 1 < len(hours) else mark["last"]
+                    delta = [max(e - s, 0) for s, e in zip(start[1:], end)]
+                    if not any(delta):
+                        continue
+                    records.append(
+                        TokenRecord(
+                            timestamp=start[0],
+                            agent=self.name,
+                            model=model,
+                            session_id=session_id,
+                            input_tokens=int(delta[0]),
+                            output_tokens=int(delta[1]),
+                            cache_read_tokens=int(delta[2]),
+                            cache_write_tokens=int(delta[3]),
+                            cost_usd=round(delta[4], 6),
+                            raw_data=json.dumps(
+                                {
+                                    "_row_id": row_id,
+                                    "ended": False,
+                                    "mode": "delta",
+                                    "last_seen": seen_at,
+                                },
+                                ensure_ascii=False,
+                            ),
+                        )
+                    )
+
+        # Marks only matter while a session is open.
+        open_set = set(still_open)
+        new_marks = {sid: m for sid, m in new_marks.items() if sid in open_set}
+
+        new_state = {
+            "closed_up_to_rowid": max_closed_rowid,
+            "open_session_ids": still_open,
+            "finalized_ids": new_finalized,
+            "last_tokens": new_last_tokens,
+            "session_marks": new_marks,
+            "last_poll_at": now_utc.isoformat(),
+        }
         logger.info(
             "Hermes: _read_sessions done — %d records, %d still_open, max_closed=%d",
             len(records), len(still_open), max_closed_rowid,
         )
-        return records, still_open, max_closed_rowid, new_finalized, new_last_tokens, new_last_seen
+        return records, new_state

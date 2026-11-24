@@ -1,9 +1,10 @@
 """Windows-native Hermes state.db collector.
 
 Reads ``%LOCALAPPDATA%\\hermes\\state.db`` directly — no WSL copy needed.
-Inherits the full session-tracking, dual-mode, staleness-filter logic from
-:class:`HermesCollector` by overriding *only* the data-source acquisition
-step (:meth:`collect`).
+Inherits the session-tracking logic (hourly increments for open sessions,
+one consolidated row per closed session) from
+:class:`backend.collectors.hermes.HermesCollector` by overriding *only* the
+data-source acquisition step (:meth:`collect`).
 
 State isolation
 ---------------
@@ -35,7 +36,7 @@ class HermesWindowsCollector(HermesCollector):
       dashboard and API.
     * Source path is ``%LOCALAPPDATA%\\hermes\\state.db`` accessed
       directly via ``_copy_to_temp`` — no ``wsl_copy_to_tmp`` step.
-    * Fast-path mtime/size check is reused, but against the local file.
+    * No WSL guard: this collector never touches the distro.
     * Automatically skipped when the Windows Hermes data directory does
       not exist (e.g. running inside WSL where LOCALAPPDATA is unset).
     """
@@ -46,11 +47,6 @@ class HermesWindowsCollector(HermesCollector):
 
     async def collect(self) -> Sequence[TokenRecord]:
         state = self._load_state()
-        closed_up_to_rowid: int = state.get("closed_up_to_rowid", 0)
-        open_session_ids: list[str] = state.get("open_session_ids", [])
-        finalized_ids: list[str] = state.get("finalized_ids", [])
-        last_tokens: dict[str, dict[str, int]] = state.get("last_tokens", {})
-        last_seen: dict[str, str] = state.get("last_seen", {})
 
         # Resolve the Windows-local state.db path.
         src_path = settings.hermes_win_db_path
@@ -67,14 +63,7 @@ class HermesWindowsCollector(HermesCollector):
             )
             return []
 
-        prev_mtime = state.get("source_mtime")
-        prev_size = state.get("source_size")
-        if (
-            prev_mtime is not None
-            and prev_size is not None
-            and src_stat.st_mtime == prev_mtime
-            and src_stat.st_size == prev_size
-        ):
+        if self._source_unchanged(state, src_stat):
             logger.debug(
                 "Hermes-win: source db unchanged (mtime=%s), skipping poll",
                 src_stat.st_mtime,
@@ -91,40 +80,16 @@ class HermesWindowsCollector(HermesCollector):
         logger.info("Hermes-win: temp copy at %s", tmp_path)
 
         try:
-            (
-                records,
-                still_open,
-                new_closed_up_to,
-                new_finalized,
-                new_last_tokens,
-                new_last_seen,
-            ) = await self._read_sessions(
-                tmp_path,
-                closed_up_to_rowid,
-                open_session_ids,
-                finalized_ids,
-                last_tokens,
-                last_seen,
-            )
+            records, new_state = await self._read_sessions(tmp_path, state)
         finally:
             Path(tmp_path).unlink(missing_ok=True)
 
         self._save_state(
             {
-                "closed_up_to_rowid": new_closed_up_to,
-                "open_session_ids": still_open,
-                "finalized_ids": new_finalized,
-                "last_tokens": new_last_tokens,
-                "last_seen": new_last_seen,
+                **new_state,
                 "source_mtime": src_stat.st_mtime,
                 "source_size": src_stat.st_size,
             }
         )
-
-        logger.info(
-            "Hermes-win: collected %d records (open: %d, closed_up_to: %d)",
-            len(records),
-            len(still_open),
-            new_closed_up_to,
-        )
+        self._log_cycle(records, new_state)
         return records

@@ -140,6 +140,8 @@ async def update_pricing(model: str, body: PricingUpdate, request: Request):
          body.cache_read_price, body.cache_write_price, now, model),
     )
     await db.commit()
+    # The table is what calculate_cost() bills with — apply the edit right away.
+    await db_module.sync_pricing_from_db(db)
 
     return {
         "model": model,
@@ -220,6 +222,7 @@ async def refresh_pricing(request: Request):
                 updates,
             )
             await db.commit()
+            await db_module.sync_pricing_from_db(db)
 
         updated = len(updates)
 

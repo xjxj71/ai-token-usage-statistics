@@ -84,14 +84,20 @@ def extract_model_usage(
             conn.close()
 
     for row in rows:
-        input_tokens = row["input_tokens"] or 0
+        # ZCode 的 input_tokens 是**完整提示词长度**（含缓存读取）：供应商原始
+        # 返回 totalTokens = inputTokens + outputTokens，cacheReadTokens 是其子集
+        # （全库无一行 cache_read > input）。入库前换成「未命中缓存」口径，缓存
+        # 读/写各归各列，与其余采集器一致；否则费用会把缓存部分按全价再算一遍。
+        prompt_tokens = row["input_tokens"] or 0
         output_tokens = row["output_tokens"] or 0
         cache_read = row["cache_read_input_tokens"] or 0
         cache_write = row["cache_creation_input_tokens"] or 0
 
         # Skip all-zero rows (errored calls that never billed tokens)
-        if input_tokens == 0 and output_tokens == 0 and cache_read == 0 and cache_write == 0:
+        if prompt_tokens == 0 and output_tokens == 0 and cache_read == 0 and cache_write == 0:
             continue
+
+        input_tokens = max(prompt_tokens - cache_read - cache_write, 0)
 
         model = (row["model_id"] or "unknown").lower()
         started_ms = row["started_at"] or row["completed_at"]
@@ -111,6 +117,7 @@ def extract_model_usage(
                 "sub_agent": row["agent"],
                 "attempt_index": row["attempt_index"],
                 "reasoning_tokens": row["reasoning_tokens"] or 0,
+                "prompt_tokens": prompt_tokens,
                 "cwd": row["directory"],
             },
             ensure_ascii=False,

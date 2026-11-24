@@ -44,6 +44,15 @@ cd frontend && npm install && npm run dev
 - `npm run build` - Build frontend
 - `pytest` - Run Python tests
 
+## 数据口径约定（`token_usage`）
+
+所有采集器入库的行口径一致，任何统计直接按行求和即可：
+
+- `input_tokens` 恒为**未命中缓存**的输入；缓存读/写各归 `cache_read_tokens` / `cache_write_tokens`。源工具给出"完整提示词长度"的（ZCode、Codex、Qoder），采集器入库前换算。
+- 每一行都是**真实增量**，不是会话累计快照。Hermes 的源库是会话累计值：进行中的会话每小时写一行增量（由状态里的 `session_marks` 推导，重复轮询重写同样的绝对值，所以状态损坏也不会重复计数），会话结束时删掉该会话的全部行、合并成一行总量（`TokenRecord.replace_session`）。
+- 费用：`cost_usd` = token × **定价表**（`model_pricing` 表，前端可编辑、可从 OpenRouter 刷新，`overlay_pricing()` 让它成为运行时计价依据）；`config/model_pricing.yaml` 只是内置默认价和首次种子。定价表里全 0 的行是占位行，YAML 有价即自动跟进。hanako / openclaw / Hermes 可能存的是供应商上报的实际花费，重算费用时不能覆盖。
+- 改动采集器口径时，同步在 `backend/db/data_migrations.py` 提供一次性迁移（按 `PRAGMA user_version` 门控，迁移前自动留备份），并在真实库的副本上演练后再发布。验证数据相关逻辑要用安装版的真实库 `%APPDATA%\ai-token-usage\data\token_statistic.db`——仓库里的 `data/` 是另一份开发库，agent 构成不同。
+
 ## 套餐余量监控
 
 支持查询大模型套餐剩余用量，当前支持：

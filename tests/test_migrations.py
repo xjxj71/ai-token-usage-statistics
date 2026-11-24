@@ -6,6 +6,7 @@ import sqlite3
 import pytest
 
 from backend.db import database as db_module
+from backend.db.data_migrations import DATA_SCHEMA_VERSION
 from backend.db.models import TokenRecord, insert_records, project_from_cwd
 
 # Schema as of v0.4.0 — before project/reasoning_tokens columns existed.
@@ -142,9 +143,9 @@ async def test_init_db_upgrades_old_schema_and_backfills(tmp_path, monkeypatch):
     # Corrupt row left at defaults, not dropped
     assert (rows[3]["agent"], rows[3]["project"], rows[3]["reasoning_tokens"]) == ("hermes", "", 0)
 
-    # user_version bumped so the backfill never runs twice
+    # user_version bumped so the backfills never run twice
     version = (await db.execute_fetchall("PRAGMA user_version"))[0]["user_version"]
-    assert version == 1
+    assert version == DATA_SCHEMA_VERSION
 
     await db_module.close_db()
 

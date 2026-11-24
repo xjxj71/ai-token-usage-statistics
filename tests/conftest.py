@@ -22,6 +22,17 @@ def _isolated_multiplier_cache(tmp_path, monkeypatch):
     mult_module._reset_for_tests()
 
 
+@pytest.fixture(autouse=True)
+def _isolated_pricing_overlay():
+    """The pricing table of one test's database must not leak its prices into
+    the next test through the module-level MODEL_PRICING."""
+    from backend.pricing import model_pricing
+
+    model_pricing.clear_pricing_overlay()
+    yield
+    model_pricing.clear_pricing_overlay()
+
+
 @pytest_asyncio.fixture
 async def client(tmp_path, monkeypatch):
     """Provide an HTTP client with a fresh temporary database."""

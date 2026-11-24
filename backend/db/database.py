@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import aiosqlite
 
 from backend.config import settings
+from backend.db.data_migrations import DATA_SCHEMA_VERSION, migrate_token_semantics
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,32 @@ async def init_db() -> None:
     await db.executescript(SCHEMA_SQL)
     await _migrate(db)
     await _seed_pricing(db)
+    await sync_pricing_from_db(db)
     await db.commit()
+
+
+async def sync_pricing_from_db(db: aiosqlite.Connection) -> None:
+    """Apply the pricing table on top of the YAML defaults.
+
+    The table is what the user sees and edits, so it is also what
+    ``calculate_cost`` bills with (see ``model_pricing.overlay_pricing``).
+    Call again after any change to ``model_pricing``.
+    """
+    from backend.pricing.model_pricing import overlay_pricing
+
+    rows = await db.execute_fetchall(
+        """SELECT model, input_price, output_price, cache_read_price, cache_write_price
+           FROM model_pricing"""
+    )
+    overlay_pricing({
+        r["model"]: {
+            "input": r["input_price"],
+            "output": r["output_price"],
+            "cache_read": r["cache_read_price"],
+            "cache_write": r["cache_write_price"],
+        }
+        for r in rows
+    })
 
 
 async def close_db() -> None:
@@ -119,6 +145,15 @@ async def _migrate(db: aiosqlite.Connection) -> None:
         await _backfill_project_and_reasoning(db)
         await db.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
         logger.info("Migration: schema upgraded to user_version=%d", _SCHEMA_VERSION)
+        version = _SCHEMA_VERSION
+
+    if version < DATA_SCHEMA_VERSION:
+        stats = await migrate_token_semantics(db)
+        await db.execute(f"PRAGMA user_version = {DATA_SCHEMA_VERSION}")
+        logger.info(
+            "Migration: token semantics and pricing normalised (user_version=%d): %s",
+            DATA_SCHEMA_VERSION, stats,
+        )
 
 
 async def _backfill_project_and_reasoning(db: aiosqlite.Connection) -> None:
@@ -159,36 +194,63 @@ async def _backfill_project_and_reasoning(db: aiosqlite.Connection) -> None:
         )
 
 
+def _is_placeholder(current: tuple[float, ...]) -> bool:
+    """An all-zero pricing row: auto-inserted for a model that showed up
+    before it had a price, not a price the user chose."""
+    return not any(current)
+
+
 async def _seed_pricing(db: aiosqlite.Connection) -> None:
     """Seed pricing from YAML.
 
-    Only inserts models that do NOT yet exist in the database.
-    Existing rows (including user-customized prices) are preserved.
+    Models missing from the database are inserted.  Existing rows are the
+    user's and are preserved — except an all-zero row, which is only a
+    placeholder (see :func:`_is_placeholder`): it follows the YAML as soon as
+    the YAML has a price for it.  Any non-zero price counts as the user's own.
     """
-    from backend.pricing.model_pricing import MODEL_PRICING, load_pricing
+    from backend.pricing.model_pricing import load_yaml_pricing
 
-    # Ensure pricing is loaded from YAML
-    if not MODEL_PRICING:
-        load_pricing()
-
-    # Fetch existing models to avoid overwriting user customizations
-    rows = await db.execute_fetchall("SELECT model FROM model_pricing")
-    existing = {r["model"] for r in rows}
+    existing = {
+        r["model"]: (
+            r["input_price"], r["output_price"],
+            r["cache_read_price"], r["cache_write_price"],
+        )
+        for r in await db.execute_fetchall(
+            """SELECT model, input_price, output_price, cache_read_price, cache_write_price
+               FROM model_pricing"""
+        )
+    }
 
     now = datetime.now(UTC).isoformat()
-    new_models = []
-    for model, prices in MODEL_PRICING.items():
-        if model not in existing:
-            new_models.append((
-                model, prices["input"], prices["output"],
-                prices.get("cache_read", 0), prices.get("cache_write", 0), now,
-            ))
+    inserts: list[tuple] = []
+    upgrades: list[tuple] = []
+    for model, prices in load_yaml_pricing().items():
+        values = (
+            prices["input"], prices["output"],
+            prices["cache_read"], prices["cache_write"],
+        )
+        current = existing.get(model)
+        if current is None:
+            inserts.append((model, *values, now))
+        elif _is_placeholder(current) and any(values):
+            upgrades.append((*values, now, model))
 
-    if new_models:
+    if inserts:
         await db.executemany(
             """INSERT INTO model_pricing
                (model, input_price, output_price, cache_read_price, cache_write_price, updated_at)
                VALUES (?, ?, ?, ?, ?, ?)""",
-            new_models,
+            inserts,
         )
-        logger.info("Seeded %d new models from YAML into pricing table", len(new_models))
+        logger.info("Seeded %d new models from YAML into pricing table", len(inserts))
+    if upgrades:
+        await db.executemany(
+            """UPDATE model_pricing
+               SET input_price = ?, output_price = ?, cache_read_price = ?, cache_write_price = ?,
+                   updated_at = ?
+               WHERE model = ?""",
+            upgrades,
+        )
+        logger.info(
+            "Priced %d placeholder rows from YAML (they were all zero)", len(upgrades),
+        )

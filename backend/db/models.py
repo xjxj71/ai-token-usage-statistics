@@ -60,32 +60,19 @@ class TokenRecord:
     cost_usd: float = 0.0
     raw_data: str = ""
     id: int | None = None
+    # Upsert-only flag: replace every row of (agent, session_id) with this one.
+    replace_session: bool = False
 
 
-# ``token_usage.input_tokens`` 的口径并不统一。除下列采集器外，其余采集器入库的
-# 都是「未命中缓存」的输入（缓存读/写拆在各自列里，如 claude-code / hermes /
-# codex / qoder）。zcode 采集器直接沿用 ZCode 自己 ``model_usage.input_tokens``
-# 的原值，而那是**含缓存读取**的完整提示词长度——供应商原始返回里
-# ``totalTokens = inputTokens + outputTokens``，``cacheReadTokens`` 是其子集
-# （实测全库无一行 cache_read > input，比值恒为 ~1.02–1.04）。
-# 任何要区分「未命中输入 / 缓存命中」的计算都必须先经过 uncached_input()。
-INCLUSIVE_INPUT_AGENTS = frozenset({"zcode"})
-
-
-def uncached_input(
-    agent: str, input_tokens: float, cache_read: float = 0, cache_write: float = 0
-) -> float:
-    """Cache-miss input tokens under the agent's storage convention."""
-    if agent in INCLUSIVE_INPUT_AGENTS:
-        return max(input_tokens - cache_read - cache_write, 0.0)
-    return input_tokens
-
-
-# Hermes 系采集器还有另一处不同——每轮写入的是会话「到当前小时为止的累计值」：同一
-# 小时的行被 upsert 覆盖，跨小时各留一行（见 collectors/hermes.py）。对它们的行求和
-# 会把同一批 Token 重复计入（实测 30 天窗口内重复 3.4 倍）；按会话取
-# 「窗口内最大值 − 窗口前的基线」才是窗口内的真实增量。
-CUMULATIVE_SNAPSHOT_AGENTS = frozenset({"hermes", "hermes-win"})
+# ``token_usage`` 的行在所有采集器之间口径统一，任何按行求和的统计都直接可比：
+#
+# * ``input_tokens`` 恒为「未命中缓存」的输入，缓存读/写各归各列。zcode 源库的
+#   ``input_tokens`` 是含缓存读取的完整提示词长度，采集器入库前已换算。
+# * 每一行都是真实增量，不是会话累计快照。Hermes 源库存的是会话累计值，采集器
+#   为进行中的会话按小时写增量、会话结束时合并成一行总量。
+#
+# 2026-11-25 之前入库的行不符合上述约定，由 user_version=2 的数据迁移
+# （backend/db/data_migrations.py）一次性归一。
 
 
 async def window_usage_rows(
@@ -94,84 +81,40 @@ async def window_usage_rows(
     since: str,
     exclude_agents: tuple[str, ...] = (),
 ) -> list[dict[str, Any]]:
-    """Per-(agent, model) token totals for ``[since, now)``, normalised.
+    """Per-(agent, model) token totals for ``[since, now)``.
 
-    The result means the same thing regardless of which collector wrote the
-    rows: ``input`` is the cache-miss input only, and every field is a true
-    increment over the window (not a cumulative session snapshot).
+    ``input`` is the cache-miss input only; every field is a true increment.
     """
-    cumulative = sorted(CUMULATIVE_SNAPSHOT_AGENTS)
-    cum_in = ",".join(f":cum{i}" for i in range(len(cumulative))) or "''"
     excluded = ""
+    params: dict[str, Any] = {"model_like": model_like, "since": since}
     if exclude_agents:
         excluded = " AND agent NOT IN ({})".format(
             ",".join(f":ex{i}" for i in range(len(exclude_agents)))
         )
-    params: dict[str, Any] = {
-        "model_like": model_like,
-        "since": since,
-        **{f"ex{i}": a for i, a in enumerate(exclude_agents)},
-        **{f"cum{i}": a for i, a in enumerate(cumulative)},
-    }
+        params.update({f"ex{i}": a for i, a in enumerate(exclude_agents)})
 
-    # 逐请求入库的采集器：直接求和。
-    sql = f"""
+    rows = await db.execute_fetchall(
+        f"""
         SELECT agent, model,
                SUM(input_tokens), SUM(cache_read_tokens),
                SUM(cache_write_tokens), SUM(output_tokens)
         FROM token_usage
         WHERE model LIKE :model_like AND timestamp >= :since{excluded}
-          AND agent NOT IN ({cum_in})
         GROUP BY agent, model
-    """
-    if cumulative:
-        # 累计快照型采集器：每个会话取窗口内的最大值，再减去窗口开始前的基线。
-        sql += f"""
-            UNION ALL
-            SELECT w.agent, w.model,
-                   SUM(MAX(w.in_tokens  - COALESCE(b.in_tokens,  0), 0)),
-                   SUM(MAX(w.cr_tokens  - COALESCE(b.cr_tokens,  0), 0)),
-                   SUM(MAX(w.cw_tokens  - COALESCE(b.cw_tokens,  0), 0)),
-                   SUM(MAX(w.out_tokens - COALESCE(b.out_tokens, 0), 0))
-            FROM (
-                SELECT agent, session_id, model,
-                       MAX(input_tokens) AS in_tokens, MAX(cache_read_tokens) AS cr_tokens,
-                       MAX(cache_write_tokens) AS cw_tokens, MAX(output_tokens) AS out_tokens
-                FROM token_usage
-                WHERE model LIKE :model_like AND timestamp >= :since{excluded}
-                  AND agent IN ({cum_in}) AND session_id != ''
-                GROUP BY agent, session_id, model
-            ) w
-            LEFT JOIN (
-                SELECT t.agent, t.session_id, t.model,
-                       t.input_tokens AS in_tokens, t.cache_read_tokens AS cr_tokens,
-                       t.cache_write_tokens AS cw_tokens, t.output_tokens AS out_tokens
-                FROM token_usage t
-                JOIN (
-                    SELECT agent, session_id, model, MAX(timestamp) AS ts
-                    FROM token_usage
-                    WHERE agent IN ({cum_in}) AND session_id != '' AND timestamp < :since
-                    GROUP BY agent, session_id, model
-                ) m ON m.agent = t.agent AND m.session_id = t.session_id
-                   AND m.model = t.model AND m.ts = t.timestamp
-            ) b ON b.agent = w.agent AND b.session_id = w.session_id AND b.model = w.model
-            GROUP BY w.agent, w.model
-        """
-    rows = await db.execute_fetchall(sql, params)
-
-    out: list[dict[str, Any]] = []
-    for r in rows:
-        agent = r["agent"] or ""
-        inp, cr, cw, out_tok = (float(r[i] or 0) for i in (2, 3, 4, 5))
-        out.append({
-            "agent": agent,
+        """,
+        params,
+    )
+    return [
+        {
+            "agent": r["agent"] or "",
             "model": r["model"] or "",
-            "input": uncached_input(agent, inp, cr, cw),
-            "cache_read": cr,
-            "cache_write": cw,
-            "output": out_tok,
-        })
-    return out
+            "input": float(r[2] or 0),
+            "cache_read": float(r[3] or 0),
+            "cache_write": float(r[4] or 0),
+            "output": float(r[5] or 0),
+        }
+        for r in rows
+    ]
 
 
 @dataclass(frozen=True)
@@ -260,15 +203,23 @@ async def insert_records(db: aiosqlite.Connection, records: Sequence[TokenRecord
 async def upsert_records(db: aiosqlite.Connection, records: Sequence[TokenRecord]) -> None:
     """Insert new records or update existing ones.
 
-    For collectors that track cumulative session-level data (e.g. Hermes),
-    the same (timestamp, agent, session_id, model) row gets updated each
-    poll cycle with the latest token counts until the session closes.
+    The same (timestamp, agent, session_id, model) row gets updated with the
+    latest values on each poll.  A record flagged ``replace_session`` (a
+    Hermes session that just closed) first drops every existing row of that
+    session, so the final total replaces the hourly rows.
     """
     if not records:
         return
     # Normalize model names to lowercase
     normalized = [dataclass_replace(r, model=r.model.lower()) if r.model != r.model.lower() else r for r in records]
     await _ensure_models_in_pricing(db, {r.model for r in normalized})
+    replaced = sorted(
+        {(r.agent, r.session_id) for r in normalized if r.replace_session and r.session_id}
+    )
+    if replaced:
+        await db.executemany(
+            "DELETE FROM token_usage WHERE agent = ? AND session_id = ?", replaced
+        )
     await db.executemany(
         """INSERT INTO token_usage
                (timestamp, agent, model, session_id, project,
