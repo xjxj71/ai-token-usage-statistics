@@ -25,7 +25,7 @@ import urllib.request
 from datetime import UTC, datetime, timedelta
 
 from backend.db import database as db_module
-from backend.db.models import uncached_input
+from backend.db.models import window_usage_rows
 from backend.quota import multipliers as mult_module
 from backend.quota.base import (
     ModelMultiplier,
@@ -204,39 +204,22 @@ class XiaomiQuotaProvider(QuotaProvider):
             db = await db_module.get_db()
             # Current billing period: last 30 days (simplified).
             period_start = (datetime.now(UTC) - timedelta(days=30)).isoformat()
-            rows = await db.execute_fetchall(
-                """SELECT agent, model,
-                          SUM(input_tokens) as input_tokens,
-                          SUM(output_tokens) as output_tokens,
-                          SUM(cache_read_tokens) as cache_read_tokens,
-                          SUM(cache_write_tokens) as cache_write_tokens
-                   FROM token_usage
-                   WHERE model LIKE 'mimo-%'
-                     AND timestamp >= ?
-                   GROUP BY agent, model""",
-                [period_start],
-            )
+            rows = await window_usage_rows(db, "mimo-%", period_start)
 
             used_credits = 0.0
             for row in rows:
                 model = (row["model"] or "").lower()
-                inp = row["input_tokens"] or 0
-                out = row["output_tokens"] or 0
-                cache_read = row["cache_read_tokens"] or 0
-                cache_write = row["cache_write_tokens"] or 0
-
-                # input_tokens 口径随采集器而异（zcode 含缓存读取），
-                # 按口径还原未命中输入后再计费。
-                miss = uncached_input(row["agent"] or "", inp, cache_read, cache_write)
+                # window_usage_rows 已把各采集器的入库口径统一为
+                # 「未命中输入 / 缓存读取 / 缓存写入 / 输出」在窗口内的真实增量。
                 rate_cache = token_rates.get((model, "input_cache"), 0)
                 rate_miss = token_rates.get((model, "input_miss"), 0)
                 rate_out = token_rates.get((model, "output"), 0)
 
                 used_credits += (
-                    cache_read * rate_cache
-                    + miss * rate_miss
-                    + cache_write * rate_miss  # cache writes count as input
-                    + out * rate_out
+                    row["cache_read"] * rate_cache
+                    + row["input"] * rate_miss
+                    + row["cache_write"] * rate_miss  # cache writes count as input
+                    + row["output"] * rate_out
                 )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Xiaomi local estimate failed: %s", exc)

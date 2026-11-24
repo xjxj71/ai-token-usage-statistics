@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import replace as dataclass_replace
 from datetime import UTC, datetime
+from typing import Any
 
 import aiosqlite
 
@@ -78,6 +79,99 @@ def uncached_input(
     if agent in INCLUSIVE_INPUT_AGENTS:
         return max(input_tokens - cache_read - cache_write, 0.0)
     return input_tokens
+
+
+# Hermes 系采集器还有另一处不同——每轮写入的是会话「到当前小时为止的累计值」：同一
+# 小时的行被 upsert 覆盖，跨小时各留一行（见 collectors/hermes.py）。对它们的行求和
+# 会把同一批 Token 重复计入（实测 30 天窗口内重复 3.4 倍）；按会话取
+# 「窗口内最大值 − 窗口前的基线」才是窗口内的真实增量。
+CUMULATIVE_SNAPSHOT_AGENTS = frozenset({"hermes", "hermes-win"})
+
+
+async def window_usage_rows(
+    db: aiosqlite.Connection,
+    model_like: str,
+    since: str,
+    exclude_agents: tuple[str, ...] = (),
+) -> list[dict[str, Any]]:
+    """Per-(agent, model) token totals for ``[since, now)``, normalised.
+
+    The result means the same thing regardless of which collector wrote the
+    rows: ``input`` is the cache-miss input only, and every field is a true
+    increment over the window (not a cumulative session snapshot).
+    """
+    cumulative = sorted(CUMULATIVE_SNAPSHOT_AGENTS)
+    cum_in = ",".join(f":cum{i}" for i in range(len(cumulative))) or "''"
+    excluded = ""
+    if exclude_agents:
+        excluded = " AND agent NOT IN ({})".format(
+            ",".join(f":ex{i}" for i in range(len(exclude_agents)))
+        )
+    params: dict[str, Any] = {
+        "model_like": model_like,
+        "since": since,
+        **{f"ex{i}": a for i, a in enumerate(exclude_agents)},
+        **{f"cum{i}": a for i, a in enumerate(cumulative)},
+    }
+
+    # 逐请求入库的采集器：直接求和。
+    sql = f"""
+        SELECT agent, model,
+               SUM(input_tokens), SUM(cache_read_tokens),
+               SUM(cache_write_tokens), SUM(output_tokens)
+        FROM token_usage
+        WHERE model LIKE :model_like AND timestamp >= :since{excluded}
+          AND agent NOT IN ({cum_in})
+        GROUP BY agent, model
+    """
+    if cumulative:
+        # 累计快照型采集器：每个会话取窗口内的最大值，再减去窗口开始前的基线。
+        sql += f"""
+            UNION ALL
+            SELECT w.agent, w.model,
+                   SUM(MAX(w.in_tokens  - COALESCE(b.in_tokens,  0), 0)),
+                   SUM(MAX(w.cr_tokens  - COALESCE(b.cr_tokens,  0), 0)),
+                   SUM(MAX(w.cw_tokens  - COALESCE(b.cw_tokens,  0), 0)),
+                   SUM(MAX(w.out_tokens - COALESCE(b.out_tokens, 0), 0))
+            FROM (
+                SELECT agent, session_id, model,
+                       MAX(input_tokens) AS in_tokens, MAX(cache_read_tokens) AS cr_tokens,
+                       MAX(cache_write_tokens) AS cw_tokens, MAX(output_tokens) AS out_tokens
+                FROM token_usage
+                WHERE model LIKE :model_like AND timestamp >= :since{excluded}
+                  AND agent IN ({cum_in}) AND session_id != ''
+                GROUP BY agent, session_id, model
+            ) w
+            LEFT JOIN (
+                SELECT t.agent, t.session_id, t.model,
+                       t.input_tokens AS in_tokens, t.cache_read_tokens AS cr_tokens,
+                       t.cache_write_tokens AS cw_tokens, t.output_tokens AS out_tokens
+                FROM token_usage t
+                JOIN (
+                    SELECT agent, session_id, model, MAX(timestamp) AS ts
+                    FROM token_usage
+                    WHERE agent IN ({cum_in}) AND session_id != '' AND timestamp < :since
+                    GROUP BY agent, session_id, model
+                ) m ON m.agent = t.agent AND m.session_id = t.session_id
+                   AND m.model = t.model AND m.ts = t.timestamp
+            ) b ON b.agent = w.agent AND b.session_id = w.session_id AND b.model = w.model
+            GROUP BY w.agent, w.model
+        """
+    rows = await db.execute_fetchall(sql, params)
+
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        agent = r["agent"] or ""
+        inp, cr, cw, out_tok = (float(r[i] or 0) for i in (2, 3, 4, 5))
+        out.append({
+            "agent": agent,
+            "model": r["model"] or "",
+            "input": uncached_input(agent, inp, cr, cw),
+            "cache_read": cr,
+            "cache_write": cw,
+            "output": out_tok,
+        })
+    return out
 
 
 @dataclass(frozen=True)

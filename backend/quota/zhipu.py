@@ -39,7 +39,7 @@ import urllib.request
 from datetime import UTC, datetime, timedelta
 
 from backend.db import database as db_module
-from backend.db.models import uncached_input
+from backend.db.models import window_usage_rows
 from backend.quota import multipliers as mult_module
 from backend.quota.base import (
     ModelMultiplier,
@@ -408,33 +408,18 @@ class ZhipuQuotaProvider(QuotaProvider):
         try:
             db = await db_module.get_db()
             for slot, delta in windows.items():
-                rows = await db.execute_fetchall(
-                    """SELECT agent, model,
-                              SUM(input_tokens) as input_tokens,
-                              SUM(output_tokens) as output_tokens,
-                              SUM(cache_read_tokens) as cache_read_tokens,
-                              SUM(cache_write_tokens) as cache_write_tokens
-                       FROM token_usage
-                       WHERE model LIKE 'glm-%'
-                         AND timestamp >= ?
-                         AND agent != 'openrouter'
-                       GROUP BY agent, model""",
-                    [(now - delta).isoformat()],
+                rows = await window_usage_rows(
+                    db, "glm-%", (now - delta).isoformat(), exclude_agents=("openrouter",)
                 )
                 credits = 0.0
                 for row in rows:
-                    inp = float(row["input_tokens"] or 0)
-                    out = float(row["output_tokens"] or 0)
-                    cache_read = float(row["cache_read_tokens"] or 0)
-                    cache_write = float(row["cache_write_tokens"] or 0)
-                    rate_in, rate_cache, rate_out = self._coefficients(row["model"] or "")
-                    # input_tokens 口径随采集器而异（zcode 含缓存读取），
-                    # 按口径还原未命中输入后再套官方公式。
-                    miss = uncached_input(row["agent"] or "", inp, cache_read, cache_write)
+                    rate_in, rate_cache, rate_out = self._coefficients(row["model"])
+                    # window_usage_rows 已把各采集器的入库口径统一为
+                    # 「未命中输入 / 缓存读取 / 缓存写入 / 输出」在窗口内的真实增量。
                     credits += (
-                        (miss + cache_write) * rate_in
-                        + cache_read * rate_cache
-                        + out * rate_out
+                        (row["input"] + row["cache_write"]) * rate_in
+                        + row["cache_read"] * rate_cache
+                        + row["output"] * rate_out
                     ) / 10_000.0
                 totals[slot] = credits
         except Exception as exc:  # noqa: BLE001
