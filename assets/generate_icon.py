@@ -137,14 +137,13 @@ def main(argv: list[str] | None = None) -> None:
         downscale(master, 256).save(OUT / f"variant-{key}.png")
 
     # Preview sheet: each variant's 256 render + 48/32/16 actual sizes + 3x zoom of 16px
-    pad, label_h = 40, 0
+    pad = 40
     cell_w = 256 + 3 * (64 + 16) + 2 * 48 + pad * 2
     cell_h = 256 + pad * 2
     sheet = Image.new("RGBA", (cell_w * 3 + pad * 2, cell_h + pad), (24, 30, 46, 255))
     d = ImageDraw.Draw(sheet)
     x = pad
-    for key in renders:
-        master = renders[key]
+    for key, master in renders.items():
         sheet.paste(downscale(master, 256), (x, pad), downscale(master, 256))
         cx = x + 256 + 24
         for size in (48, 32, 16):

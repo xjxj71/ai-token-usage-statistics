@@ -50,7 +50,7 @@ cd frontend && npm install && npm run dev
 - **智谱 GLM Coding Plan**（Lite/Pro/Max，5小时窗口 + 周额度；2026-07-30 起为积分制，接口返回 `CREDIT_LIMIT` 时自动识别，历史 V2 prompt 制返回 `TOKENS_LIMIT`）
 - **小米 MiMo Token Plan**（Lite/Standard/Pro/Max，月度 Credits）
 
-套餐卡片底部展示各模型的消耗倍率（积分抵扣系数「输入/缓存/输出」或 prompt 消耗倍率，含非高峰/夜间折扣与生效时段）。模型与倍率数据由 `backend/quota/multipliers.py` 自动从官方文档中心同步（智谱 `docs.bigmodel.cn/cn/coding-plan/*.md`、小米 `mimo.mi.com/static/docs/...`，启动时 + 每 12h 刷新，`POST /api/quota/multipliers/refresh` 可手动刷新），失败时回退到本地缓存与内置快照。
+套餐卡片底部展示各模型的消耗倍率（积分抵扣系数「输入/缓存/输出」或 prompt 消耗倍率，含非高峰/夜间折扣与生效时段，官方标注的限时活动带「限时」角标）。模型与倍率数据由 `backend/quota/multipliers.py` 自动从官方文档中心同步（智谱 `docs.bigmodel.cn/cn/coding-plan/*.md`、小米 `mimo.mi.com/static/docs/...`，启动时 + 每 6h 刷新，`POST /api/quota/multipliers/refresh` 可手动刷新），失败时回退到本地缓存与内置快照。官方改价常用「~~旧值~~ 新值」删除线标记，解析前会先规范化这类编辑标记；若某次解析比上次少了模型，仍会应用更新但会在日志里留 WARNING（可能是官方下线/改名，也可能是页面格式又变了）。
 
 配置方式：编辑 `config/quota_providers.yaml`，或在前端"设置"面板中填写。
 

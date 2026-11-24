@@ -140,6 +140,7 @@ export interface ModelMultiplier {
   cached_rate: number | null;
   output_rate: number | null;
   rate_unit: string;
+  tag: string; // e.g. "限时" when the vendor marks the rate as a limited-time offer
 }
 
 export interface QuotaSnapshot {

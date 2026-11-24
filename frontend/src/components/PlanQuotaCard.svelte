@@ -311,6 +311,9 @@
                 {@const offWindow = mult.off_peak < 1 ? offPeakWindow(mult.peak_hours) : null}
                 <span class="mult-badge" title={mult.rate_unit ? `输入/缓存/输出（${mult.rate_unit}）` : ""}>
                   {mult.model}
+                  {#if mult.tag}
+                    <span class="mult-coeff green">{mult.tag}</span>
+                  {/if}
                   {#if mult.input_rate !== null}
                     <span class="mult-coeff">{mult.input_rate}/{mult.cached_rate}/{mult.output_rate}</span>
                   {:else}

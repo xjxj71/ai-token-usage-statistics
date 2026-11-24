@@ -59,6 +59,7 @@ class ModelMultiplier:
     cached_rate: float | None = None   # 输入（命中缓存）抵扣系数
     output_rate: float | None = None   # 输出抵扣系数
     rate_unit: str = ""    # e.g. "积分/万Token" | "Credits/Token"
+    tag: str = ""          # short UI marker from the docs, e.g. "限时"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -71,6 +72,7 @@ class ModelMultiplier:
             "cached_rate": self.cached_rate,
             "output_rate": self.output_rate,
             "rate_unit": self.rate_unit,
+            "tag": self.tag,
         }
 
     @classmethod
@@ -89,6 +91,7 @@ class ModelMultiplier:
             cached_rate=_f("cached_rate"),
             output_rate=_f("output_rate"),
             rate_unit=str(d.get("rate_unit") or ""),
+            tag=str(d.get("tag") or ""),
         )
 
 

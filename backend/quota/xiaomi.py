@@ -224,15 +224,15 @@ class XiaomiQuotaProvider(QuotaProvider):
                 cache_read = row["cache_read_tokens"] or 0
                 cache_write = row["cache_write_tokens"] or 0
 
-                # Approximate: cache_read → cache-hit rate, rest → cache-miss
-                cache_miss_input = max(0, inp - cache_read)
+                # token_usage.input_tokens 入库时已是「未命中缓存」口径
+                # （采集器把缓存读/写拆到了独立列），不能再减 cache_read。
                 rate_cache = token_rates.get((model, "input_cache"), 0)
                 rate_miss = token_rates.get((model, "input_miss"), 0)
                 rate_out = token_rates.get((model, "output"), 0)
 
                 used_credits += (
                     cache_read * rate_cache
-                    + cache_miss_input * rate_miss
+                    + inp * rate_miss
                     + cache_write * rate_miss  # cache writes count as input
                     + out * rate_out
                 )

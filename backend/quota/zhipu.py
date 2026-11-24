@@ -176,8 +176,6 @@ class ZhipuQuotaProvider(QuotaProvider):
         if not isinstance(data, dict):
             return None
 
-        # Plan level — trust the API when it names a known plan,
-        # otherwise keep the user-configured plan_type.
         plan_type = self.plan_type
 
         five_hour: tuple[int | None, float] | None = None
@@ -249,8 +247,8 @@ class ZhipuQuotaProvider(QuotaProvider):
                 reset_at=reset_iso,
             )
 
-        main = _window(five_hour, float(limits["window_5h"])) if five_hour else None
-        extra = [_window(weekly, float(limits["weekly"]))] if weekly else []
+        main = _window(five_hour, float(limits.get("window_5h", 0.0))) if five_hour else None
+        extra = [_window(weekly, float(limits.get("weekly", 0.0)))] if weekly else []
 
         return QuotaSnapshot(
             provider=self.provider_id,
@@ -429,9 +427,10 @@ class ZhipuQuotaProvider(QuotaProvider):
                     cache_read = float(row["cache_read_tokens"] or 0)
                     cache_write = float(row["cache_write_tokens"] or 0)
                     rate_in, rate_cache, rate_out = self._coefficients(row["model"] or "")
-                    cache_miss_input = max(0.0, inp - cache_read)
+                    # token_usage.input_tokens 入库时已是「未命中缓存」口径
+                    # （采集器把缓存读/写拆到了独立列），不能再减 cache_read。
                     credits += (
-                        (cache_miss_input + cache_write) * rate_in
+                        (inp + cache_write) * rate_in
                         + cache_read * rate_cache
                         + out * rate_out
                     ) / 10_000.0

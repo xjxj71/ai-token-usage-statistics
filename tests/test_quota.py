@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from backend.db import database as db_module
+from backend.db.models import TokenRecord, insert_records
 from backend.quota import multipliers as mult_module
 from backend.quota.base import QuotaSnapshot, QuotaWindow
 from backend.quota.registry import get_registry
@@ -283,6 +285,49 @@ def test_xiaomi_multipliers():
     # Night-time coefficient should be 0.8 for off-peak
     assert any(m.off_peak == 0.8 for m in mults)
     assert any(m.input_rate == 300.0 for m in mults if m.model == "mimo-v2.6-pro")
+
+
+# ── Local estimates (no credential / API failure fallback) ──────
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_xiaomi_estimate_counts_uncached_input(client):
+    """``token_usage.input_tokens`` 入库时已是「未命中缓存」口径（采集器把缓存
+    读/写拆到了独立列）。估算不得再减一次 cache_read——Agent 场景下缓存读取
+    远大于新输入，那样会把未缓存输入直接减没，而它正是 Credits 消耗的大头。"""
+    now = datetime.now(UTC)
+    db = await db_module.get_db()
+    await insert_records(db, [
+        TokenRecord(timestamp=now.isoformat(), agent="opencode", model="mimo-v2.6-pro",
+                    input_tokens=1000, output_tokens=100, cache_read_tokens=5000),
+    ])
+    snap = await XiaomiQuotaProvider({"enabled": True, "plan_type": "pro"})._estimate()
+    # 5000×2.5 + 1000×300 + 100×600
+    assert snap.main_window.used == pytest.approx(372_500.0)
+    assert snap.main_window.total == 38_000_000_000.0
+    assert snap.main_window.unit == "credits"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_zhipu_credit_estimate_formula(client):
+    """积分制估算 =（未缓存输入×Input + 缓存命中×Cached + 输出×Output）/ 10000。"""
+    now = datetime.now(UTC)
+    db = await db_module.get_db()
+    await insert_records(db, [
+        TokenRecord(timestamp=now.isoformat(), agent="zcode", model="glm-5.4",
+                    input_tokens=10_000, output_tokens=1_000, cache_read_tokens=50_000),
+    ])
+    p = ZhipuQuotaProvider({"enabled": True, "plan_type": "pro"})
+    assert p.mode == "credits"
+    snap = await p._estimate()
+    expected = (10_000 * 4.6 + 50_000 * 1.1 + 1_000 * 16.0) / 10_000  # = 11.7
+    assert snap.main_window.used == pytest.approx(expected)
+    assert snap.extra_windows[0].used == pytest.approx(expected)
+    assert snap.main_window.total == 12_000.0
+    assert snap.main_window.unit == "credits"
+    assert snap.source == "estimate"
 
 
 # ── Registry tests ──────────────────────────────────────────────

@@ -42,10 +42,12 @@ from backend.quota.base import ModelMultiplier
 logger = logging.getLogger(__name__)
 
 _FETCH_TIMEOUT = 15
-_REFRESH_INTERVAL_SECONDS = 12 * 3600  # docs pages change rarely; 12h is plenty
+# The vendors do revise these pages without notice (a limited-time price cut
+# appeared overnight on 2026-11-24), so refresh on a short-ish cycle.
+_REFRESH_INTERVAL_SECONDS = 6 * 3600
 
-# Date the built-in defaults were verified against the official pages.
-_DEFAULTS_AS_OF = "2026-11-24T00:00:00+08:00"
+# When the built-in defaults were last verified against the official pages.
+_DEFAULTS_AS_OF = "2026-11-25T02:00:00+08:00"
 
 
 def _ts(value: str) -> datetime:
@@ -139,8 +141,8 @@ def _default_sets() -> dict[str, MultiplierSet]:
             ),
             ModelMultiplier(
                 model="glm-5.3-flash", peak=1.0, off_peak=0.5, peak_hours="14-18",
-                off_peak_label="非高峰", input_rate=2.3, cached_rate=0.56,
-                output_rate=8.0, rate_unit="积分/万Token",
+                off_peak_label="非高峰", input_rate=1.15, cached_rate=0.28,
+                output_rate=4.0, rate_unit="积分/万Token", tag="限时",
             ),
         ),
         plan_limits={
@@ -150,7 +152,8 @@ def _default_sets() -> dict[str, MultiplierSet]:
         },
         note=(
             "输入/缓存/输出 = 每万 Token 抵扣积分 · 非高峰（周一至五 14-18 以外"
-            "及周末）0.5x · 高峰：周一至五 14-18（UTC+8）"
+            "及周末）0.5x · 高峰：周一至五 14-18（UTC+8）· glm-5.3-flash 限时活动"
+            "（11-24~12-24）"
         ),
         fetched_at=_DEFAULTS_AS_OF,
         source_url="https://docs.bigmodel.cn/cn/coding-plan/overview.md",
@@ -169,8 +172,8 @@ def _default_sets() -> dict[str, MultiplierSet]:
                 off_peak_label="非高峰",
             ),
             ModelMultiplier(
-                model="glm-5.3-flash", peak=1.2, off_peak=0.4, peak_hours="14-18",
-                off_peak_label="非高峰",
+                model="glm-5.3-flash", peak=0.6, off_peak=0.2, peak_hours="14-18",
+                off_peak_label="非高峰", tag="限时",
             ),
         ),
         plan_limits={
@@ -180,6 +183,7 @@ def _default_sets() -> dict[str, MultiplierSet]:
         },
         note=(
             "每 prompt 消耗倍率（历史 V2 套餐）· 高峰：周一至五 14-18（UTC+8）"
+            "· glm-5.3-flash 限时活动（11-24~12-24）"
         ),
         fetched_at=_DEFAULTS_AS_OF,
         source_url="https://docs.bigmodel.cn/cn/coding-plan/notice/usage-revision.md",
@@ -227,6 +231,81 @@ _TAG_RE = re.compile(r"<[^>]+>")
 def _flatten(text: str) -> str:
     """Strip HTML tags — the doc pages mix markdown and raw HTML tables."""
     return _TAG_RE.sub(" ", text)
+
+
+# Doc-edit decorations seen on the official pages when prices are revised:
+#   ~~2.3~~ 1.15          markdown strikethrough = OLD value, keep the new one
+#   <del>2.3</del> 1.15   same idea in HTML
+#   **1.15** / <strong>   emphasis around a value
+#   GLM-5.3-Flash[^1]     footnote reference after a name
+# Unhandled, a revised row silently fails to match and the whole model drops
+# out of the table — which is how GLM-5.3-Flash vanished on 2026-11-24.
+_STRIKE_MD_RE = re.compile(r"~~[^~]*?~~")
+_DEL_TAG_RE = re.compile(r"<(del|strike|s)\b[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL)
+_INLINE_TAG_RE = re.compile(r"</?(?:strong|b|em|i)\b[^>]*>", re.IGNORECASE)
+_FOOTNOTE_RE = re.compile(r"\[\^[^\]]+\]")
+
+
+def _normalize(text: str) -> str:
+    """Remove doc-edit decorations so the current values parse cleanly."""
+    text = _STRIKE_MD_RE.sub("", text)
+    text = _DEL_TAG_RE.sub("", text)
+    text = _INLINE_TAG_RE.sub("", text)
+    return _FOOTNOTE_RE.sub("", text)
+
+
+# "**限时活动**：11 月 24 日至 12 月 24 日，调用 GLM-5.3-Flash 所产生的消耗全部按原抵扣系数的 50% 结算…"
+# "**Limited-Time Offer:** From November 24 to December 24, all usage of GLM-5.3-Flash will be charged at 50% …"
+_LIMITED_LINE_RE = re.compile(r"[^\n]*(?:限时活动|Limited[- ]Time Offer)[^\n]*", re.IGNORECASE)
+# Not inside a URL path (…/flash-and-glm-5-4.md) — only a real model mention.
+_LIMITED_MODEL_RE = re.compile(r"(?<![\w./-])(?:GLM|mimo)-[0-9][\w.\-]*", re.IGNORECASE)
+_MONTHS = {m: i for i, m in enumerate(
+    ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"], 1)}
+
+
+def _limited_time(text: str) -> tuple[list[str], str]:
+    """Models named in a limited-time-offer line, plus its date-range label.
+
+    Returns e.g. ``(["glm-5.3-flash"], "11-24~12-24")``; the label is empty
+    when the page doesn't state the range in a recognised form.
+    """
+    names: list[str] = []
+    span = ""
+    for line in _LIMITED_LINE_RE.findall(text):
+        for name in _LIMITED_MODEL_RE.findall(line):
+            low = name.lower().rstrip(".-")
+            if low not in names:
+                names.append(low)
+        if span:
+            continue
+        m = re.search(
+            r"(\d{1,2})\s*月\s*(\d{1,2})\s*日\s*至\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日", line
+        )
+        if m:
+            span = f"{int(m.group(1))}-{int(m.group(2))}~{int(m.group(3))}-{int(m.group(4))}"
+            continue
+        m = re.search(
+            r"From\s+([A-Za-z]+)\s+(\d{1,2})\s+to\s+([A-Za-z]+)\s+(\d{1,2})", line, re.IGNORECASE
+        )
+        if m:
+            try:
+                span = f"{_MONTHS[m.group(1).lower()]}-{int(m.group(2))}~{_MONTHS[m.group(3).lower()]}-{int(m.group(4))}"
+            except KeyError:
+                span = ""
+    return names, span
+
+
+def _apply_limited(text: str, models: list[ModelMultiplier], note: str) -> str:
+    """Tag models covered by a limited-time offer and extend the note."""
+    names, span = _limited_time(text)
+    for model in models:
+        if model.model in names:
+            model.tag = "限时"
+    if not names:
+        return note
+    shown = [m.model for m in models if m.model in names] or names
+    when = f"（{span}）" if span else ""
+    return f"{note} · {'、'.join(shown)} 限时活动{when}"
 
 
 def _num_list(flat: str, anchor: str, unit_pat: str, count: int) -> list[float] | None:
@@ -280,6 +359,7 @@ _ZHIPU_MODEL_ROW_RE = re.compile(
 
 def _parse_zhipu_overview(text: str) -> _Parsed | None:
     """Parse the GLM Coding Plan overview page (credit coefficient table)."""
+    text = _normalize(text)
     models = []
     for m in _ZHIPU_MODEL_ROW_RE.finditer(text):
         models.append(ModelMultiplier(
@@ -299,12 +379,13 @@ def _parse_zhipu_overview(text: str) -> _Parsed | None:
     ) or re.search(
         r"charged at\s*(\d+(?:\.\d+)?)\s*%\s*of the standard credit rate", text, re.IGNORECASE
     )
+    peak_hours = _zhipu_peak_window(text) or "14-18"
     if m:
         off_peak = float(m.group(1)) / 100.0
+    # 官方时段/折扣回写到每个模型，保证角标与说明文字始终一致。
     for model in models:
         model.off_peak = off_peak
-
-    peak_hours = _zhipu_peak_window(text) or "14-18"
+        model.peak_hours = peak_hours
 
     limits: dict[str, dict[str, float]] = {}
     for m in re.finditer(
@@ -318,7 +399,7 @@ def _parse_zhipu_overview(text: str) -> _Parsed | None:
         }
 
     parsed = _Parsed(mode="credits", models=models, plan_limits=limits)
-    parsed.note = _zhipu_credit_note(off_peak, peak_hours)
+    parsed.note = _apply_limited(text, models, _zhipu_credit_note(off_peak, peak_hours))
     return parsed
 
 
@@ -336,6 +417,7 @@ _ZHIPU_LEGACY_EN_RE = re.compile(
 
 def _parse_zhipu_legacy(text: str) -> _Parsed | None:
     """Parse the plan-revision notice (legacy V2 prompt multipliers)."""
+    text = _normalize(text)
     models: list[ModelMultiplier] = []
     seen: set[str] = set()
     for regex in (_ZHIPU_LEGACY_CN_RE, _ZHIPU_LEGACY_EN_RE):
@@ -352,6 +434,8 @@ def _parse_zhipu_legacy(text: str) -> _Parsed | None:
         return None
 
     peak_hours = _zhipu_peak_window(text) or "14-18"
+    for model in models:
+        model.peak_hours = peak_hours
 
     # | Lite 套餐 | 最多约 80 次 prompts | 最多约 400 次 prompts |
     # | Lite Plan | Up to approx. 80 prompts | Up to approx. 400 prompts |
@@ -369,7 +453,7 @@ def _parse_zhipu_legacy(text: str) -> _Parsed | None:
         }
 
     parsed = _Parsed(mode="prompts", models=models, plan_limits=limits)
-    parsed.note = _zhipu_prompt_note(peak_hours)
+    parsed.note = _apply_limited(text, models, _zhipu_prompt_note(peak_hours))
     return parsed
 
 
@@ -382,6 +466,7 @@ _MIMO_MODEL_RE = re.compile(
 
 def _parse_xiaomi_plan(text: str) -> _Parsed | None:
     """Parse the MiMo Token Plan subscription page (Credit rates table)."""
+    text = _normalize(text)
     flat = _flatten(text)
     models = []
     for m in _MIMO_MODEL_RE.finditer(flat):
@@ -403,17 +488,20 @@ def _parse_xiaomi_plan(text: str) -> _Parsed | None:
     )
     if m:
         off_peak = float(m.group(1))
-    for model in models:
-        model.off_peak = off_peak
 
-    # 夜间窗口 00:00-08:00 → peak_hours "08-24"（卡片按补集展示夜间时段）
     peak_hours = "08-24"
     m = re.search(r"北京时间\s*(\d{1,2}):(\d{2})\s*[-–—~～]\s*(\d{1,2}):(\d{2})", flat) \
         or re.search(r"(\d{2}):(\d{2})\s*[–—-]\s*(\d{2}):(\d{2})\s*Beijing", flat, re.IGNORECASE)
     if m:
         start, end = int(m.group(1)), int(m.group(3))
         if start == 0 and 0 < end <= 24:
+            # 夜间窗口 00:00-08:00 → peak_hours "08-24"（卡片按补集展示夜间时段）
             peak_hours = f"{end:02d}-24"
+
+    # 官方时段/折扣回写到每个模型，保证角标与说明文字始终一致。
+    for model in models:
+        model.off_peak = off_peak
+        model.peak_hours = peak_hours
 
     # 每月额度 | 41 亿 Credits | … / Monthly Quota | 4.1 billion Credits | …
     limits: dict[str, dict[str, float]] = {}
@@ -430,7 +518,7 @@ def _parse_xiaomi_plan(text: str) -> _Parsed | None:
     note = f"输入/缓存/输出 = Credits/Token · 夜间（{off_window}）{off_peak:g}x"
 
     parsed = _Parsed(mode="credits", models=models, plan_limits=limits)
-    parsed.note = note
+    parsed.note = _apply_limited(text, models, note)
     return parsed
 
 
@@ -609,6 +697,16 @@ async def refresh() -> dict[str, str]:
                 continue  # 本轮回补已成功 — 源列表中靠前的优先（中文站在前）
             base = _sets.get(key) or _default_sets()[key]
             models = parsed.models
+            # A model can legitimately disappear (vendor drops/renames it), so the
+            # update is always applied — but it is also what a broken row parse
+            # looks like, so leave a trail for diagnosis.
+            lost = {m.model for m in base.models} - {m.model for m in models}
+            if lost:
+                logger.warning(
+                    "Multiplier source %s no longer yields %s — either the vendor "
+                    "dropped/renamed the model or the page format changed",
+                    src.url, ", ".join(sorted(lost)),
+                )
             if parsed.plan_limits:
                 limits = parsed.plan_limits
             else:

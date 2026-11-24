@@ -8,7 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
-- **套餐倍率自动同步**：模型消耗倍率（抵扣系数/消耗倍率）不再硬编码，改为定时从官方文档中心抓取解析（`backend/quota/multipliers.py`：启动即拉取 + 每 12h 刷新 + `POST /api/quota/multipliers/refresh` 手动刷新，`data/model_multipliers.json` 持久化缓存，失败自动回退内置快照，卡片标注数据更新时间）
+- **套餐倍率自动同步**：模型消耗倍率（抵扣系数/消耗倍率）不再硬编码，改为定时从官方文档中心抓取解析（`backend/quota/multipliers.py`：启动即拉取 + 每 6h 刷新 + `POST /api/quota/multipliers/refresh` 手动刷新，`data/model_multipliers.json` 持久化缓存，失败自动回退内置快照，卡片标注数据更新时间）
+  - 解析前先规范化官方改价用的编辑标记（`~~旧值~~ 新值` 删除线、`<del>`、加粗、脚注），取当前生效值；官方标注的限时活动（如 GLM-5.3-Flash 11-24 至 12-24 半价）在角标上显示「限时」并在说明里给出区间
+  - 若某次解析比上次少了模型，更新照常生效（官方下线/改名需如实反映），同时写 WARNING 日志便于发现页面格式变化
   - 智谱：解析 `docs.bigmodel.cn/cn/coding-plan/overview.md`（积分抵扣系数 + 积分额度），历史 V2 prompt 制倍率取自套餐改版公告 `usage-revision.md`；`docs.z.ai` 同构英文页作备用源。用量接口返回 `CREDIT_LIMIT` / `TOKENS_LIMIT` 时自动识别套餐制式并匹配对应倍率与额度表
   - 小米：解析 `mimo.mi.com` Token Plan 订阅文档（语言模型 Credits 折算表 + 夜间 0.8x + 月度额度）
   - 卡片展示随官方数据变化：智谱 GLM-5.4 / GLM-5.3 / GLM-5.3-Flash（输入/缓存/输出抵扣系数，非高峰 5 折，高峰周一至五 14-18）、小米 mimo-v2.6-pro / flash / pro-ultraspeed（Credits/Token，夜间 00-08 0.8x）
@@ -51,6 +53,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 - 修复套餐卡片模型倍率过期：原展示的 glm-5.2 / glm-5-turbo / glm-4.7 与 mimo-v2.5 系列均已被官方套餐下线（mimo-v2.5 系列 2026-10-21 下线），倍率数值也不再适用；现展示当前官方模型与倍率并自动保持最新
+- 修复套餐余量本地估算重复扣减缓存：`token_usage.input_tokens` 入库时已是「未命中缓存」口径（采集器把缓存读/写拆到了独立列），小米估算却又减了一次 `cache_read`——Agent 场景下缓存读取远大于新输入，未缓存输入被直接减成 0，而它恰是 Credits 消耗的大头，估算值严重偏低
+- 修复官方文档调价标记导致模型被静默丢弃：官网给 GLM-5.3-Flash 挂限时半价时用「~~旧值~~ 新值」标记、名称单元格内加反斜杠换行，原解析器不识别，实测积分制/历史 V2 两套倍率表都丢了整个 Flash 模型（并连带让本地估算对其套用别的模型系数）
+- 修复解析出的高峰/夜间时段只写进说明文字、未回写模型字段的问题（历史 V2 套餐角标直接渲染该字段，官方调整时段后会与说明不一致）
 - 修复 OpenClaude 采集器被误改为 `openclaw` 导致的采集中断与数据混淆
 - custom 时间范围 `to` 日期整天纳入统计；非法 range 返回 400 而非静默回退
 - SSE 改为每客户端队列，消除多客户端通知丢失

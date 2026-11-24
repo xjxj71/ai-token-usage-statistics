@@ -1,5 +1,6 @@
 """Tests for the model-multiplier registry and docs auto-refresh."""
 
+import logging
 from unittest.mock import patch
 
 import pytest
@@ -11,7 +12,9 @@ from backend.quota.zhipu import ZhipuQuotaProvider
 
 # ── Fixtures: excerpts of the real documentation pages ──────────
 
-ZHIPU_OVERVIEW_CN = """
+# 2026-11-24 官网给 GLM-5.3-Flash 挂出限时半价：值用「~~旧~~ 新」删除线标记，
+# 名称单元格内多了反斜杠换行。夹具保持官网原样（含行尾反斜杠，故用 raw 字符串）。
+ZHIPU_OVERVIEW_CN = r"""
 ### 积分额度
 
 | 套餐类型 | 5 小时积分 | 每周积分 |
@@ -36,10 +39,11 @@ ZHIPU_OVERVIEW_CN = """
       <td>24</td>
     </tr>
     <tr>
-      <td>GLM-5.3-Flash（含视觉理解 MCP）</td>
-      <td>2.3</td>
-      <td>0.56</td>
-      <td>8</td>
+      <td>GLM-5.3-Flash\
+      （含视觉理解 MCP）</td>
+      <td>~~2.3~~ 1.15</td>
+      <td>~~0.56~~ 0.28</td>
+      <td>~~8~~ 4</td>
     </tr>
     <tr>
       <td rowSpan="3">MCP 工具</td>
@@ -56,9 +60,11 @@ ZHIPU_OVERVIEW_CN = """
 > [!NOTE]
 >
 > 高峰时段：每周一至周五的 14:00～18:00 （UTC+8）。
+
+> **限时活动**：11 月 24 日至 12 月 24 日，调用 GLM-5.3-Flash 所产生的消耗全部按原抵扣系数的 50% 结算，即可用额度为原来的 2 倍。[查看 Flash 模型搭配使用指南](https://docs.bigmodel.cn/cn/coding-plan/learning-resources/flash-and-glm-5-4.md)。
 """
 
-ZHIPU_OVERVIEW_EN = """
+ZHIPU_OVERVIEW_EN = r"""
 | Plan Type | 5-Hour Credits | Weekly Credits |
 | :-: | :-: | :-: |
 | Lite | 2,000 | 10,000 |
@@ -75,10 +81,11 @@ ZHIPU_OVERVIEW_EN = """
       <td>16</td>
     </tr>
     <tr>
-      <td>GLM-5.3-Flash (Including MCP for visual understanding)</td>
-      <td>2.3</td>
-      <td>0.56</td>
-      <td>8</td>
+      <td>GLM-5.3-Flash\
+      (Including MCP for visual understanding)</td>
+      <td>~~2.3~~ 1.15</td>
+      <td>~~0.56~~ 0.28</td>
+      <td>~~8~~ 4</td>
     </tr>
   </tbody>
 </table>
@@ -86,9 +93,13 @@ ZHIPU_OVERVIEW_EN = """
 **During off-peak hours, model usage is charged at 50% of the standard credit rate**.
 
 > **Peak hours**: Monday to Friday, 14:00–18:00 Singapore Standard Time (UTC+8).
+
+> **Limited-Time Offer:** From November 24 to December 24, all usage of GLM-5.3-Flash will be charged at 50% of the original quota consumption rate, effectively doubling your available quota.
 """
 
 ZHIPU_LEGACY_CN = """
+> **限时活动**：11 月 24 日至 12 月 24 日，调用 GLM-5.3-Flash 所产生的消耗全部按原抵扣系数的 50% 结算，即可用额度为原来的 2 倍。
+
 > <li>
 >   **GLM-5.4**：调用时将按照 “非高峰期 0.67 倍，高峰期 2 倍” 系数消耗额度。
 > </li>
@@ -98,7 +109,7 @@ ZHIPU_LEGACY_CN = """
 > </li>
 >
 > <li>
->   **GLM-5.3-Flash**：调用时将按照 “非高峰期 0.4 倍，高峰期 1.2 倍” 系数消耗额度。
+>   **GLM-5.3-Flash**：调用时将按照 “非高峰期 ~~0.4~~ 0.2 倍，高峰期 ~~1.2~~ 0.6 倍” 系数限时消耗额度。
 > </li>
 >
 > 注：“高峰期”为**每周一至周五**的 14:00～18:00 （UTC+8）。
@@ -111,9 +122,11 @@ ZHIPU_LEGACY_CN = """
 """
 
 ZHIPU_LEGACY_EN = """
+> **Limited-Time Offer:** From November 24 to December 24, all usage of GLM-5.3-Flash will be charged at 50% of the original quota consumption rate, effectively doubling your available quota.
+
 >   **GLM-5.4**: As the flagship model, API calls consume quota at a rate of "0.67× during off-peak hours and 2× during peak hours".
 
->   **GLM-5.3-Flash**: API calls consume quota at a rate of 0.4× during off-peak hours and 1.2× during peak hours.
+>   **GLM-5.3-Flash**: API calls consume quota at a rate of ~~0.4×~~ 0.2× during off-peak hours and ~~1.2×~~ 0.6× during peak hours.
 
 | Lite Plan | Up to approx. 80 prompts | Up to approx. 400 prompts |
 | Pro Plan | Up to approx. 400 prompts | Up to approx. 2,000 prompts |
@@ -187,21 +200,28 @@ def test_parse_zhipu_overview_cn():
     assert parsed is not None and parsed.mode == "credits"
     names = {m.model for m in parsed.models}
     assert names == {"glm-5.4", "glm-5.3", "glm-5.3-flash"}  # MCP 工具行不进模型表
+    # 限时半价行：删除线旧值 2.3/0.56/8 必须被忽略，取新值
     flash = next(m for m in parsed.models if m.model == "glm-5.3-flash")
-    assert flash.input_rate == 2.3 and flash.cached_rate == 0.56 and flash.output_rate == 8.0
+    assert flash.input_rate == 1.15 and flash.cached_rate == 0.28 and flash.output_rate == 4.0
+    assert flash.tag == "限时"
     assert all(m.off_peak == 0.5 for m in parsed.models)      # 非高峰 5 折
+    assert all(m.tag == "" for m in parsed.models if m.model != "glm-5.3-flash")
     assert parsed.plan_limits["lite"]["window_5h"] == 2000
     assert parsed.plan_limits["max"]["weekly"] == 140000
     assert "14-18" in parsed.note
+    assert "glm-5.3-flash 限时活动（11-24~12-24）" in parsed.note
 
 
 @pytest.mark.unit
 def test_parse_zhipu_overview_en():
     parsed = mult_module._parse_zhipu_overview(ZHIPU_OVERVIEW_EN)
     assert parsed is not None
-    names = {m.model for m in parsed.models}
-    assert "glm-5.4" in names and "glm-5.3-flash" in names
+    by_name = {m.model: m for m in parsed.models}
+    assert set(by_name) == {"glm-5.4", "glm-5.3-flash"}
+    assert by_name["glm-5.3-flash"].input_rate == 1.15
+    assert by_name["glm-5.3-flash"].tag == "限时"
     assert parsed.plan_limits["pro"]["weekly"] == 60000
+    assert "限时活动（11-24~12-24）" in parsed.note       # 英文月份 → 数字区间
 
 
 @pytest.mark.unit
@@ -211,7 +231,10 @@ def test_parse_zhipu_legacy():
     by_name = {m.model: m for m in parsed.models}
     assert by_name["glm-5.4"].peak == 2.0 and by_name["glm-5.4"].off_peak == 0.67
     assert by_name["glm-5.3"].peak == 3.0 and by_name["glm-5.3"].off_peak == 1.0
-    assert by_name["glm-5.3-flash"].peak == 1.2 and by_name["glm-5.3-flash"].off_peak == 0.4
+    # 限时行：“非高峰期 ~~0.4~~ 0.2 倍，高峰期 ~~1.2~~ 0.6 倍”
+    flash = by_name["glm-5.3-flash"]
+    assert flash.peak == 0.6 and flash.off_peak == 0.2 and flash.tag == "限时"
+    assert by_name["glm-5.4"].tag == ""
     assert parsed.plan_limits["lite"]["window_5h"] == 80
     assert parsed.plan_limits["pro"]["weekly"] == 2000
 
@@ -222,7 +245,9 @@ def test_parse_zhipu_legacy_en():
     assert parsed is not None
     by_name = {m.model: m for m in parsed.models}
     assert by_name["glm-5.4"].off_peak == 0.67 and by_name["glm-5.4"].peak == 2.0
-    assert by_name["glm-5.3-flash"].peak == 1.2
+    # "~~0.4×~~ 0.2× during off-peak hours and ~~1.2×~~ 0.6× during peak hours"
+    assert by_name["glm-5.3-flash"].peak == 0.6 and by_name["glm-5.3-flash"].off_peak == 0.2
+    assert by_name["glm-5.3-flash"].tag == "限时"
     assert parsed.plan_limits["pro"]["window_5h"] == 400
 
 
@@ -258,6 +283,66 @@ def test_parse_garbage_returns_none():
     assert mult_module._parse_xiaomi_plan("nothing here") is None
 
 
+@pytest.mark.unit
+def test_parsed_window_reaches_models():
+    """官方调整时段时，模型字段必须跟着变——历史 V2 角标直接渲染 peak_hours，
+    只更新说明文字会让角标与说明不一致。"""
+    overview = ZHIPU_OVERVIEW_CN.replace("14:00～18:00", "15:00～19:00")
+    parsed = mult_module._parse_zhipu_overview(overview)
+    assert parsed is not None
+    assert {m.peak_hours for m in parsed.models} == {"15-19"}
+
+    legacy = ZHIPU_LEGACY_CN.replace("14:00～18:00", "15:00～19:00")
+    parsed = mult_module._parse_zhipu_legacy(legacy)
+    assert parsed is not None
+    assert {m.peak_hours for m in parsed.models} == {"15-19"}
+
+    mimo = XIAOMI_PLAN_EN.replace("00:00–08:00", "00:00–06:00")
+    parsed = mult_module._parse_xiaomi_plan(mimo)
+    assert parsed is not None
+    assert {m.peak_hours for m in parsed.models} == {"06-24"}
+    assert "00-06" in parsed.note
+    assert {m.off_peak for m in parsed.models} == {0.8}
+
+
+@pytest.mark.unit
+def test_normalize_handles_html_and_footnote_revisions():
+    """调价标记换成 HTML / 脚注写法时同样要能解析（否则整行模型被静默丢弃）。"""
+    page = (
+        "<table><tbody>\n"
+        "<tr><td>GLM-5.4[^1]</td>"
+        "<td><del>4.6</del> <strong>2.3</strong></td><td>1.1</td><td>16</td></tr>\n"
+        "</tbody></table>"
+    )
+    parsed = mult_module._parse_zhipu_overview(page)
+    assert parsed is not None
+    assert [m.model for m in parsed.models] == ["glm-5.4"]
+    assert parsed.models[0].input_rate == 2.3
+    assert parsed.models[0].cached_rate == 1.1
+
+
+@pytest.mark.asyncio
+async def test_refresh_warns_when_a_model_disappears(caplog):
+    """模型可能被官方名正言顺地下线/改名（如 mimo-v2.5 → v2.6），所以更新照常
+    生效；但行解析失败看起来一模一样，因此必须留下告警便于排查。"""
+
+    async def fake_fetch(url: str) -> str | None:
+        # 模拟官网改版后 Flash 行无法识别（名称不再是 GLM-数字 开头）
+        if "overview.md" not in url:
+            return None
+        return ZHIPU_OVERVIEW_CN.replace("GLM-5.3-Flash", "GLM-X")
+
+    with (
+        caplog.at_level(logging.WARNING, logger="backend.quota.multipliers"),
+        patch.object(mult_module, "_fetch_text", fake_fetch),
+    ):
+        await mult_module.refresh()
+    assert "glm-5.3-flash" in caplog.text
+    assert "no longer yields" in caplog.text
+    zhipu = mult_module.get_set("zhipu", "credits")
+    assert {m.model for m in zhipu.models} == {"glm-5.4", "glm-5.3"}
+
+
 # ── Defaults & read API ─────────────────────────────────────────
 
 
@@ -266,8 +351,14 @@ def test_defaults_cover_all_provider_modes():
     zhipu = mult_module.get_set("zhipu", "credits")
     assert zhipu.source == "defaults"
     assert {m.model for m in zhipu.models} == {"glm-5.4", "glm-5.3", "glm-5.3-flash"}
+    # 内置快照与 2026-11-25 官网一致：Flash 限时半价
+    flash = next(m for m in zhipu.models if m.model == "glm-5.3-flash")
+    assert (flash.input_rate, flash.cached_rate, flash.output_rate) == (1.15, 0.28, 4.0)
+    assert flash.tag == "限时"
     prompts = mult_module.get_set("zhipu", "prompts")
     assert all(m.input_rate is None for m in prompts.models)
+    legacy_flash = next(m for m in prompts.models if m.model == "glm-5.3-flash")
+    assert (legacy_flash.peak, legacy_flash.off_peak) == (0.6, 0.2)
     xiaomi = mult_module.get_set("xiaomi", "credits")
     assert {m.model for m in xiaomi.models} == {
         "mimo-v2.6-pro", "mimo-v2.6-flash", "mimo-v2.6-pro-ultraspeed",
@@ -279,7 +370,7 @@ def test_model_multiplier_roundtrip():
     m = ModelMultiplier(
         model="glm-5.4", peak=2.0, off_peak=0.67, peak_hours="14-18",
         off_peak_label="非高峰", input_rate=4.6, cached_rate=1.1,
-        output_rate=16.0, rate_unit="积分/万Token",
+        output_rate=16.0, rate_unit="积分/万Token", tag="限时",
     )
     assert ModelMultiplier.from_dict(m.to_dict()) == m
 
