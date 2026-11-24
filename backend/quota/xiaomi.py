@@ -25,6 +25,7 @@ import urllib.request
 from datetime import UTC, datetime, timedelta
 
 from backend.db import database as db_module
+from backend.db.models import uncached_input
 from backend.quota import multipliers as mult_module
 from backend.quota.base import (
     ModelMultiplier,
@@ -204,7 +205,7 @@ class XiaomiQuotaProvider(QuotaProvider):
             # Current billing period: last 30 days (simplified).
             period_start = (datetime.now(UTC) - timedelta(days=30)).isoformat()
             rows = await db.execute_fetchall(
-                """SELECT model,
+                """SELECT agent, model,
                           SUM(input_tokens) as input_tokens,
                           SUM(output_tokens) as output_tokens,
                           SUM(cache_read_tokens) as cache_read_tokens,
@@ -212,7 +213,7 @@ class XiaomiQuotaProvider(QuotaProvider):
                    FROM token_usage
                    WHERE model LIKE 'mimo-%'
                      AND timestamp >= ?
-                   GROUP BY model""",
+                   GROUP BY agent, model""",
                 [period_start],
             )
 
@@ -224,15 +225,16 @@ class XiaomiQuotaProvider(QuotaProvider):
                 cache_read = row["cache_read_tokens"] or 0
                 cache_write = row["cache_write_tokens"] or 0
 
-                # token_usage.input_tokens 入库时已是「未命中缓存」口径
-                # （采集器把缓存读/写拆到了独立列），不能再减 cache_read。
+                # input_tokens 口径随采集器而异（zcode 含缓存读取），
+                # 按口径还原未命中输入后再计费。
+                miss = uncached_input(row["agent"] or "", inp, cache_read, cache_write)
                 rate_cache = token_rates.get((model, "input_cache"), 0)
                 rate_miss = token_rates.get((model, "input_miss"), 0)
                 rate_out = token_rates.get((model, "output"), 0)
 
                 used_credits += (
                     cache_read * rate_cache
-                    + inp * rate_miss
+                    + miss * rate_miss
                     + cache_write * rate_miss  # cache writes count as input
                     + out * rate_out
                 )

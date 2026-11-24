@@ -39,6 +39,7 @@ import urllib.request
 from datetime import UTC, datetime, timedelta
 
 from backend.db import database as db_module
+from backend.db.models import uncached_input
 from backend.quota import multipliers as mult_module
 from backend.quota.base import (
     ModelMultiplier,
@@ -408,7 +409,7 @@ class ZhipuQuotaProvider(QuotaProvider):
             db = await db_module.get_db()
             for slot, delta in windows.items():
                 rows = await db.execute_fetchall(
-                    """SELECT model,
+                    """SELECT agent, model,
                               SUM(input_tokens) as input_tokens,
                               SUM(output_tokens) as output_tokens,
                               SUM(cache_read_tokens) as cache_read_tokens,
@@ -417,7 +418,7 @@ class ZhipuQuotaProvider(QuotaProvider):
                        WHERE model LIKE 'glm-%'
                          AND timestamp >= ?
                          AND agent != 'openrouter'
-                       GROUP BY model""",
+                       GROUP BY agent, model""",
                     [(now - delta).isoformat()],
                 )
                 credits = 0.0
@@ -427,10 +428,11 @@ class ZhipuQuotaProvider(QuotaProvider):
                     cache_read = float(row["cache_read_tokens"] or 0)
                     cache_write = float(row["cache_write_tokens"] or 0)
                     rate_in, rate_cache, rate_out = self._coefficients(row["model"] or "")
-                    # token_usage.input_tokens 入库时已是「未命中缓存」口径
-                    # （采集器把缓存读/写拆到了独立列），不能再减 cache_read。
+                    # input_tokens 口径随采集器而异（zcode 含缓存读取），
+                    # 按口径还原未命中输入后再套官方公式。
+                    miss = uncached_input(row["agent"] or "", inp, cache_read, cache_write)
                     credits += (
-                        (inp + cache_write) * rate_in
+                        (miss + cache_write) * rate_in
                         + cache_read * rate_cache
                         + out * rate_out
                     ) / 10_000.0

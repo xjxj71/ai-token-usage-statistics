@@ -61,6 +61,25 @@ class TokenRecord:
     id: int | None = None
 
 
+# ``token_usage.input_tokens`` 的口径并不统一。除下列采集器外，其余采集器入库的
+# 都是「未命中缓存」的输入（缓存读/写拆在各自列里，如 claude-code / hermes /
+# codex / qoder）。zcode 采集器直接沿用 ZCode 自己 ``model_usage.input_tokens``
+# 的原值，而那是**含缓存读取**的完整提示词长度——供应商原始返回里
+# ``totalTokens = inputTokens + outputTokens``，``cacheReadTokens`` 是其子集
+# （实测全库无一行 cache_read > input，比值恒为 ~1.02–1.04）。
+# 任何要区分「未命中输入 / 缓存命中」的计算都必须先经过 uncached_input()。
+INCLUSIVE_INPUT_AGENTS = frozenset({"zcode"})
+
+
+def uncached_input(
+    agent: str, input_tokens: float, cache_read: float = 0, cache_write: float = 0
+) -> float:
+    """Cache-miss input tokens under the agent's storage convention."""
+    if agent in INCLUSIVE_INPUT_AGENTS:
+        return max(input_tokens - cache_read - cache_write, 0.0)
+    return input_tokens
+
+
 @dataclass(frozen=True)
 class SummaryRow:
     agent: str

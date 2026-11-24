@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from backend.db import database as db_module
-from backend.db.models import TokenRecord, insert_records
+from backend.db.models import TokenRecord, insert_records, uncached_input
 from backend.quota import multipliers as mult_module
 from backend.quota.base import QuotaSnapshot, QuotaWindow
 from backend.quota.registry import get_registry
@@ -290,21 +290,40 @@ def test_xiaomi_multipliers():
 # ── Local estimates (no credential / API failure fallback) ──────
 
 
+@pytest.mark.unit
+def test_uncached_input_follows_agent_convention():
+    """token_usage.input_tokens 的口径随采集器而异：zcode 沿用 ZCode 原值（含缓存
+    读取），其余采集器入库即为未命中输入。"""
+    assert uncached_input("zcode", 5000, 4000) == 1000
+    assert uncached_input("zcode", 5000, 4000, 500) == 500   # 缓存写入同属提示词
+    assert uncached_input("zcode", 3000, 4000) == 0          # 不为负
+    assert uncached_input("hermes", 1000, 5000) == 1000      # 原样
+    assert uncached_input("", 1000) == 1000
+
+
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_xiaomi_estimate_counts_uncached_input(client):
-    """``token_usage.input_tokens`` 入库时已是「未命中缓存」口径（采集器把缓存
-    读/写拆到了独立列）。估算不得再减一次 cache_read——Agent 场景下缓存读取
-    远大于新输入，那样会把未缓存输入直接减没，而它正是 Credits 消耗的大头。"""
+async def test_xiaomi_estimate_respects_token_convention(client):
+    """估算必须按各采集器的 input_tokens 口径还原未命中输入。
+
+    实测教训（2026-11-25）：ZCode 的 inputTokens 是含缓存读取的完整提示词长度
+    （raw usage: totalTokens = inputTokens + outputTokens），未命中只占 ~2-4%。
+    把它当未命中输入计费会让估算虚高一个数量级；而对 hermes 等采集器的行做
+    ``input - cache_read`` 又会把未命中输入减没。"""
     now = datetime.now(UTC)
     db = await db_module.get_db()
     await insert_records(db, [
-        TokenRecord(timestamp=now.isoformat(), agent="opencode", model="mimo-v2.6-pro",
+        # hermes：input 即未命中输入
+        TokenRecord(timestamp=now.isoformat(), agent="hermes", model="mimo-v2.6-pro",
                     input_tokens=1000, output_tokens=100, cache_read_tokens=5000),
+        # zcode：input 含缓存读取 → 未命中 = 5000 - 4000
+        TokenRecord(timestamp=now.isoformat(), agent="zcode", model="mimo-v2.6-pro",
+                    input_tokens=5000, output_tokens=100, cache_read_tokens=4000),
     ])
     snap = await XiaomiQuotaProvider({"enabled": True, "plan_type": "pro"})._estimate()
-    # 5000×2.5 + 1000×300 + 100×600
-    assert snap.main_window.used == pytest.approx(372_500.0)
+    # hermes: 1000×300 + 5000×2.5 + 100×600 = 372,500
+    # zcode : 1000×300 + 4000×2.5 + 100×600 = 370,000
+    assert snap.main_window.used == pytest.approx(742_500.0)
     assert snap.main_window.total == 38_000_000_000.0
     assert snap.main_window.unit == "credits"
 
@@ -312,19 +331,23 @@ async def test_xiaomi_estimate_counts_uncached_input(client):
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_zhipu_credit_estimate_formula(client):
-    """积分制估算 =（未缓存输入×Input + 缓存命中×Cached + 输出×Output）/ 10000。"""
+    """积分制估算 =（未命中输入×Input + 缓存命中×Cached + 输出×Output）/ 10000，
+    未命中输入按采集器口径还原。"""
     now = datetime.now(UTC)
     db = await db_module.get_db()
     await insert_records(db, [
-        TokenRecord(timestamp=now.isoformat(), agent="zcode", model="glm-5.4",
+        TokenRecord(timestamp=now.isoformat(), agent="hermes", model="glm-5.4",
                     input_tokens=10_000, output_tokens=1_000, cache_read_tokens=50_000),
+        TokenRecord(timestamp=now.isoformat(), agent="zcode", model="glm-5.3",
+                    input_tokens=60_000, output_tokens=1_000, cache_read_tokens=50_000),
     ])
     p = ZhipuQuotaProvider({"enabled": True, "plan_type": "pro"})
     assert p.mode == "credits"
     snap = await p._estimate()
-    expected = (10_000 * 4.6 + 50_000 * 1.1 + 1_000 * 16.0) / 10_000  # = 11.7
-    assert snap.main_window.used == pytest.approx(expected)
-    assert snap.extra_windows[0].used == pytest.approx(expected)
+    # hermes glm-5.4: (10000×4.6 + 50000×1.1 + 1000×16) / 10000 = 11.7
+    # zcode  glm-5.3: (10000×6.9 + 50000×1.7 + 1000×24) / 10000 = 17.8
+    assert snap.main_window.used == pytest.approx(29.5)
+    assert snap.extra_windows[0].used == pytest.approx(29.5)
     assert snap.main_window.total == 12_000.0
     assert snap.main_window.unit == "credits"
     assert snap.source == "estimate"
