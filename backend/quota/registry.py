@@ -43,11 +43,13 @@ def _ensure_providers_registered() -> None:
     if _PROVIDERS:
         return
     # Import side-effect: registers class in _PROVIDERS
+    from backend.quota.bailian import BailianQuotaProvider
     from backend.quota.xiaomi import XiaomiQuotaProvider
     from backend.quota.zhipu import ZhipuQuotaProvider
 
     _PROVIDERS[ZhipuQuotaProvider.provider_id] = ZhipuQuotaProvider
     _PROVIDERS[XiaomiQuotaProvider.provider_id] = XiaomiQuotaProvider
+    _PROVIDERS[BailianQuotaProvider.provider_id] = BailianQuotaProvider
 
 
 # ── Config loading ─────────────────────────────────────────────
@@ -62,6 +64,8 @@ def _load_config() -> dict[str, dict[str, Any]]:
       TOKEN_STAT_ZHIPU_PLAN_TYPE      → zhipu.plan_type
       TOKEN_STAT_XIAOMI_COOKIE        → xiaomi.cookie (session_token)
       TOKEN_STAT_XIAOMI_PLAN_TYPE     → xiaomi.plan_type
+      TOKEN_STAT_BAILIAN_ACCESS_KEY_ID     → bailian.access_key_id
+      TOKEN_STAT_BAILIAN_ACCESS_KEY_SECRET → bailian.access_key_secret
     """
     import os
 
@@ -96,8 +100,16 @@ def _load_config() -> dict[str, dict[str, Any]]:
     if xiaomi_plan:
         config.setdefault("xiaomi", {})["plan_type"] = xiaomi_plan
 
+    bailian_ak_id = os.environ.get("TOKEN_STAT_BAILIAN_ACCESS_KEY_ID", "")
+    if bailian_ak_id:
+        config.setdefault("bailian", {})["access_key_id"] = bailian_ak_id
+
+    bailian_ak_secret = os.environ.get("TOKEN_STAT_BAILIAN_ACCESS_KEY_SECRET", "")
+    if bailian_ak_secret:
+        config.setdefault("bailian", {})["access_key_secret"] = bailian_ak_secret
+
     # Ensure every provider has an "enabled" key (default False).
-    for pid in ("zhipu", "xiaomi"):
+    for pid in ("zhipu", "xiaomi", "bailian"):
         cfg = config.setdefault(pid, {})
         cfg.setdefault("enabled", False)
 

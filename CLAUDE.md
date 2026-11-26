@@ -13,7 +13,7 @@ ai-token-usage-statistics/
 │   ├── collectors/          # 各 Agent 数据采集器
 │   ├── db/                  # SQLite 连接与表结构
 │   ├── pricing/             # 模型定价与费用计算
-│   └── quota/               # 套餐余量监控（Zhipu、Xiaomi）
+│   └── quota/               # 套餐余量监控（Zhipu、Xiaomi、Bailian）
 ├── frontend/
 │   └── src/
 │       ├── App.svelte       # 主应用组件
@@ -58,6 +58,7 @@ cd frontend && npm install && npm run dev
 支持查询大模型套餐剩余用量，当前支持：
 - **智谱 GLM Coding Plan**（Lite/Pro/Max，5小时窗口 + 周额度；2026-07-30 起为积分制，接口返回 `CREDIT_LIMIT` 时自动识别，历史 V2 prompt 制返回 `TOKENS_LIMIT`）
 - **小米 MiMo Token Plan**（Lite/Standard/Pro/Max，月度 Credits）
+- **阿里云百炼 Token Plan 团队版**（各席位 Credits 额度 + 周期重置时间 + 成员分配 + 订阅到期）。走纯 AK/SK 签名的官方 OpenAPI `GetSubscriptionSeatDetails`（ACS3-HMAC-SHA256，`modelstudio.cn-beijing.aliyuncs.com`，Version 2026-02-10），凭据为管理员提供的阿里云 AccessKey 对（`access_key_id`/`access_key_secret`，建议 RAM 只读子用户）。**无本地估算回退**（没有可靠的 Credits 定价表），失败回 error 快照。席位窗口用 `QuotaWindow.label` 携带「成员 · 档位（状态）」标签，主窗口为团队合计。
 
 套餐卡片底部展示各模型的消耗倍率（积分抵扣系数「输入/缓存/输出」或 prompt 消耗倍率，含非高峰/夜间折扣与生效时段，官方标注的限时活动带「限时」角标）。模型与倍率数据由 `backend/quota/multipliers.py` 自动从官方文档中心同步（智谱 `docs.bigmodel.cn/cn/coding-plan/*.md`、小米 `mimo.mi.com/static/docs/...`，启动时 + 每 6h 刷新，`POST /api/quota/multipliers/refresh` 可手动刷新），失败时回退到本地缓存与内置快照。官方改价常用「~~旧值~~ 新值」删除线标记，解析前会先规范化这类编辑标记；若某次解析比上次少了模型，仍会应用更新但会在日志里留 WARNING（可能是官方下线/改名，也可能是页面格式又变了）。
 

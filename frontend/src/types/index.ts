@@ -128,6 +128,7 @@ export interface QuotaWindow {
   ratio: number;
   unit: string;
   reset_at: string | null;
+  label?: string | null; // 自定义窗口标签（如百炼席位名），缺省时按 provider 推断
 }
 
 export interface ModelMultiplier {

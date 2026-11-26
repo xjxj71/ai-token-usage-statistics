@@ -12,7 +12,10 @@
   let saveMsg = $state<{ provider: string; ok: boolean; text: string } | null>(null);
 
   // Settings form state per provider
-  let settingsForms = $state<Record<string, { enabled: boolean; plan_type: string; session_token: string }>>({});
+  let settingsForms = $state<Record<string, {
+    enabled: boolean; plan_type: string; session_token: string;
+    access_key_id: string; access_key_secret: string;
+  }>>({});
 
   function ratioColor(ratio: number): string {
     if (ratio >= 0.95) return "var(--red)";
@@ -56,6 +59,9 @@
   function windowLabel(snapshot: QuotaSnapshot, idx: number): string {
     if (snapshot.provider === "zhipu") {
       return idx === 0 ? "5小时窗口" : "周额度";
+    }
+    if (snapshot.provider === "bailian") {
+      return idx === 0 ? "团队合计" : "席位额度";
     }
     return "本月额度";
   }
@@ -102,6 +108,8 @@
           plan_type: p.plan_type || "pro",
           // Keep in-progress secret input so a background refresh doesn't wipe it.
           session_token: prev?.session_token ?? "",
+          access_key_id: prev?.access_key_id ?? "",
+          access_key_secret: prev?.access_key_secret ?? "",
         };
       }
     } catch (e: any) {
@@ -130,13 +138,20 @@
     savingProvider = providerId;
     saveMsg = null;
     try {
-      const updates: Partial<{ enabled: boolean; plan_type: string; session_token: string }> = {
-        enabled: form.enabled,
-        plan_type: form.plan_type,
-      };
-      // Only send session_token if user typed something (non-empty)
-      if (form.session_token) {
-        updates.session_token = form.session_token;
+      const updates: Partial<{
+        enabled: boolean; plan_type: string; session_token: string;
+        access_key_id: string; access_key_secret: string;
+      }> = { enabled: form.enabled };
+      if (providerId === "bailian") {
+        // 百炼用 AK/SK 对，无套餐下拉（档位来自 API）；只在非空时发送，避免覆盖已存凭据
+        if (form.access_key_id) updates.access_key_id = form.access_key_id;
+        if (form.access_key_secret) updates.access_key_secret = form.access_key_secret;
+      } else {
+        updates.plan_type = form.plan_type;
+        // Only send session_token if user typed something (non-empty)
+        if (form.session_token) {
+          updates.session_token = form.session_token;
+        }
       }
       await updateProviderConfig(providerId, updates);
       saveMsg = { provider: providerId, ok: true, text: "已保存" };
@@ -192,7 +207,11 @@
             <div class="settings-info">
               <span class="font-semibold text-sm">{p.display_name}</span>
               <span class="text-[11px] {p.enabled ? 'text-[var(--green)]' : 'text-[var(--text-3)]'}">
-                {p.enabled ? (p.has_credential ? "已启用 · 实时查询" : "已启用 · 估算模式") : "未启用"}
+                {p.enabled
+                  ? (p.has_credential
+                      ? "已启用 · 实时查询"
+                      : (p.provider_id === "bailian" ? "已启用 · 待配置 AccessKey" : "已启用 · 估算模式"))
+                  : "未启用"}
               </span>
             </div>
             <div class="settings-controls">
@@ -200,24 +219,39 @@
                 <input type="checkbox" bind:checked={form.enabled} />
                 <span class="text-xs">启用</span>
               </label>
-              <select bind:value={form.plan_type} class="plan-select">
-                {#if p.provider_id === "zhipu"}
-                  <option value="lite">Lite</option>
-                  <option value="pro">Pro</option>
-                  <option value="max">Max</option>
-                {:else if p.provider_id === "xiaomi"}
-                  <option value="lite">Lite</option>
-                  <option value="standard">Standard</option>
-                  <option value="pro">Pro</option>
-                  <option value="max">Max</option>
-                {/if}
-              </select>
-              <input
-                type="password"
-                placeholder={p.provider_id === "zhipu" ? "API Key / Session Token" : "Cookie"}
-                bind:value={form.session_token}
-                class="token-input"
-              />
+              {#if p.provider_id === "bailian"}
+                <input
+                  type="password"
+                  placeholder="AccessKey ID"
+                  bind:value={form.access_key_id}
+                  class="token-input ak-input"
+                />
+                <input
+                  type="password"
+                  placeholder="AccessKey Secret"
+                  bind:value={form.access_key_secret}
+                  class="token-input ak-input"
+                />
+              {:else}
+                <select bind:value={form.plan_type} class="plan-select">
+                  {#if p.provider_id === "zhipu"}
+                    <option value="lite">Lite</option>
+                    <option value="pro">Pro</option>
+                    <option value="max">Max</option>
+                  {:else if p.provider_id === "xiaomi"}
+                    <option value="lite">Lite</option>
+                    <option value="standard">Standard</option>
+                    <option value="pro">Pro</option>
+                    <option value="max">Max</option>
+                  {/if}
+                </select>
+                <input
+                  type="password"
+                  placeholder={p.provider_id === "zhipu" ? "API Key / Session Token" : "Cookie"}
+                  bind:value={form.session_token}
+                  class="token-input"
+                />
+              {/if}
               <button class="save-btn" disabled={savingProvider === p.provider_id} onclick={() => saveSettings(p.provider_id)}>
                 {savingProvider === p.provider_id ? "保存中..." : "保存"}
               </button>
@@ -231,7 +265,8 @@
       <div class="settings-hint">
         <span class="text-[11px] text-[var(--text-3)]">
           <strong>智谱：</strong>填 API Key 可实时查询套餐使用率（Coding Plan 官方接口，推荐）；填 bigmodel.cn 浏览器 Session Token 还能获取现金余额与到期时间。凭据由你手动填写，仅保存在本地 config。<br />
-          <strong>小米：</strong>必须从 Network 面板复制完整 Cookie（包含 HttpOnly 的 serviceToken），document.cookie 拿不到。
+          <strong>小米：</strong>必须从 Network 面板复制完整 Cookie（包含 HttpOnly 的 serviceToken），document.cookie 拿不到。<br />
+          <strong>百炼：</strong>查询团队版各席位额度与重置时间。AccessKey 需由管理员在阿里云主账号下创建 RAM 子用户生成（建议仅授百炼只读权限），一次填写长期可用；凭据仅保存在本地 config。
         </span>
       </div>
     </div>
@@ -271,7 +306,7 @@
               {@const color = ratioColor(win.ratio)}
               <div class="window-item">
                 <div class="window-header">
-                  <span class="window-label">{windowLabel(snap, idx)}</span>
+                  <span class="window-label">{win.label || windowLabel(snap, idx)}</span>
                   <span class="window-value">
                     {formatNumber(win.used, win.unit)} / {formatNumber(win.total, win.unit)}
                     <span class="text-[var(--text-3)] text-[10px] ml-1">{win.unit}</span>
@@ -447,6 +482,9 @@
   .token-input:focus {
     border-color: var(--primary);
   }
+  .ak-input {
+    width: 160px;
+  }
   .settings-hint {
     padding-top: 4px;
     font-size: 11px;
@@ -489,6 +527,7 @@
   .plan-standard { background: rgba(59, 130, 246, 0.2); color: var(--blue); }
   .plan-pro { background: rgba(99, 102, 241, 0.2); color: var(--primary-hover); }
   .plan-max { background: rgba(139, 92, 246, 0.2); color: var(--purple); }
+  .plan-team { background: rgba(249, 115, 22, 0.18); color: var(--amber); }
   .source-badge {
     font-size: 10px;
     font-weight: 500;

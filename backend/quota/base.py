@@ -26,6 +26,7 @@ class QuotaWindow:
     total: float
     unit: str = "prompts"  # "prompts" | "credits" | "tokens"
     reset_at: str | None = None  # ISO-8601 timestamp when the window resets
+    label: str | None = None  # 自定义窗口标签（如百炼席位名），None 时前端按 provider 推断
 
     @property
     def remaining(self) -> float:

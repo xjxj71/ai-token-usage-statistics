@@ -8,6 +8,8 @@
 #   TOKEN_STAT_ZHIPU_PLAN_TYPE       → zhipu.plan_type
 #   TOKEN_STAT_XIAOMI_COOKIE         → xiaomi.session_token
 #   TOKEN_STAT_XIAOMI_PLAN_TYPE      → xiaomi.plan_type
+#   TOKEN_STAT_BAILIAN_ACCESS_KEY_ID     → bailian.access_key_id
+#   TOKEN_STAT_BAILIAN_ACCESS_KEY_SECRET → bailian.access_key_secret
 
 providers:
   zhipu:
@@ -23,3 +25,12 @@ providers:
     enabled: false
     plan_type: standard
     session_token: "YOUR_XIAOMI_COOKIE"
+
+  bailian:
+    # 阿里云百炼 Token Plan（团队版）。AccessKey 由管理员在主账号下创建
+    # RAM 只读子用户生成（建议仅授予百炼只读权限），一次配置长期可用。
+    enabled: false
+    access_key_id: "YOUR_ALIYUN_ACCESS_KEY_ID"
+    access_key_secret: "YOUR_ALIYUN_ACCESS_KEY_SECRET"
+    # 地域：cn-beijing（默认，国内站）/ ap-southeast-1（国际站）
+    region: cn-beijing

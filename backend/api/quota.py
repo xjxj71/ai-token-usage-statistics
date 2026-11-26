@@ -43,6 +43,7 @@ def _window_to_dict(w: QuotaWindow | None) -> dict[str, Any] | None:
         "ratio": round(w.ratio, 4),
         "unit": w.unit,
         "reset_at": w.reset_at,
+        "label": w.label,
     }
 
 
@@ -135,6 +136,9 @@ class ProviderConfigUpdate(BaseModel):
     enabled: bool | None = None
     plan_type: str | None = None
     session_token: str | None = None
+    # 百炼团队版：阿里云 AccessKey 对（RAM 子用户，只读权限）
+    access_key_id: str | None = None
+    access_key_secret: str | None = None
 
 
 @router.put("/quota/config")
@@ -175,6 +179,10 @@ async def update_provider_config(body: ProviderConfigUpdate, request: Request):
     if body.session_token is not None:
         # Allow clearing by sending an empty string.
         prov_cfg["session_token"] = body.session_token
+    if body.access_key_id is not None:
+        prov_cfg["access_key_id"] = body.access_key_id
+    if body.access_key_secret is not None:
+        prov_cfg["access_key_secret"] = body.access_key_secret
 
     # Persist to YAML.
     _CONFIG_YAML.parent.mkdir(parents=True, exist_ok=True)
@@ -200,5 +208,8 @@ async def update_provider_config(body: ProviderConfigUpdate, request: Request):
             "enabled": prov_cfg.get("enabled"),
             "plan_type": prov_cfg.get("plan_type"),
             "has_session_token": bool(prov_cfg.get("session_token")),
+            "has_access_key": bool(
+                prov_cfg.get("access_key_id") and prov_cfg.get("access_key_secret")
+            ),
         },
     }

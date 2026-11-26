@@ -354,6 +354,7 @@ def test_registry_has_providers():
     reg.reload()
     assert "zhipu" in reg.providers
     assert "xiaomi" in reg.providers
+    assert "bailian" in reg.providers
 
 
 @pytest.mark.integration
@@ -381,6 +382,7 @@ async def test_quota_providers_api(client):
     ids = {p["provider_id"] for p in providers}
     assert "zhipu" in ids
     assert "xiaomi" in ids
+    assert "bailian" in ids
 
 
 @pytest.mark.integration

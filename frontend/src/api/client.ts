@@ -171,7 +171,13 @@ export async function refreshExchangeRate(): Promise<ConfigResponse> {
 
 export async function updateProviderConfig(
   provider: string,
-  config: Partial<{ enabled: boolean; plan_type: string; session_token: string }>,
+  config: Partial<{
+    enabled: boolean;
+    plan_type: string;
+    session_token: string;
+    access_key_id: string;
+    access_key_secret: string;
+  }>,
 ): Promise<{ status: string }> {
   const res = await fetchWithTimeout(`${BASE}/quota/config`, {
     method: "PUT",

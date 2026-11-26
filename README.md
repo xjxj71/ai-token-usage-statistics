@@ -19,7 +19,7 @@
 - **会话明细钻取**：会话级汇总列表，点击行内展开查看该会话的每条请求明细
 - **环比对比**：统计卡展示较上一周期（今日→昨日同时段、7 天→前 7 天）的涨跌
 - **用量报告**：一键生成日报/周报（消耗概览、Top Agent/模型/项目、套餐余量），支持复制 Markdown
-- **套餐余量监控**：实时查询智谱 GLM Coding Plan、小米 MiMo Token Plan 的剩余用量（需提供浏览器 Cookie / Session Token）；卡片底部展示各模型的消耗倍率（抵扣系数/消耗倍率及非高峰折扣、生效时段），模型与倍率自动从官方文档中心同步最新数据
+- **套餐余量监控**：实时查询智谱 GLM Coding Plan、小米 MiMo Token Plan 的剩余用量（需提供浏览器 Cookie / Session Token），以及阿里云百炼 Token Plan 团队版各席位的额度与重置时间（需管理员提供阿里云 AccessKey）；卡片底部展示各模型的消耗倍率（抵扣系数/消耗倍率及非高峰折扣、生效时段），模型与倍率自动从官方文档中心同步最新数据
 - **费用估算**：按定价表自动计算使用成本——定价表可在前端编辑、可一键从 OpenRouter 刷新，对新入库的记录即时生效；内置默认价来自 `config/model_pricing.yaml`（GLM、MiMo 等为官方价，已下线或官方未公布的条目为标注过的估算值）
 - **人民币显示**：所有费用以人民币（¥）显示，汇率支持自动获取（含刷新按钮），支持一键从 OpenRouter 获取最新定价
 - **数据管理**：明细保留策略（超期数据先按天聚合归档再删除，趋势与汇总历史永久保留）+ SQLite 自动/手动备份
@@ -126,8 +126,12 @@ npm run build      # 生产构建（由 FastAPI 托管）
 | `TOKEN_STAT_AUTO_BACKUP` | `true` | 是否每日自动备份到 `data/backups/` |
 | `TOKEN_STAT_ZHIPU_SESSION_TOKEN` | — | 智谱 Coding Plan 的 Session Token |
 | `TOKEN_STAT_XIAOMI_COOKIE` | — | 小米 MiMo Token Plan 的完整 Cookie |
+| `TOKEN_STAT_BAILIAN_ACCESS_KEY_ID` | — | 阿里云百炼 Token Plan 的 AccessKey ID |
+| `TOKEN_STAT_BAILIAN_ACCESS_KEY_SECRET` | — | 阿里云百炼 Token Plan 的 AccessKey Secret |
 
-> **套餐凭据配置**：智谱/小米的凭据也可写在 `config/quota_providers.yaml`（从 [`config/quota_providers.example.yaml`](config/quota_providers.example.yaml) 复制模板填写）。该文件包含敏感凭据，已被 `.gitignore` 忽略，**切勿提交到仓库**。
+> **套餐凭据配置**：智谱/小米/百炼的凭据也可写在 `config/quota_providers.yaml`（从 [`config/quota_providers.example.yaml`](config/quota_providers.example.yaml) 复制模板填写），或直接在前端"套餐余量监控 → 设置"面板填写。该文件包含敏感凭据，已被 `.gitignore` 忽略，**切勿提交到仓库**。
+>
+> **百炼 AccessKey 获取**：查询团队版席位额度走阿里云官方 OpenAPI（AK/SK 签名），需由**管理员**在主账号下创建 RAM 子用户并生成 AccessKey（建议仅授予百炼只读权限）。AK 为长期凭证，一次配置后无需重复提供；管理员可随时禁用该 AK 收回授权。
 
 ### 数据源路径
 
@@ -220,7 +224,7 @@ ai-token-usage-statistics/
 │   ├── collectors/          # 各 Agent 数据采集器
 │   ├── db/                  # SQLite 连接、表结构与迁移
 │   ├── pricing/             # 模型定价与费用计算
-│   └── quota/               # 套餐余量监控（Zhipu、Xiaomi）
+│   └── quota/               # 套餐余量监控（Zhipu、Xiaomi、Bailian）
 ├── frontend/
 │   └── src/
 │       ├── App.svelte       # 主应用组件
@@ -242,7 +246,7 @@ ai-token-usage-statistics/
 
 ### 安全提示
 
-- `config/quota_providers.yaml` 含上游会话凭据，已被 `.gitignore` 忽略，**切勿提交**。若曾提交过该文件，请立即轮换智谱 / 小米凭据，并视情况清理 git 历史。
+- `config/quota_providers.yaml` 含上游会话凭据，已被 `.gitignore` 忽略，**切勿提交**。若曾提交过该文件，请立即轮换智谱 / 小米凭据、禁用相关阿里云 AccessKey，并视情况清理 git 历史。
 - 默认只监听 `127.0.0.1`。若绑定到 `0.0.0.0` 或放在反向代理后，请设置 `TOKEN_STAT_API_KEY`，并为写入类接口与备份下载启用鉴权。
 
 ## 测试

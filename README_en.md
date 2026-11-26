@@ -19,7 +19,7 @@ A web dashboard for monitoring and visualizing token consumption and costs of mu
 - **Session Drill-down**: Session-level aggregates with click-to-expand per-request details
 - **Period Comparison**: Stat cards show deltas vs the previous period (today→yesterday same time, 7d→prior 7d)
 - **Usage Report**: One-click daily/weekly report (overview, Top agents/models/projects, plan quota) with Markdown copy
-- **Quota Monitoring**: Live remaining quota for Zhipu GLM Coding Plan and Xiaomi MiMo Token Plan (requires browser cookie / session token); each card shows per-model consumption multipliers / credit rates with off-peak discounts and effective windows, kept up to date automatically from the vendors' documentation centres
+- **Quota Monitoring**: Live remaining quota for Zhipu GLM Coding Plan and Xiaomi MiMo Token Plan (requires browser cookie / session token), plus per-seat quota and reset times for Alibaba Cloud Bailian Token Plan team edition (requires an Alibaba Cloud AccessKey from the account admin); each card shows per-model consumption multipliers / credit rates with off-peak discounts and effective windows, kept up to date automatically from the vendors' documentation centres
 - **Cost Estimation**: Costs are computed from the pricing table — editable in the UI and refreshable from OpenRouter in one click, taking effect on new records immediately. Built-in defaults come from `config/model_pricing.yaml` (official list prices for GLM / MiMo; labelled estimates where a model is retired or has no published price)
 - **CNY Display**: All costs displayed in Chinese Yuan (CNY) with auto-fetched exchange rate (plus manual refresh), one-click pricing refresh from OpenRouter
 - **Data Management**: Retention policy (raw details archived into daily aggregates before deletion — trend/summary history is preserved forever) and SQLite backups (daily auto + manual)
@@ -126,8 +126,12 @@ Configure via environment variables or `config.py` (prefix `TOKEN_STAT_`):
 | `TOKEN_STAT_AUTO_BACKUP` | `true` | Daily automatic backup into `data/backups/` |
 | `TOKEN_STAT_ZHIPU_SESSION_TOKEN` | — | Zhipu Coding Plan session token |
 | `TOKEN_STAT_XIAOMI_COOKIE` | — | Xiaomi MiMo Token Plan full cookie |
+| `TOKEN_STAT_BAILIAN_ACCESS_KEY_ID` | — | Alibaba Cloud Bailian Token Plan AccessKey ID |
+| `TOKEN_STAT_BAILIAN_ACCESS_KEY_SECRET` | — | Alibaba Cloud Bailian Token Plan AccessKey Secret |
 
-> **Quota credentials**: Zhipu/Xiaomi credentials can also be stored in `config/quota_providers.yaml` (copy from [`config/quota_providers.example.yaml`](config/quota_providers.example.yaml)). That file holds sensitive credentials and is gitignored — **never commit it**.
+> **Quota credentials**: Zhipu/Xiaomi/Bailian credentials can also be stored in `config/quota_providers.yaml` (copy from [`config/quota_providers.example.yaml`](config/quota_providers.example.yaml)), or entered in the frontend "Quota Monitoring → Settings" panel. That file holds sensitive credentials and is gitignored — **never commit it**.
+>
+> **Bailian AccessKey**: team-edition seat quota is queried via Alibaba Cloud's official OpenAPI (AK/SK signed). The **account admin** must create a RAM user under the primary account and generate an AccessKey (read-only Bailian permissions recommended). The AK is a long-lived credential — configure once, no repeated hand-off; the admin can disable it at any time to revoke access.
 
 ### Data Source Paths
 
@@ -220,7 +224,7 @@ ai-token-usage-statistics/
 │   ├── collectors/          # Agent data collectors
 │   ├── db/                  # SQLite connection, schema and migrations
 │   ├── pricing/             # Model pricing and cost calculation
-│   └── quota/               # Plan quota monitoring (Zhipu, Xiaomi)
+│   └── quota/               # Plan quota monitoring (Zhipu, Xiaomi, Bailian)
 ├── frontend/
 │   └── src/
 │       ├── App.svelte       # Main application component
