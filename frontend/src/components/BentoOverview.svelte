@@ -82,7 +82,7 @@
 
 <div class="bento">
   <!-- 总 Token hero（核心指标） -->
-  <div class="tile b-hero" use:tilt>
+  <div class="tile b-hero" use:tilt={{ max: 5 }}>
     <div class="t-label">总 TOKEN · 当前范围 <span>核心指标</span></div>
     <div class="t-hero" use:countUp={{ value: summary.total_tokens, format: formatNumber, duration: 1000 }}></div>
     {#if d("total_tokens") !== undefined}
@@ -124,29 +124,29 @@
   </div>
 
   <!-- 四个小指标 -->
-  <div class="tile b-2" use:tilt={{ max: 4 }}>
+  <div class="tile b-2" use:tilt={{ max: 5 }}>
     <div class="t-label">输入</div>
     <div class="t-sm" use:countUp={{ value: summary.input_tokens, format: formatNumber }}></div>
     {#if d("input_tokens") !== undefined}<div class="delta mini" class:good={(d("input_tokens") ?? 0) > 0} class:bad={(d("input_tokens") ?? 0) <= 0}>{(d("input_tokens") ?? 0) > 0 ? "↑" : "↓"} {Math.abs(d("input_tokens") ?? 0).toFixed(1)}%</div>{/if}
   </div>
-  <div class="tile b-2" use:tilt={{ max: 4 }}>
+  <div class="tile b-2" use:tilt={{ max: 5 }}>
     <div class="t-label">输出</div>
     <div class="t-sm" use:countUp={{ value: summary.output_tokens, format: formatNumber }}></div>
     {#if d("output_tokens") !== undefined}<div class="delta mini" class:good={(d("output_tokens") ?? 0) > 0} class:bad={(d("output_tokens") ?? 0) <= 0}>{(d("output_tokens") ?? 0) > 0 ? "↑" : "↓"} {Math.abs(d("output_tokens") ?? 0).toFixed(1)}%</div>{/if}
   </div>
-  <div class="tile b-2" use:tilt={{ max: 4 }}>
+  <div class="tile b-2" use:tilt={{ max: 5 }}>
     <div class="t-label">思考</div>
     <div class="t-sm" use:countUp={{ value: summary.reasoning_tokens, format: formatNumber }}></div>
     {#if d("reasoning_tokens") !== undefined}<div class="delta mini" class:good={(d("reasoning_tokens") ?? 0) > 0} class:bad={(d("reasoning_tokens") ?? 0) <= 0}>{(d("reasoning_tokens") ?? 0) > 0 ? "↑" : "↓"} {Math.abs(d("reasoning_tokens") ?? 0).toFixed(1)}%</div>{/if}
   </div>
-  <div class="tile b-2" use:tilt={{ max: 4 }}>
+  <div class="tile b-2" use:tilt={{ max: 5 }}>
     <div class="t-label">缓存</div>
     <div class="t-sm" use:countUp={{ value: summary.cache_tokens, format: formatNumber }}></div>
     {#if d("cache_tokens") !== undefined}<div class="delta mini" class:good={(d("cache_tokens") ?? 0) > 0} class:bad={(d("cache_tokens") ?? 0) <= 0}>{(d("cache_tokens") ?? 0) > 0 ? "↑" : "↓"} {Math.abs(d("cache_tokens") ?? 0).toFixed(1)}%</div>{/if}
   </div>
 
   <!-- 趋势大图 -->
-  <div class="tile b-trend" use:tilt={{ max: 1.5 }}>
+  <div class="tile b-trend" use:tilt={{ max: 2.5 }}>
     <TrendLine data={trendByAgent} title="Token 用量趋势 · 按 Agent" />
   </div>
 
@@ -178,9 +178,9 @@
   </div>
 
   <!-- 分布三图 -->
-  <div class="tile b-tall" use:tilt={{ max: 1.5 }}><AgentPie breakdown={agentBreakdown} /></div>
-  <div class="tile b-tall" use:tilt={{ max: 1.5 }}><ModelBar breakdown={modelBreakdown} /></div>
-  <div class="tile b-tall" use:tilt={{ max: 1.5 }}><ProjectBar breakdown={projectBreakdown} /></div>
+  <div class="tile b-tall" use:tilt={{ max: 2.5 }}><AgentPie breakdown={agentBreakdown} /></div>
+  <div class="tile b-tall" use:tilt={{ max: 2.5 }}><ModelBar breakdown={modelBreakdown} /></div>
+  <div class="tile b-tall" use:tilt={{ max: 2.5 }}><ProjectBar breakdown={projectBreakdown} /></div>
 </div>
 
 <style>
@@ -196,8 +196,8 @@
     padding: 15px 17px;
     position: relative;
     overflow: hidden;
-    transition: transform .25s cubic-bezier(.2, .7, .3, 1), border-color .25s, box-shadow .25s;
-    animation: tile-in .5s cubic-bezier(.2, .7, .3,1) backwards;
+    transition: border-color .25s, box-shadow .25s;
+    animation: tile-in .55s cubic-bezier(.2, .7, .3, 1) backwards;
   }
   .tile:nth-child(1) { animation-delay: 0ms; }
   .tile:nth-child(2) { animation-delay: 50ms; }
@@ -212,7 +212,29 @@
   .tile:nth-child(11) { animation-delay: 500ms; }
   .tile:nth-child(12) { animation-delay: 550ms; }
   .tile:nth-child(13) { animation-delay: 600ms; }
-  @keyframes tile-in { from { opacity: 0; transform: translateY(14px); } }
+  @keyframes tile-in { from { opacity: 0; transform: translateY(18px) scale(.97); } }
+
+  /* hero 旋转光束边框 */
+  @property --beam {
+    syntax: '<angle>';
+    initial-value: 0deg;
+    inherits: false;
+  }
+  .b-hero::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1.5px;
+    background: conic-gradient(from var(--beam), transparent 0%, rgba(var(--primary-rgb), .9) 10%, transparent 22%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+    animation: beam-spin 5s linear infinite;
+  }
+  @keyframes beam-spin { to { --beam: 360deg; } }
   .tile:hover {
     border-color: rgba(var(--primary-rgb), .35);
     box-shadow: 0 8px 24px rgba(var(--bg-rgb), .5);
@@ -306,8 +328,5 @@
     .b-hero, .b-4, .b-trend, .b-tall { grid-column: span 2; }
     .b-2 { grid-column: span 1; }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .tile, .feed-item.fresh { animation: none; }
-    .tile, .cache-ring circle { transition: none; }
-  }
+  /* 光束为低幅度周边动效，应用户要求不做 reduced-motion 门禁 */
 </style>

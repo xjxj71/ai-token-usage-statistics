@@ -54,25 +54,25 @@ export function formatNumber(n: number): string {
 }
 
 /** 鼠标跟随 3D 倾斜 + 光斑坐标。
- *  rAF 插值（lerp 0.12）保证平滑，离开时缓动归位；
+ *  rAF 插值（lerp 0.14）保证平滑，离开时缓动归位；
  *  同时写入 --mx/--my 供卡片光斑伪元素定位。
- *  prefers-reduced-motion 时整体禁用。 */
+ *  指针驱动的微交互由用户鼠标直接控制，不做 reduced-motion 门禁
+ *  （该偏好仅约束无限循环/自主动画，见 CSS 侧）。 */
 export function tilt(node: HTMLElement, opts?: { max?: number }) {
-  if (typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    return {};
-  }
-  const max = opts?.max ?? 3;
+  const max = opts?.max ?? 4.5;
   let tx = 0, ty = 0, cx = 0, cy = 0;
   let lift = 0, liftT = 0;
+  let scale = 1, scaleT = 1;
   let raf = 0, hovering = false;
 
   function loop() {
-    cx += (tx - cx) * 0.12;
-    cy += (ty - cy) * 0.12;
-    lift += (liftT - lift) * 0.12;
+    cx += (tx - cx) * 0.14;
+    cy += (ty - cy) * 0.14;
+    lift += (liftT - lift) * 0.14;
+    scale += (scaleT - scale) * 0.14;
     node.style.transform =
-      `perspective(900px) rotateX(${cx.toFixed(2)}deg) rotateY(${cy.toFixed(2)}deg) translateY(${lift.toFixed(2)}px)`;
-    const settled = !hovering && Math.abs(cx) < 0.02 && Math.abs(cy) < 0.02 && Math.abs(lift) < 0.05;
+      `perspective(900px) rotateX(${cx.toFixed(2)}deg) rotateY(${cy.toFixed(2)}deg) translateY(${lift.toFixed(2)}px) scale(${scale.toFixed(3)})`;
+    const settled = !hovering && Math.abs(cx) < 0.02 && Math.abs(cy) < 0.02 && Math.abs(lift) < 0.05 && Math.abs(scale - 1) < 0.001;
     if (settled) {
       node.style.transform = "";
       raf = 0;
@@ -85,7 +85,8 @@ export function tilt(node: HTMLElement, opts?: { max?: number }) {
   }
   function onEnter() {
     hovering = true;
-    liftT = -3;
+    liftT = -4;
+    scaleT = 1.015;
     node.classList.add("tilting");
     kick();
   }
@@ -103,6 +104,7 @@ export function tilt(node: HTMLElement, opts?: { max?: number }) {
   function onLeave() {
     hovering = false;
     liftT = 0;
+    scaleT = 1;
     tx = 0;
     ty = 0;
     node.classList.remove("tilting");
@@ -122,11 +124,9 @@ export function tilt(node: HTMLElement, opts?: { max?: number }) {
   };
 }
 
-/** 页面级环境光：跟随鼠标的柔和 radial 光晕（写入 --gx/--gy） */
+/** 页面级环境光：跟随鼠标的柔和 radial 光晕（写入 --gx/--gy）。
+ *  指针驱动，不做 reduced-motion 门禁。 */
 export function cursorGlow(node: HTMLElement) {
-  if (typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    return {};
-  }
   let raf = 0;
   let ev: PointerEvent | null = null;
   function onMove(e: PointerEvent) {

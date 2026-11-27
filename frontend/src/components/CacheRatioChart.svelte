@@ -55,6 +55,10 @@
 
     return {
       backgroundColor: "transparent",
+      animationDuration: 900,
+      animationEasing: "cubicOut",
+      animationDurationUpdate: 700,
+      animationEasingUpdate: "cubicInOut",
       tooltip: {
         trigger: "axis",
         backgroundColor: P.tooltipBg,
@@ -113,6 +117,10 @@
 
     return {
       backgroundColor: "transparent",
+      animationDuration: 900,
+      animationEasing: "cubicOut",
+      animationDurationUpdate: 700,
+      animationEasingUpdate: "cubicInOut",
       tooltip: {
         trigger: "axis",
         backgroundColor: P.tooltipBg,
@@ -203,6 +211,10 @@
 
     return {
       backgroundColor: "transparent",
+      animationDuration: 900,
+      animationEasing: "cubicOut",
+      animationDurationUpdate: 700,
+      animationEasingUpdate: "cubicInOut",
       tooltip: {
         trigger: "axis",
         backgroundColor: P.tooltipBg,

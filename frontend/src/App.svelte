@@ -455,13 +455,10 @@
     flex-direction: column;
     gap: 14px;
     /* display none→flex 时自动重放，keep-alive 切换的入场动效 */
-    animation: view-in .3s cubic-bezier(.2, .7, .3, 1);
+    animation: view-in .34s cubic-bezier(.2, .7, .3, 1);
   }
   @keyframes view-in {
-    from { opacity: 0; transform: translateX(14px); }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .view { animation: none; }
+    from { opacity: 0; transform: translateX(20px) scale(.995); filter: blur(3px); }
   }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   @media (max-width: 1100px) { .grid2 { grid-template-columns: 1fr; } }

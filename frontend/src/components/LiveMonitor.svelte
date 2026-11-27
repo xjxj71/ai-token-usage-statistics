@@ -205,8 +205,5 @@
     .rail { flex-direction: row; flex-wrap: wrap; overflow: visible; }
     .r-card { flex: 1 1 240px; }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .rec.fresh { animation: none; }
-    .rec, .r-fill { transition: none; }
-  }
+  /* 新记录高亮由数据推送触发、一次性播放，不做 reduced-motion 门禁 */
 </style>

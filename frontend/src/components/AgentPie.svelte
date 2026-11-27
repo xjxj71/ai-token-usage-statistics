@@ -34,6 +34,10 @@
 
     return {
       backgroundColor: "transparent",
+      animationDuration: 900,
+      animationEasing: "cubicOut",
+      animationDurationUpdate: 700,
+      animationEasingUpdate: "cubicInOut",
       tooltip: {
         trigger: "item",
         backgroundColor: P.tooltipBg,

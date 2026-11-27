@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **动效加强**：鼠标跟随倾斜/光斑/环境光不再受 `prefers-reduced-motion` 门禁（指针驱动的微交互由用户直接控制；此前该开关在部分 WebView 环境恒为 true，导致动效几乎全被禁用）；倾斜幅度加大并叠加 scale 微放大；概览 hero 新增旋转光束边框；视图过渡加入 blur→清晰；ECharts 数据更新改为 700ms cubicInOut 平滑 morph
+
 ### Fixed
 - **视图切换卡顿**：改为 keep-alive——所有视图常驻 DOM，切换只改显隐，ECharts 不再每次重建（首次显示才初始化，之后仅 resize）；图表加 ResizeObserver，侧栏折叠 / 容器尺寸变化时自适应
 - **自定义日期范围**：点击输入框直接弹出原生日期选择器（`showPicker()`），`color-scheme` 随主题明暗渲染，深色下日历图标不再隐形
