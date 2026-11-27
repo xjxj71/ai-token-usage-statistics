@@ -525,7 +525,7 @@
   }
   .plan-lite { background: rgba(148, 163, 184, 0.2); color: var(--text-2); }
   .plan-standard { background: rgba(59, 130, 246, 0.2); color: var(--blue); }
-  .plan-pro { background: rgba(99, 102, 241, 0.2); color: var(--primary-hover); }
+  .plan-pro { background: rgba(var(--primary-rgb), 0.2); color: var(--primary-hover); }
   .plan-max { background: rgba(139, 92, 246, 0.2); color: var(--purple); }
   .plan-team { background: rgba(249, 115, 22, 0.18); color: var(--amber); }
   .source-badge {
@@ -537,8 +537,8 @@
   }
 
   .error-box {
-    background: rgba(239, 68, 68, 0.1);
-    border: 1px solid rgba(239, 68, 68, 0.3);
+    background: rgba(var(--red-rgb), 0.1);
+    border: 1px solid rgba(var(--red-rgb), 0.3);
     border-radius: 4px;
     padding: 5px 8px;
   }
@@ -569,7 +569,7 @@
   }
   .progress-bar {
     height: 6px;
-    background: rgba(51, 65, 85, 0.4);
+    background: rgba(var(--border-rgb), 0.4);
     border-radius: 3px;
     overflow: hidden;
   }
@@ -587,7 +587,7 @@
     gap: 12px;
     flex-wrap: wrap;
     padding-top: 4px;
-    border-top: 1px solid rgba(51, 65, 85, 0.3);
+    border-top: 1px solid rgba(var(--border-rgb), 0.3);
   }
   .multipliers-area {
     display: flex;
@@ -603,8 +603,8 @@
   .mult-badge {
     font-size: 10px;
     padding: 2px 6px;
-    background: rgba(245, 158, 11, 0.1);
-    border: 1px solid rgba(245, 158, 11, 0.3);
+    background: rgba(var(--amber-rgb), 0.1);
+    border: 1px solid rgba(var(--amber-rgb), 0.3);
     border-radius: 3px;
     color: var(--amber);
     display: flex;
@@ -629,7 +629,7 @@
     cursor: pointer;
     border: none;
     background: var(--primary);
-    color: #fff;
+    color: var(--on-primary);
     transition: opacity 0.2s;
   }
   .save-btn:hover:not(:disabled) {

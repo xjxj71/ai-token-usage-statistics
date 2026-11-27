@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **多主题切换**：经典深色 / 曜石 Obsidian / 晨雾 Daylight / 暖砂 Warm Sand / 霓虹 Neon 五套主题，头部调色板按钮切换，选择持久化到 localStorage 并在首帧前应用（无闪烁）。全部颜色收敛为 `app.css` CSS 变量（`[data-theme=...]` 覆盖），ECharts 通过 `theme.svelte.ts` 从同一组变量取运行时调色板，主题切换时图表自动重绘；Agent 身份色、表格徽章、筛选圆点跨主题保持一致（徽章文字色按主题文字色自动混合保证对比度）。设计原型见 `design/prototypes/`
 - **套餐倍率自动同步**：模型消耗倍率（抵扣系数/消耗倍率）不再硬编码，改为定时从官方文档中心抓取解析（`backend/quota/multipliers.py`：启动即拉取 + 每 6h 刷新 + `POST /api/quota/multipliers/refresh` 手动刷新，`data/model_multipliers.json` 持久化缓存，失败自动回退内置快照，卡片标注数据更新时间）
   - 解析前先规范化官方改价用的编辑标记（`~~旧值~~ 新值` 删除线、`<del>`、加粗、脚注），取当前生效值；官方标注的限时活动（如 GLM-5.3-Flash 11-24 至 12-24 半价）在角标上显示「限时」并在说明里给出区间
   - 若某次解析比上次少了模型，更新照常生效（官方下线/改名需如实反映），同时写 WARNING 日志便于发现页面格式变化

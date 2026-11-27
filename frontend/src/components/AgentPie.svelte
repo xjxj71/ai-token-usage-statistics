@@ -3,6 +3,7 @@
   import * as echarts from "echarts";
   import type { BreakdownItem } from "../types";
   import { escapeHtml } from "../utils/escape";
+  import { chartPalette, agentColor, type ChartPalette } from "../theme.svelte.ts";
 
   interface Props {
     breakdown: BreakdownItem[];
@@ -13,27 +14,26 @@
   let chartEl: HTMLDivElement | undefined = $state();
   let chart: any = null;
 
-  const COLORS = ["#6366F1", "#8B5CF6", "#10B981", "#F59E0B", "#EC4899", "#22D3EE"];
-
   function fmt(n: number): string {
     if (n >= 1e8) return (n / 1e8).toFixed(2) + " 亿";
     if (n >= 1e4) return (n / 1e4).toFixed(1) + " 万";
     return n.toLocaleString();
   }
 
-  function buildOption(data: BreakdownItem[]) {
-    const pieData = data.map((d) => ({
+  function buildOption(data: BreakdownItem[], P: ChartPalette) {
+    const pieData = data.map((d, i) => ({
       name: d.agent || "未知",
       value: d.input_tokens + d.output_tokens + d.cache_read_tokens + d.cache_write_tokens,
+      itemStyle: { color: agentColor(d.agent || "") || P.series[i % P.series.length] },
     }));
 
     return {
       backgroundColor: "transparent",
       tooltip: {
         trigger: "item",
-        backgroundColor: "#1E293B",
-        borderColor: "#334155",
-        textStyle: { color: "#F8FAFC", fontSize: 12 },
+        backgroundColor: P.tooltipBg,
+        borderColor: P.tooltipBorder,
+        textStyle: { color: P.tooltipText, fontSize: 12 },
         formatter: (params: any) => {
           const val = params.value as number;
           return `<b>${escapeHtml(params.name)}</b><br/>`
@@ -44,7 +44,7 @@
       legend: {
         orient: "horizontal",
         bottom: 0,
-        textStyle: { color: "#94A3B8", fontSize: 11 },
+        textStyle: { color: P.text2, fontSize: 11 },
       },
       series: [
         {
@@ -55,12 +55,12 @@
           avoidLabelOverlap: true,
           itemStyle: {
             borderRadius: 6,
-            borderColor: "#1E293B",
+            borderColor: P.card,
             borderWidth: 2,
           },
           label: {
             show: true,
-            color: "#94A3B8",
+            color: P.text2,
             fontSize: 11,
             formatter: (params: any) => {
               return `${params.name}\n${fmt(params.value)} (${params.percent}%)`;
@@ -70,7 +70,7 @@
             label: { show: true, fontSize: 14, fontWeight: "bold" },
           },
           data: pieData,
-          color: COLORS,
+          color: P.series,
         },
       ],
     };
@@ -78,14 +78,15 @@
 
   $effect(() => {
     if (!chartEl) return;
+    const P = chartPalette();
     if (!chart) {
-      chart = echarts.init(chartEl, "dark");
+      chart = echarts.init(chartEl);
     }
     if (!breakdown?.length) {
       chart.clear();
       return;
     }
-    chart.setOption(buildOption(breakdown), true);
+    chart.setOption(buildOption(breakdown, P), true);
   });
 
   onMount(() => {

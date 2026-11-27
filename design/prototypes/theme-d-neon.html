@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>主题 D · 霓虹 Neon — AI Token 用量统计</title>
+<style>
+  :root {
+    --bg: #0b0616;
+    --panel: rgba(23,13,46,.72);
+    --border: rgba(157,78,221,.28);
+    --text: #e9e4f7;
+    --text-2: #a795c9;
+    --text-3: #6b5a8e;
+    --cyan: #00f0ff;
+    --magenta: #ff2e97;
+    --purple: #9d4edd;
+    --lime: #a3ff12;
+    --good: #00ffa3;
+    --bad: #ff4d6d;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+    background: var(--bg); color: var(--text); font-variant-numeric: tabular-nums;
+    background-image:
+      linear-gradient(rgba(157,78,221,.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(157,78,221,.05) 1px, transparent 1px),
+      radial-gradient(800px 400px at 70% -5%, rgba(255,46,151,.12), transparent 60%),
+      radial-gradient(700px 400px at 20% -5%, rgba(0,240,255,.10), transparent 60%);
+    background-size: 44px 44px, 44px 44px, auto, auto;
+  }
+  .mono { font-family: "Cascadia Code", Consolas, "JetBrains Mono", monospace; }
+  .wrap { max-width: 1500px; margin: 0 auto; padding: 18px 26px 46px; }
+
+  /* header */
+  .header { display: flex; align-items: center; gap: 18px; padding: 10px 0 16px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand svg { width: 26px; height: 26px; stroke: var(--cyan); filter: drop-shadow(0 0 6px rgba(0,240,255,.7)); }
+  .brand-name {
+    font-size: 17px; font-weight: 800; letter-spacing: 1px;
+    background: linear-gradient(90deg, var(--cyan), var(--magenta));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .brand-sub { font-size: 9px; color: var(--text-3); letter-spacing: 2px; }
+  .header-right { margin-left: auto; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .sse { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--good); letter-spacing: 1px; }
+  .sse-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); box-shadow: 0 0 8px var(--good); animation: pulse 1.6s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+  .rate { font-size: 10px; color: var(--text-2); }
+  .rate b { color: var(--cyan); }
+  .seg { display: flex; border: 1px solid var(--border); background: var(--panel); }
+  .seg button { border: 0; background: transparent; color: var(--text-2); font-size: 11px; padding: 6px 15px; cursor: pointer; font-family: inherit; letter-spacing: 1px; }
+  .seg button.on { background: linear-gradient(90deg, rgba(0,240,255,.2), rgba(255,46,151,.2)); color: var(--cyan); text-shadow: 0 0 8px rgba(0,240,255,.6); }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    position: relative;
+  }
+  .card::before {
+    content: ''; position: absolute; top: -1px; left: 12px; right: 12px; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(0,240,255,.55), transparent);
+  }
+  .card-head { display: flex; justify-content: space-between; align-items: center; padding: 13px 16px 0; }
+  .card-title { font-size: 12px; font-weight: 700; letter-spacing: 1.5px; color: var(--text); }
+  .card-title::before { content: '▸ '; color: var(--magenta); }
+  .card-hint { font-size: 9px; color: var(--text-3); letter-spacing: 1px; }
+
+  /* quota */
+  .quota-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-bottom: 12px; }
+  .quota { padding: 14px 16px; }
+  .quota-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 9px; }
+  .quota-name { font-size: 11px; font-weight: 700; letter-spacing: .5px; }
+  .quota-plan { font-size: 8.5px; padding: 2px 8px; border: 1px solid var(--border); color: var(--text-2); letter-spacing: 1px; border-radius: 3px; }
+  .quota-num { font-size: 19px; font-weight: 700; margin-bottom: 8px; color: var(--q-accent); text-shadow: 0 0 12px color-mix(in srgb, var(--q-accent) 55%, transparent); }
+  .quota-num small { font-size: 10px; color: var(--text-3); font-weight: 400; text-shadow: none; }
+  .qbar { height: 5px; background: rgba(255,255,255,.07); margin-bottom: 8px; border-radius: 2px; overflow: hidden; }
+  .qbar-fill { height: 100%; background: var(--q-accent); box-shadow: 0 0 10px var(--q-accent); }
+  .quota-meta { display: flex; justify-content: space-between; font-size: 9px; color: var(--text-3); letter-spacing: .5px; }
+
+  /* chips */
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 7px; font-size: 10.5px; padding: 4px 12px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 3px;
+    color: var(--text-2); cursor: pointer; font-family: inherit; letter-spacing: .5px;
+  }
+  .chip.active { border-color: var(--cyan); color: var(--cyan); box-shadow: 0 0 10px rgba(0,240,255,.25), inset 0 0 8px rgba(0,240,255,.08); }
+  .chip-dot { width: 7px; height: 7px; border-radius: 2px; }
+
+  /* stats */
+  .stats { display: grid; grid-template-columns: repeat(8,1fr); gap: 10px; margin-bottom: 12px; }
+  .stat-card { padding: 12px 13px; border-top: 2px solid var(--s-accent, var(--cyan)); }
+  .stat-card::before { display: none; }
+  .stat-top { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+  .stat-ico { width: 13px; height: 13px; display: inline-flex; }
+  .stat-ico svg { width: 100%; height: 100%; }
+  .stat-title { font-size: 9px; color: var(--text-3); letter-spacing: 1px; }
+  .stat-value { font-size: 19px; font-weight: 700; margin-bottom: 6px; letter-spacing: -.5px; }
+  .stat-trend { font-size: 9.5px; display: flex; gap: 4px; align-items: center; }
+  .stat-trend.good { color: var(--good); }
+  .stat-trend.bad { color: var(--bad); }
+  .stat-trend-label { color: var(--text-3); }
+
+  /* charts */
+  .charts-row { display: grid; grid-template-columns: 1.9fr 1fr; gap: 12px; margin-bottom: 12px; }
+  .chart-body { padding: 8px 12px 12px; }
+  .donut-wrap { display: flex; align-items: center; gap: 16px; padding: 14px 16px; }
+  .legend { flex: 1; display: flex; flex-direction: column; gap: 7px; }
+  .legend-item { display: flex; align-items: center; gap: 8px; font-size: 10.5px; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 2px; box-shadow: 0 0 6px currentColor; }
+  .legend-name { color: var(--text-2); flex: 1; }
+  .legend-val { font-weight: 700; color: var(--cyan); }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .hbar-body { padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .hbar-row { display: grid; grid-template-columns: 110px 1fr 52px; align-items: center; gap: 10px; font-size: 10.5px; }
+  .hbar-label { color: var(--text-2); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hbar-track { height: 7px; background: rgba(255,255,255,.06); border-radius: 2px; overflow: hidden; }
+  .hbar-fill { height: 100%; box-shadow: 0 0 8px currentColor; }
+  .hbar-val { color: var(--text-2); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 10.5px; }
+  thead th { text-align: left; padding: 9px 13px; color: var(--text-3); font-weight: 500; border-bottom: 1px solid var(--border); font-size: 9px; letter-spacing: 1.5px; }
+  tbody td { padding: 8px 13px; border-bottom: 1px solid rgba(157,78,221,.12); color: var(--text-2); }
+  tbody tr:hover td { background: rgba(0,240,255,.04); }
+  tbody tr:last-child td { border-bottom: 0; }
+  .agent-cell { color: var(--cyan); font-weight: 700; }
+  .table-foot { display: flex; justify-content: space-between; padding: 9px 13px; font-size: 9px; color: var(--text-3); letter-spacing: 1px; }
+
+  .proto-badge {
+    position: fixed; right: 16px; bottom: 14px; z-index: 9; font-size: 10px; color: var(--text-2);
+    background: var(--panel); border: 1px solid var(--border); padding: 5px 12px; border-radius: 4px;
+  }
+  @media (max-width: 1400px) { .stats { grid-template-columns: repeat(4,1fr); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+      <div>
+        <div class="brand-name">AI TOKEN 用量统计</div>
+        <div class="brand-sub mono">USAGE://MONITOR v0.1.11</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="sse mono"><span class="sse-dot"></span>LIVE</div>
+      <div class="rate mono">1 USD = <b>¥7.24</b> [实时]</div>
+      <div class="seg"><button>今日</button><button>7 天</button><button class="on">30 天</button><button>自定义</button></div>
+    </div>
+  </div>
+
+  <div class="quota-row">
+    <div class="card quota" style="--q-accent:#9d4edd">
+      <div class="quota-top"><span class="quota-name">智谱 GLM Coding Plan</span><span class="quota-plan mono">MAX</span></div>
+      <div class="quota-num mono">61% <small>周额度已用</small></div>
+      <div class="qbar"><div class="qbar-fill" style="width:61%"></div></div>
+      <div class="quota-meta mono"><span>5H 窗口 32%</span><span>EXP 12-15</span></div>
+    </div>
+    <div class="card quota" style="--q-accent:#00f0ff">
+      <div class="quota-top"><span class="quota-name">小米 MiMo Token Plan</span><span class="quota-plan mono">PRO</span></div>
+      <div class="quota-num mono">4,280 <small>/ 10,000 CREDITS</small></div>
+      <div class="qbar"><div class="qbar-fill" style="width:42.8%"></div></div>
+      <div class="quota-meta mono"><span>夜间 0.8x</span><span>RST 12-01</span></div>
+    </div>
+    <div class="card quota" style="--q-accent:#a3ff12">
+      <div class="quota-top"><span class="quota-name">百炼 Token Plan 团队版</span><span class="quota-plan mono">3 SEATS</span></div>
+      <div class="quota-num mono">68% <small>团队合计已用</small></div>
+      <div class="qbar"><div class="qbar-fill" style="width:68%"></div></div>
+      <div class="quota-meta mono"><span>2/3 活跃</span><span>RST 12-20</span></div>
+    </div>
+  </div>
+
+  <div class="chips" id="chips"></div>
+  <div class="stats" id="stats"></div>
+
+  <div class="charts-row">
+    <div class="card">
+      <div class="card-head"><span class="card-title">TOKEN 用量趋势</span><span class="card-hint mono">BY AGENT / 30D</span></div>
+      <div class="chart-body" id="trend"></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><span class="card-title">AGENT 消耗分布</span><span class="card-hint mono">BY TOKEN</span></div>
+      <div class="donut-wrap">
+        <div id="donut"></div>
+        <div class="legend" id="donut-legend"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row2">
+    <div class="card">
+      <div class="card-head"><span class="card-title">模型消耗 TOP 6</span><span class="card-hint mono">BY TOKEN</span></div>
+      <div class="hbar-body" id="modelbars"></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><span class="card-title">使用记录</span><span class="card-hint mono">LATEST 6 / 18,432</span></div>
+      <table>
+        <thead><tr><th>时间</th><th>AGENT</th><th>模型</th><th>项目</th><th>输入</th><th>输出</th><th>思考</th><th>费用</th></tr></thead>
+        <tbody id="usage-body"></tbody>
+      </table>
+      <div class="table-foot mono"><span>PAGE 1/369</span><span>EXPORT CSV ↓</span></div>
+    </div>
+  </div>
+</div>
+<div class="proto-badge">原型 D · 霓虹 Neon — 赛博深色 + 霓虹光效 + 等宽数字</div>
+<script src="_shared.js"></script>
+<script>
+  renderDashboard({
+    icons: ICONS,
+    accents: ['#00f0ff','#9d4edd','#a3ff12','#ff2e97','#ffb700','#ff4d6d','#00ffa3','#00f0ff'],
+    agentColors: ['#c77dff','#ff9e00','#8d99ae','#4cc9f0','#9d4edd','#00ffa3'],
+    series: ['#00f0ff','#ff2e97','#9d4edd','#a3ff12','#ffb700','#4cc9f0'],
+    grid: 'rgba(157,78,221,.14)', axis: 'rgba(167,149,201,.6)',
+    fillOpacity: .18, stroke: 2, text: '#e9e4f7', donutThickness: 18,
+  });
+  // 给每张 stat 卡一条霓虹顶边
+  document.querySelectorAll('.stat-card').forEach((c, i) => {
+    const cols = ['#00f0ff','#9d4edd','#a3ff12','#ff2e97','#ffb700','#ff4d6d','#00ffa3','#00f0ff'];
+    c.style.setProperty('--s-accent', cols[i % cols.length]);
+  });
+</script>
+</body>
+</html>

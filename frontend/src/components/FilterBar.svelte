@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { agentColor } from "../theme.svelte.ts";
 
   interface Props {
     agents: string[];
@@ -54,19 +55,6 @@
     onchange([], [], []);
   }
 
-  const agentColors: Record<string, string> = {
-    hermes: "#6366F1",
-    "hermes-win": "#818CF8",
-    "claude-code": "#8B5CF6",
-    openclaw: "#10B981",
-    openclaude: "#F59E0B",
-    hanako: "#EC4899",
-    "mimo-code": "#0EA5E9",
-    opencode: "#14B8A6",
-    zcode: "#F97316",
-    codex: "#94A3B8",
-    qoder: "#60A5FA",
-  };
 </script>
 
 <div bind:this={containerEl} class="filter-bar">
@@ -74,7 +62,7 @@
     <span class="text-xs text-[var(--text-3)] uppercase tracking-wide shrink-0">Agent:</span>
     {#each agents as agent}
       {@const isActive = selectedAgents.length === 0 || selectedAgents.includes(agent)}
-      {@const color = agentColors[agent] || "#6366F1"}
+      {@const color = agentColor(agent)}
       <button
         class="agent-tag {isActive ? 'active' : ''}"
         style="--tag-color: {color}"
@@ -248,7 +236,7 @@
     border-radius: 10px;
     border: 1px solid var(--border);
     background: var(--card);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    box-shadow: var(--shadow-pop);
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -264,7 +252,7 @@
     cursor: pointer;
   }
   .project-option:hover {
-    background: rgba(99, 102, 241, 0.12);
+    background: rgba(var(--primary-rgb), 0.12);
     color: var(--text);
   }
   .project-option input {

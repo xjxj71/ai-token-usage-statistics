@@ -4,6 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AI Token 用量统计</title>
+    <script>
+      // 首帧前应用已保存主题，避免闪烁
+      try {
+        var t = localStorage.getItem("token-stat-theme");
+        if (t && ["classic", "obsidian", "daylight", "amber", "neon"].indexOf(t) >= 0)
+          document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="app"></div>

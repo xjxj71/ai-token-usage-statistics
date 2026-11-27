@@ -3,6 +3,7 @@
   import * as echarts from "echarts";
   import type { TrendResponse } from "../types";
   import { escapeHtml } from "../utils/escape";
+  import { chartPalette, type ChartPalette } from "../theme.svelte.ts";
 
   interface Props {
     data: TrendResponse | null;
@@ -13,11 +14,6 @@
 
   let chartEl: HTMLDivElement | undefined = $state();
   let chart: any = null;
-
-  const COLORS = [
-    "#6366F1", "#22D3EE", "#10B981", "#F59E0B", "#EF4444",
-    "#8B5CF6", "#EC4899", "#3B82F6", "#14B8A6", "#F97316",
-  ];
 
   function fmt(n: number): string {
     if (n >= 1e8) return (n / 1e8).toFixed(2) + " 亿";
@@ -37,7 +33,7 @@
     return raw.slice(5);
   }
 
-  function buildOption(d: TrendResponse) {
+  function buildOption(d: TrendResponse, P: ChartPalette) {
     const series = d.series
       .filter((s) => s.name !== "总计")
       .map((s, i) => ({
@@ -47,15 +43,15 @@
         smooth: true,
         symbol: "circle",
         symbolSize: 5,
-        lineStyle: { width: 2, color: COLORS[i % COLORS.length] },
-        itemStyle: { color: COLORS[i % COLORS.length] },
+        lineStyle: { width: 2, color: P.series[i % P.series.length] },
+        itemStyle: { color: P.series[i % P.series.length] },
         areaStyle: {
           color: {
             type: "linear" as const,
             x: 0, y: 0, x2: 0, y2: 1,
             colorStops: [
-              { offset: 0, color: COLORS[i % COLORS.length] + "40" },
-              { offset: 1, color: COLORS[i % COLORS.length] + "05" },
+              { offset: 0, color: P.series[i % P.series.length] + "40" },
+              { offset: 1, color: P.series[i % P.series.length] + "05" },
             ],
           },
         },
@@ -68,9 +64,9 @@
       backgroundColor: "transparent",
       tooltip: {
         trigger: "axis",
-        backgroundColor: "#1E293B",
-        borderColor: "#334155",
-        textStyle: { color: "#F8FAFC", fontSize: 12 },
+        backgroundColor: P.tooltipBg,
+        borderColor: P.tooltipBorder,
+        textStyle: { color: P.tooltipText, fontSize: 12 },
         formatter: (params: any[]) => {
           const raw = d.dates[params[0].dataIndex];
           const label = hourly ? `${raw.slice(0, 10)} ${raw.slice(11)}:00` : raw;
@@ -86,7 +82,7 @@
       },
       legend: {
         data: d.series.filter((s) => s.name !== "总计").map((s) => s.name),
-        textStyle: { color: "#94A3B8", fontSize: 11 },
+        textStyle: { color: P.text2, fontSize: 11 },
         top: 0,
         right: 0,
       },
@@ -94,14 +90,14 @@
       xAxis: {
         type: "category",
         data: xLabels,
-        axisLine: { lineStyle: { color: "#334155" } },
+        axisLine: { lineStyle: { color: P.axis } },
         axisTick: { show: false },
-        axisLabel: { color: "#64748B", fontSize: 11 },
+        axisLabel: { color: P.text3, fontSize: 11 },
       },
       yAxis: {
         type: "value",
         axisLabel: {
-          color: "#64748B",
+          color: P.text3,
           fontSize: 11,
           formatter: (v: number) => {
             if (v >= 1e8) return (v / 1e8).toFixed(1) + "亿";
@@ -109,7 +105,7 @@
             return String(v);
           },
         },
-        splitLine: { lineStyle: { color: "rgba(51,65,85,.5)" } },
+        splitLine: { lineStyle: { color: P.split } },
       },
       series,
     };
@@ -117,14 +113,15 @@
 
   $effect(() => {
     if (!chartEl) return;
+    const P = chartPalette();
     if (!chart) {
-      chart = echarts.init(chartEl, "dark");
+      chart = echarts.init(chartEl);
     }
     if (!data) {
       chart.clear();
       return;
     }
-    chart.setOption(buildOption(data), true);
+    chart.setOption(buildOption(data, P), true);
   });
 
   onMount(() => {

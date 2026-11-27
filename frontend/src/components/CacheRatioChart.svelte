@@ -3,6 +3,7 @@
   import * as echarts from "echarts";
   import type { CacheRatioItem } from "../types";
   import { escapeHtml } from "../utils/escape";
+  import { chartPalette, type ChartPalette } from "../theme.svelte.ts";
 
   interface Props {
     byAgent: CacheRatioItem[];
@@ -44,7 +45,7 @@
    * and the highest at the top — no in-place reverse() needed, keeping
    * the sorted array and the display indices in sync for tooltips.
    */
-  function buildAgentOption(data: CacheRatioItem[]) {
+  function buildAgentOption(data: CacheRatioItem[], P: ChartPalette) {
     const sorted = [...data].sort((a, b) => a.cache_ratio - b.cache_ratio);
     const names = sorted.map((d) => d.agent || "未知");
     const ratios = sorted.map((d) => Math.round(d.cache_ratio * 1000) / 10);
@@ -53,9 +54,9 @@
       backgroundColor: "transparent",
       tooltip: {
         trigger: "axis",
-        backgroundColor: "#1E293B",
-        borderColor: "#334155",
-        textStyle: { color: "#F8FAFC", fontSize: 12 },
+        backgroundColor: P.tooltipBg,
+        borderColor: P.tooltipBorder,
+        textStyle: { color: P.tooltipText, fontSize: 12 },
         axisPointer: { type: "shadow" },
         formatter: (params: any[]) => {
           const p = params[0];
@@ -70,15 +71,15 @@
       xAxis: {
         type: "value",
         max: 100,
-        axisLabel: { color: "#64748B", fontSize: 11, formatter: (v: number) => `${v}%` },
-        splitLine: { lineStyle: { color: "rgba(51,65,85,.5)" } },
+        axisLabel: { color: P.text3, fontSize: 11, formatter: (v: number) => `${v}%` },
+        splitLine: { lineStyle: { color: P.split } },
       },
       yAxis: {
         type: "category",
         data: names,
         axisLine: { show: false },
         axisTick: { show: false },
-        axisLabel: { color: "#94A3B8", fontSize: 12 },
+        axisLabel: { color: P.text2, fontSize: 12 },
       },
       series: [{
         type: "bar",
@@ -94,7 +95,7 @@
         label: {
           show: true,
           position: "right",
-          color: "#94A3B8",
+          color: P.text2,
           fontSize: 12,
           formatter: (p: any) => `${p.value}%`,
         },
@@ -102,7 +103,7 @@
     };
   }
 
-  function buildModelOption(data: CacheRatioItem[]) {
+  function buildModelOption(data: CacheRatioItem[], P: ChartPalette) {
     const sorted = [...data].sort((a, b) => a.cache_ratio - b.cache_ratio);
     const names = sorted.map((d) => d.model || "未知");
     const ratios = sorted.map((d) => Math.round(d.cache_ratio * 1000) / 10);
@@ -111,9 +112,9 @@
       backgroundColor: "transparent",
       tooltip: {
         trigger: "axis",
-        backgroundColor: "#1E293B",
-        borderColor: "#334155",
-        textStyle: { color: "#F8FAFC", fontSize: 12 },
+        backgroundColor: P.tooltipBg,
+        borderColor: P.tooltipBorder,
+        textStyle: { color: P.tooltipText, fontSize: 12 },
         axisPointer: { type: "shadow" },
         formatter: (params: any[]) => {
           const p = params[0];
@@ -128,15 +129,15 @@
       xAxis: {
         type: "value",
         max: 100,
-        axisLabel: { color: "#64748B", fontSize: 11, formatter: (v: number) => `${v}%` },
-        splitLine: { lineStyle: { color: "rgba(51,65,85,.5)" } },
+        axisLabel: { color: P.text3, fontSize: 11, formatter: (v: number) => `${v}%` },
+        splitLine: { lineStyle: { color: P.split } },
       },
       yAxis: {
         type: "category",
         data: names,
         axisLine: { show: false },
         axisTick: { show: false },
-        axisLabel: { color: "#94A3B8", fontSize: 11, width: 140, overflow: "truncate" },
+        axisLabel: { color: P.text2, fontSize: 11, width: 140, overflow: "truncate" },
       },
       series: [{
         type: "bar",
@@ -152,7 +153,7 @@
         label: {
           show: true,
           position: "right",
-          color: "#94A3B8",
+          color: P.text2,
           fontSize: 11,
           formatter: (p: any) => `${p.value}%`,
         },
@@ -160,7 +161,7 @@
     };
   }
 
-  function buildAgentModelOption(data: CacheRatioItem[]) {
+  function buildAgentModelOption(data: CacheRatioItem[], P: ChartPalette) {
     // Group by agent (ascending by name for consistent order)
     const agentGroups = new Map<string, CacheRatioItem[]>();
     for (const item of data) {
@@ -172,7 +173,7 @@
     const agents = [...agentGroups.keys()].sort();
     // Collect unique models across all agents
     const allModels = [...new Set(data.map((d) => d.model || "未知"))].sort();
-    const MODEL_COLORS = ["#6366F1", "#22D3EE", "#F59E0B", "#10B981", "#EC4899", "#8B5CF6", "#F97316"];
+    const MODEL_COLORS = P.series;
 
     const series = allModels.map((modelName, mi) => ({
       name: modelName,
@@ -201,9 +202,9 @@
       backgroundColor: "transparent",
       tooltip: {
         trigger: "axis",
-        backgroundColor: "#1E293B",
-        borderColor: "#334155",
-        textStyle: { color: "#F8FAFC", fontSize: 12 },
+        backgroundColor: P.tooltipBg,
+        borderColor: P.tooltipBorder,
+        textStyle: { color: P.tooltipText, fontSize: 12 },
         axisPointer: { type: "shadow" },
         formatter: (params: any[]) => {
           const agentName = params[0].axisValue;
@@ -222,7 +223,7 @@
       },
       legend: {
         data: allModels,
-        textStyle: { color: "#94A3B8", fontSize: 11 },
+        textStyle: { color: P.text2, fontSize: 11 },
         top: 0,
         right: 0,
         type: "scroll",
@@ -230,15 +231,15 @@
       grid: { left: "3%", right: "4%", bottom: "3%", top: "14%", containLabel: true },
       xAxis: {
         type: "value",
-        axisLabel: { color: "#64748B", fontSize: 11, formatter: (v: number) => `${v}%` },
-        splitLine: { lineStyle: { color: "rgba(51,65,85,.5)" } },
+        axisLabel: { color: P.text3, fontSize: 11, formatter: (v: number) => `${v}%` },
+        splitLine: { lineStyle: { color: P.split } },
       },
       yAxis: {
         type: "category",
         data: agents,
         axisLine: { show: false },
         axisTick: { show: false },
-        axisLabel: { color: "#94A3B8", fontSize: 12 },
+        axisLabel: { color: P.text2, fontSize: 12 },
       },
       series,
     };
@@ -252,11 +253,11 @@
     }
   }
 
-  function getCurrentOption() {
+  function getCurrentOption(P: ChartPalette) {
     switch (activeTab) {
-      case "agent": return buildAgentOption(byAgent);
-      case "model": return buildModelOption(byModel);
-      case "agent_model": return buildAgentModelOption(byAgentModel);
+      case "agent": return buildAgentOption(byAgent, P);
+      case "model": return buildModelOption(byModel, P);
+      case "agent_model": return buildAgentModelOption(byAgentModel, P);
     }
   }
 
@@ -275,15 +276,16 @@
 
   $effect(() => {
     if (!chartEl) return;
+    const P = chartPalette();
     if (!chart) {
-      chart = echarts.init(chartEl, "dark");
+      chart = echarts.init(chartEl);
     }
     const data = getCurrentData();
     if (!data?.length) {
       chart.clear();
       return;
     }
-    chart.setOption(getCurrentOption(), true);
+    chart.setOption(getCurrentOption(P), true);
     chart.resize();
   });
 
@@ -326,7 +328,7 @@
   .tab-group {
     display: flex;
     gap: 2px;
-    background: rgba(51, 65, 85, 0.3);
+    background: rgba(var(--border-rgb), 0.3);
     border-radius: 8px;
     padding: 2px;
   }
@@ -342,12 +344,12 @@
     white-space: nowrap;
   }
   .tab-btn:hover {
-    color: var(--text, #F8FAFC);
-    background: rgba(99, 102, 241, 0.1);
+    color: var(--text);
+    background: rgba(var(--primary-rgb), 0.1);
   }
   .tab-btn.active {
-    color: #F8FAFC;
-    background: var(--primary, #6366F1);
+    color: var(--on-primary);
+    background: var(--primary);
     font-weight: 500;
   }
 </style>

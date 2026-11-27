@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { SessionItem, TokenRecord } from "../types";
+  import { agentBadge } from "../theme.svelte.ts";
 
   interface Props {
     items: SessionItem[];
@@ -92,22 +93,8 @@
     return pages;
   }
 
-  const agentColors: Record<string, { bg: string; text: string }> = {
-    hermes: { bg: "rgba(99,102,241,.2)", text: "#818CF8" },
-    "hermes-win": { bg: "rgba(129,140,248,.2)", text: "#A5B4FC" },
-    "claude-code": { bg: "rgba(139,92,246,.2)", text: "#A78BFA" },
-    openclaw: { bg: "rgba(16,185,129,.2)", text: "#34D399" },
-    hanako: { bg: "rgba(236,72,153,.2)", text: "#F472B6" },
-    openclaude: { bg: "rgba(245,158,11,.2)", text: "#FBBF24" },
-    "mimo-code": { bg: "rgba(14,165,233,.2)", text: "#38BDF8" },
-    opencode: { bg: "rgba(20,184,166,.2)", text: "#2DD4BF" },
-    zcode: { bg: "rgba(249,115,22,.2)", text: "#FB923C" },
-    codex: { bg: "rgba(148,163,184,.2)", text: "#CBD5E1" },
-    qoder: { bg: "rgba(96,165,250,.2)", text: "#93C5FD" },
-  };
-
   function getAgentColor(agent: string) {
-    return agentColors[agent] || { bg: "rgba(99,102,241,.2)", text: "#818CF8" };
+    return agentBadge(agent);
   }
 </script>
 
@@ -292,10 +279,10 @@
   }
   .size-btn.active {
     background: var(--primary);
-    color: #fff;
+    color: var(--on-primary);
   }
   .size-btn:hover:not(.active) {
-    background: rgba(99, 102, 241, 0.08);
+    background: rgba(var(--primary-rgb), 0.08);
     color: var(--text);
   }
   table {
@@ -322,17 +309,17 @@
   td {
     padding: 10px 16px;
     font-size: 13px;
-    border-bottom: 1px solid rgba(51, 65, 85, 0.4);
+    border-bottom: 1px solid rgba(var(--border-rgb), 0.4);
     white-space: nowrap;
   }
   .session-row {
     cursor: pointer;
   }
   .session-row:hover td {
-    background: rgba(99, 102, 241, 0.06);
+    background: rgba(var(--primary-rgb), 0.06);
   }
   .session-row.expanded td {
-    background: rgba(99, 102, 241, 0.08);
+    background: rgba(var(--primary-rgb), 0.08);
   }
   .chevron {
     transition: transform 0.15s;
@@ -348,7 +335,7 @@
     font-weight: 600;
   }
   .detail-row td {
-    background: rgba(15, 23, 42, 0.5);
+    background: rgba(var(--bg-rgb), 0.5);
     border-bottom: 1px solid var(--border);
   }
   .detail-table {
@@ -359,7 +346,7 @@
   .detail-scroll {
     max-height: 360px;
     overflow-y: auto;
-    border: 1px solid rgba(51, 65, 85, 0.35);
+    border: 1px solid rgba(var(--border-rgb), 0.35);
     border-radius: 8px;
   }
   .detail-table th {
@@ -370,7 +357,7 @@
     padding: 5px 12px;
     font-size: 12px;
     color: var(--text-2);
-    border-bottom: 1px solid rgba(51, 65, 85, 0.25);
+    border-bottom: 1px solid rgba(var(--border-rgb), 0.25);
   }
   .detail-loading {
     padding: 12px;
@@ -412,7 +399,7 @@
   .page-btn.active {
     background: var(--primary);
     border-color: var(--primary);
-    color: #fff;
+    color: var(--on-primary);
   }
   .page-btn:disabled {
     opacity: 0.3;

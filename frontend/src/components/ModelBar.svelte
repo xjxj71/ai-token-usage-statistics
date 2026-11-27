@@ -3,6 +3,7 @@
   import * as echarts from "echarts";
   import type { BreakdownItem } from "../types";
   import { escapeHtml } from "../utils/escape";
+  import { chartPalette, type ChartPalette } from "../theme.svelte.ts";
 
   interface Props {
     breakdown: BreakdownItem[];
@@ -29,7 +30,7 @@
     return `${Math.max(240, rows * 48 + 60)}px`;
   }
 
-  function buildOption(data: BreakdownItem[]) {
+  function buildOption(data: BreakdownItem[], P: ChartPalette) {
     const sorted = [...data].sort((a, b) => {
       const totalA = a.input_tokens + a.output_tokens + a.cache_read_tokens + a.cache_write_tokens;
       const totalB = b.input_tokens + b.output_tokens + b.cache_read_tokens + b.cache_write_tokens;
@@ -43,9 +44,9 @@
       backgroundColor: "transparent",
       tooltip: {
         trigger: "axis",
-        backgroundColor: "#1E293B",
-        borderColor: "#334155",
-        textStyle: { color: "#F8FAFC", fontSize: 12 },
+        backgroundColor: P.tooltipBg,
+        borderColor: P.tooltipBorder,
+        textStyle: { color: P.tooltipText, fontSize: 12 },
         axisPointer: { type: "shadow" },
         formatter: (params: any[]) => {
           const fullName = modelNames[params[0].dataIndex] || params[0].axisValue;
@@ -55,9 +56,9 @@
       grid: { left: "4%", right: "12%", bottom: "4%", top: "4%", containLabel: true },
       xAxis: {
         type: "value",
-        splitLine: { lineStyle: { color: "rgba(51,65,85,.5)" } },
+        splitLine: { lineStyle: { color: P.split } },
         axisLabel: {
-          color: "#64748B",
+          color: P.text3,
           fontSize: 11,
           formatter: (v: number) => {
             if (v >= 1e4) return (v / 1e4) + "万";
@@ -70,7 +71,7 @@
         data: modelNames.map((n) => truncate(n)).reverse(),
         axisLine: { show: false },
         axisTick: { show: false },
-        axisLabel: { color: "#94A3B8", fontSize: 12 },
+        axisLabel: { color: P.text2, fontSize: 12 },
       },
       series: [
         {
@@ -84,15 +85,15 @@
               type: "linear" as const,
               x: 0, y: 0, x2: 1, y2: 0,
               colorStops: [
-                { offset: 0, color: "#6366F1" },
-                { offset: 1, color: "#22D3EE" },
+                { offset: 0, color: P.barFrom },
+                { offset: 1, color: P.barTo },
               ],
             },
           },
           label: {
             show: true,
             position: "right",
-            color: "#94A3B8",
+            color: P.text2,
             fontSize: 11,
             formatter: (p: any) => formatTokens(p.value),
           },
@@ -103,14 +104,15 @@
 
   $effect(() => {
     if (!chartEl) return;
+    const P = chartPalette();
     if (!chart) {
-      chart = echarts.init(chartEl, "dark");
+      chart = echarts.init(chartEl);
     }
     if (!breakdown?.length) {
       chart.clear();
       return;
     }
-    chart.setOption(buildOption(breakdown), true);
+    chart.setOption(buildOption(breakdown, P), true);
   });
 
   onMount(() => {

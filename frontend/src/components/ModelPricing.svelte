@@ -286,7 +286,7 @@
     color: var(--text);
   }
   .pricing-header:hover {
-    background: rgba(99, 102, 241, 0.05);
+    background: rgba(var(--primary-rgb), 0.05);
   }
   .chart-title {
     font-size: 14px;
@@ -360,10 +360,10 @@
   }
   .size-btn.active {
     background: var(--primary);
-    color: #fff;
+    color: var(--on-primary);
   }
   .size-btn:hover:not(.active) {
-    background: rgba(99, 102, 241, 0.08);
+    background: rgba(var(--primary-rgb), 0.08);
     color: var(--text);
   }
   .refresh-btn {
@@ -376,13 +376,13 @@
     cursor: pointer;
     transition: all 0.2s;
     border: 1px solid var(--primary);
-    background: rgba(99, 102, 241, 0.1);
+    background: rgba(var(--primary-rgb), 0.1);
     color: var(--primary);
     font-weight: 500;
   }
   .refresh-btn:hover:not(:disabled) {
     background: var(--primary);
-    color: #fff;
+    color: var(--on-primary);
   }
   .refresh-btn:disabled {
     opacity: 0.5;
@@ -421,13 +421,13 @@
   td {
     padding: 10px 14px;
     font-size: 13px;
-    border-bottom: 1px solid rgba(51, 65, 85, 0.4);
+    border-bottom: 1px solid rgba(var(--border-rgb), 0.4);
   }
   td.text-right {
     text-align: right;
   }
   tr:hover td {
-    background: rgba(99, 102, 241, 0.06);
+    background: rgba(var(--primary-rgb), 0.06);
   }
   .empty-row {
     text-align: center;
@@ -470,7 +470,7 @@
     transition: opacity 0.2s;
     border: none;
     background: var(--primary);
-    color: #fff;
+    color: var(--on-primary);
   }
   .save-btn:hover {
     opacity: 0.85;
@@ -522,7 +522,7 @@
   .page-btn.active {
     background: var(--primary);
     border-color: var(--primary);
-    color: #fff;
+    color: var(--on-primary);
   }
   .page-btn:disabled {
     opacity: 0.3;

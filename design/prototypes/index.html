@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Token 用量统计 — 主题原型</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; background: #101218; color: #e8ebf2; padding: 48px 24px; }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  h1 { font-size: 24px; margin-bottom: 8px; }
+  .sub { color: #8b94a7; font-size: 13px; margin-bottom: 32px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  a.card {
+    display: block; text-decoration: none; color: inherit; border-radius: 14px; overflow: hidden;
+    border: 1px solid rgba(255,255,255,.1); transition: transform .15s, border-color .15s;
+  }
+  a.card:hover { transform: translateY(-3px); border-color: rgba(255,255,255,.3); }
+  .swatch { height: 110px; display: flex; align-items: flex-end; padding: 14px; gap: 8px; }
+  .swatch span { width: 26px; height: 26px; border-radius: 7px; }
+  .meta { padding: 14px 16px; background: #161a23; }
+  .meta b { font-size: 15px; }
+  .meta p { font-size: 12px; color: #8b94a7; margin-top: 5px; line-height: 1.6; }
+  .tag { display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 99px; border: 1px solid rgba(255,255,255,.18); color: #aab3c5; margin-left: 8px; vertical-align: 2px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AI Token 用量统计 · 主题原型</h1>
+  <div class="sub">4 套设计方向（配色 + 布局 + UI 语言均不同），同一份模拟数据。点击进入完整原型，可滚动查看全部区块。</div>
+  <div class="grid">
+    <a class="card" href="theme-a-obsidian.html">
+      <div class="swatch" style="background:linear-gradient(135deg,#0a0c11,#1a1f2e)">
+        <span style="background:#22d3ee"></span><span style="background:#818cf8"></span><span style="background:#34d399"></span><span style="background:#12151d;border:1px solid rgba(255,255,255,.2)"></span>
+      </div>
+      <div class="meta"><b>A · 曜石 Obsidian</b><span class="tag">深色</span><p>玻璃拟态卡片 + 侧边导航，克制的青/紫点缀。现有深色方向的精修升级版，信息密度高、专业感强。</p></div>
+    </a>
+    <a class="card" href="theme-b-daylight.html">
+      <div class="swatch" style="background:linear-gradient(135deg,#f6f7f9,#e9ecf3)">
+        <span style="background:#5b5bd6"></span><span style="background:#0ea5e9"></span><span style="background:#10b981"></span><span style="background:#fff;border:1px solid #d5d9e2"></span>
+      </div>
+      <div class="meta"><b>B · 晨雾 Daylight</b><span class="tag">浅色</span><p>Linear 风格清爽浅色：白卡片 + 柔和阴影 + 彩色图标底座，顶部导航。白天长时间观看最舒适。</p></div>
+    </a>
+    <a class="card" href="theme-c-amber.html">
+      <div class="swatch" style="background:linear-gradient(135deg,#f7f2e9,#ece2cd)">
+        <span style="background:#c2571b"></span><span style="background:#7d8c6f"></span><span style="background:#5f7d95"></span><span style="background:#b98a2f"></span>
+      </div>
+      <div class="meta"><b>C · 暖砂 Warm Sand</b><span class="tag">浅色 · 编辑风</span><p>暖纸底 + 莫兰迪色 + 衬线大数字：总费用做成 hero，统计变成一条刻度带。杂志账本质感，个性最强。</p></div>
+    </a>
+    <a class="card" href="theme-d-neon.html">
+      <div class="swatch" style="background:linear-gradient(135deg,#0b0616,#241040)">
+        <span style="background:#00f0ff"></span><span style="background:#ff2e97"></span><span style="background:#9d4edd"></span><span style="background:#a3ff12"></span>
+      </div>
+      <div class="meta"><b>D · 霓虹 Neon</b><span class="tag">深色 · 赛博</span><p>霓虹光效 + 网格背景 + 等宽数字，任务控制台风格。视觉冲击最强，适合炫技但久看易疲劳。</p></div>
+    </a>
+  </div>
+</div>
+</body>
+</html>

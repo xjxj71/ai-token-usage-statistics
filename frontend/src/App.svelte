@@ -19,6 +19,7 @@
   import PlanQuotaCard from "./components/PlanQuotaCard.svelte";
   import ReportCard from "./components/ReportCard.svelte";
   import DataManagement from "./components/DataManagement.svelte";
+  import ThemeSwitcher from "./components/ThemeSwitcher.svelte";
 
   let summary: SummaryResponse | null = $state(null);
   let agentBreakdown: SummaryResponse["breakdown"] = $state([]);
@@ -289,6 +290,7 @@
       {#if loading && summary}
         <span class="text-xs text-[var(--text-3)] animate-pulse ml-2">刷新中...</span>
       {/if}
+      <div class="ml-2"><ThemeSwitcher /></div>
     </div>
       <TimeRangeTabs current={filter.range} onchange={handleRangeChange} />
     </div>
@@ -450,7 +452,7 @@
     color: var(--text-3);
   }
   .rate-tag.live {
-    border-color: rgba(34, 211, 238, 0.4);
+    border-color: rgba(var(--cyan-rgb), 0.4);
     color: var(--cyan);
   }
   .rate-refresh {

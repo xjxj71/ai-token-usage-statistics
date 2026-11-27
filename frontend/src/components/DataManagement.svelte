@@ -225,7 +225,7 @@
     color: var(--text);
   }
   .dm-header:hover {
-    background: rgba(99, 102, 241, 0.06);
+    background: rgba(var(--primary-rgb), 0.06);
   }
   .dm-title {
     font-size: 14px;
@@ -339,7 +339,7 @@
   .backup-table td {
     padding: 8px 12px;
     font-size: 13px;
-    border-bottom: 1px solid rgba(51, 65, 85, 0.4);
+    border-bottom: 1px solid rgba(var(--border-rgb), 0.4);
     color: var(--text-2);
   }
   .backup-table .mono {
@@ -358,14 +358,14 @@
     cursor: pointer;
   }
   .link-btn:hover {
-    background: rgba(34, 211, 238, 0.1);
+    background: rgba(var(--cyan-rgb), 0.1);
   }
   .link-btn.danger {
     color: var(--red);
     margin-left: 4px;
   }
   .link-btn.danger:hover {
-    background: rgba(239, 68, 68, 0.1);
+    background: rgba(var(--red-rgb), 0.1);
   }
   .empty-hint,
   .restore-hint {

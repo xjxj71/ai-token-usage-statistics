@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { TokenRecord } from "../types";
+  import { agentBadge } from "../theme.svelte.ts";
 
   interface Props {
     items: TokenRecord[];
@@ -46,21 +47,8 @@
   let totalPages = $derived(Math.max(1, Math.ceil(total / pageSize)));
   let jumpPage = $state("");
 
-  const agentColors: Record<string, { bg: string; text: string }> = {
-    hermes: { bg: "rgba(99,102,241,.2)", text: "#818CF8" },
-    "claude-code": { bg: "rgba(139,92,246,.2)", text: "#A78BFA" },
-    openclaw: { bg: "rgba(16,185,129,.2)", text: "#34D399" },
-    hanako: { bg: "rgba(236,72,153,.2)", text: "#F472B6" },
-    openclaude: { bg: "rgba(245,158,11,.2)", text: "#FBBF24" },
-    zcode: { bg: "rgba(249,115,22,.2)", text: "#FB923C" },
-    codex: { bg: "rgba(148,163,184,.2)", text: "#CBD5E1" },
-    qoder: { bg: "rgba(96,165,250,.2)", text: "#93C5FD" },
-  };
-
   function getAgentColor(agent: string) {
-    return (
-      agentColors[agent] || { bg: "rgba(99,102,241,.2)", text: "#818CF8" }
-    );
+    return agentBadge(agent);
   }
 
   function pageNumbers(): number[] {
@@ -274,10 +262,10 @@
   }
   .size-btn.active {
     background: var(--primary);
-    color: #fff;
+    color: var(--on-primary);
   }
   .size-btn:hover:not(.active) {
-    background: rgba(99, 102, 241, 0.08);
+    background: rgba(var(--primary-rgb), 0.08);
     color: var(--text);
   }
   table {
@@ -304,11 +292,11 @@
   td {
     padding: 10px 16px;
     font-size: 13px;
-    border-bottom: 1px solid rgba(51, 65, 85, 0.4);
+    border-bottom: 1px solid rgba(var(--border-rgb), 0.4);
     white-space: nowrap;
   }
   tr:hover td {
-    background: rgba(99, 102, 241, 0.06);
+    background: rgba(var(--primary-rgb), 0.06);
   }
   .agent-badge {
     display: inline-block;
@@ -356,7 +344,7 @@
   .page-btn.active {
     background: var(--primary);
     border-color: var(--primary);
-    color: #fff;
+    color: var(--on-primary);
   }
   .page-btn:disabled {
     opacity: 0.3;

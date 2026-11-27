@@ -74,11 +74,11 @@
   }
   .tab-btn:hover {
     color: var(--text);
-    background: rgba(99, 102, 241, 0.1);
+    background: rgba(var(--primary-rgb), 0.1);
   }
   .tab-btn.active {
     background: var(--primary);
-    color: #fff;
+    color: var(--on-primary);
   }
   .date-input {
     background: var(--bg);
@@ -96,7 +96,7 @@
     padding: 6px 14px;
     font-size: 13px;
     background: var(--primary);
-    color: #fff;
+    color: var(--on-primary);
     border: none;
     border-radius: 8px;
     cursor: pointer;

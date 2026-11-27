@@ -188,7 +188,7 @@
     color: var(--text);
   }
   .report-header:hover {
-    background: rgba(99, 102, 241, 0.06);
+    background: rgba(var(--primary-rgb), 0.06);
   }
   .report-title {
     font-size: 14px;
@@ -275,7 +275,7 @@
     align-items: center;
     justify-content: center;
     border-radius: 4px;
-    background: rgba(99, 102, 241, 0.15);
+    background: rgba(var(--primary-rgb), 0.15);
     color: var(--primary);
     font-size: 11px;
     flex-shrink: 0;

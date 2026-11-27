@@ -3,6 +3,7 @@
 @tailwind utilities;
 
 @layer base {
+  /* ── 经典深色（默认，与历史外观一致）─────────────────────── */
   :root {
     --bg: #0F172A;
     --card: #1E293B;
@@ -20,11 +21,297 @@
     --text: #F8FAFC;
     --text-2: #94A3B8;
     --text-3: #64748B;
+
+    /* rgb 三元组：供 rgba(var(--x-rgb), α) 半透明色调使用 */
+    --bg-rgb: 15, 23, 42;
+    --border-rgb: 51, 65, 85;
+    --primary-rgb: 99, 102, 241;
+    --cyan-rgb: 34, 211, 238;
+    --red-rgb: 239, 68, 68;
+    --amber-rgb: 245, 158, 11;
+    --on-primary: #fff;
+    --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.4);
+
+    /* ECharts 分类色板 */
+    --chart-1: #6366F1;
+    --chart-2: #22D3EE;
+    --chart-3: #10B981;
+    --chart-4: #F59E0B;
+    --chart-5: #EF4444;
+    --chart-6: #8B5CF6;
+    --chart-7: #EC4899;
+    --chart-8: #3B82F6;
+    --bar-from: #6366F1;
+    --bar-to: #22D3EE;
+    --project-from: #F59E0B;
+    --project-to: #EC4899;
+
+    /* Agent 身份色 */
+    --agent-hermes: #6366F1;
+    --agent-hermes-win: #818CF8;
+    --agent-claude-code: #8B5CF6;
+    --agent-openclaw: #10B981;
+    --agent-openclaude: #F59E0B;
+    --agent-hanako: #EC4899;
+    --agent-mimo-code: #0EA5E9;
+    --agent-opencode: #14B8A6;
+    --agent-zcode: #F97316;
+    --agent-codex: #94A3B8;
+    --agent-qoder: #60A5FA;
+  }
+
+  /* ── 曜石 Obsidian：石墨玻璃 + 青紫 ─────────────────────── */
+  [data-theme="obsidian"] {
+    --bg: #0a0c11;
+    --card: #12151d;
+    --card-hover: #1a1f2b;
+    --border: #1f2430;
+    --primary: #22d3ee;
+    --primary-hover: #67e8f9;
+    --cyan: #22d3ee;
+    --green: #34d399;
+    --amber: #fbbf24;
+    --red: #f87171;
+    --blue: #60a5fa;
+    --pink: #f472b6;
+    --purple: #818cf8;
+    --text: #eef1f7;
+    --text-2: #9aa3b5;
+    --text-3: #5c6577;
+
+    --bg-rgb: 10, 12, 17;
+    --border-rgb: 31, 36, 48;
+    --primary-rgb: 34, 211, 238;
+    --cyan-rgb: 34, 211, 238;
+    --red-rgb: 248, 113, 113;
+    --amber-rgb: 251, 191, 36;
+    --on-primary: #082430;
+    --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.55);
+
+    --chart-1: #22d3ee;
+    --chart-2: #818cf8;
+    --chart-3: #34d399;
+    --chart-4: #fbbf24;
+    --chart-5: #f472b6;
+    --chart-6: #a78bfa;
+    --chart-7: #60a5fa;
+    --chart-8: #f97316;
+    --bar-from: #22d3ee;
+    --bar-to: #818cf8;
+    --project-from: #34d399;
+    --project-to: #22d3ee;
+
+    --agent-hermes: #818cf8;
+    --agent-hermes-win: #a5b4fc;
+    --agent-claude-code: #a78bfa;
+    --agent-openclaw: #34d399;
+    --agent-openclaude: #fbbf24;
+    --agent-hanako: #f472b6;
+    --agent-mimo-code: #38bdf8;
+    --agent-opencode: #2dd4bf;
+    --agent-zcode: #fb923c;
+    --agent-codex: #94a3b8;
+    --agent-qoder: #60a5fa;
+  }
+
+  /* ── 晨雾 Daylight：浅色清爽 ────────────────────────────── */
+  [data-theme="daylight"] {
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --card-hover: #fafafc;
+    --border: #e6e8ee;
+    --primary: #5b5bd6;
+    --primary-hover: #4a4ac4;
+    --cyan: #0284c7;
+    --green: #0d9f6e;
+    --amber: #d97706;
+    --red: #dc4c4c;
+    --blue: #2563eb;
+    --pink: #db2777;
+    --purple: #7c3aed;
+    --text: #1a1d26;
+    --text-2: #5c6470;
+    --text-3: #9aa1ad;
+
+    --bg-rgb: 246, 247, 249;
+    --border-rgb: 230, 232, 238;
+    --primary-rgb: 91, 91, 214;
+    --cyan-rgb: 2, 132, 199;
+    --red-rgb: 220, 76, 76;
+    --amber-rgb: 217, 119, 6;
+    --on-primary: #fff;
+    --shadow-pop: 0 8px 24px rgba(16, 24, 40, 0.12);
+
+    --chart-1: #5b5bd6;
+    --chart-2: #0ea5e9;
+    --chart-3: #10b981;
+    --chart-4: #f59e0b;
+    --chart-5: #ec4899;
+    --chart-6: #8b5cf6;
+    --chart-7: #14b8a6;
+    --chart-8: #f97316;
+    --bar-from: #5b5bd6;
+    --bar-to: #0ea5e9;
+    --project-from: #f59e0b;
+    --project-to: #ec4899;
+
+    --agent-hermes: #5b5bd6;
+    --agent-hermes-win: #818cf8;
+    --agent-claude-code: #7c3aed;
+    --agent-openclaw: #059669;
+    --agent-openclaude: #d97706;
+    --agent-hanako: #db2777;
+    --agent-mimo-code: #0284c7;
+    --agent-opencode: #0d9488;
+    --agent-zcode: #ea580c;
+    --agent-codex: #64748b;
+    --agent-qoder: #2563eb;
+  }
+
+  /* ── 暖砂 Warm Sand：暖纸编辑风 + 莫兰迪 ────────────────── */
+  [data-theme="amber"] {
+    --bg: #f7f2e9;
+    --card: #fffdf8;
+    --card-hover: #fbf7ee;
+    --border: #e4dac8;
+    --primary: #c2571b;
+    --primary-hover: #a84a15;
+    --cyan: #5f7d95;
+    --green: #5f7d4f;
+    --amber: #b98a2f;
+    --red: #b04a3a;
+    --blue: #5f7d95;
+    --pink: #95618a;
+    --purple: #95618a;
+    --text: #2b2620;
+    --text-2: #6f6558;
+    --text-3: #a2967f;
+
+    --bg-rgb: 247, 242, 233;
+    --border-rgb: 228, 218, 200;
+    --primary-rgb: 194, 87, 27;
+    --cyan-rgb: 95, 125, 149;
+    --red-rgb: 176, 74, 58;
+    --amber-rgb: 185, 138, 47;
+    --on-primary: #fffdf8;
+    --shadow-pop: 0 8px 24px rgba(43, 38, 32, 0.14);
+
+    --chart-1: #c2571b;
+    --chart-2: #5f7d95;
+    --chart-3: #7d8c6f;
+    --chart-4: #b98a2f;
+    --chart-5: #95618a;
+    --chart-6: #7f6a53;
+    --chart-7: #5f7d4f;
+    --chart-8: #a84a15;
+    --bar-from: #c2571b;
+    --bar-to: #b98a2f;
+    --project-from: #7d8c6f;
+    --project-to: #5f7d95;
+
+    --agent-hermes: #b98a2f;
+    --agent-hermes-win: #c9a24b;
+    --agent-claude-code: #95618a;
+    --agent-openclaw: #7d8c6f;
+    --agent-openclaude: #b98a2f;
+    --agent-hanako: #95618a;
+    --agent-mimo-code: #5f7d95;
+    --agent-opencode: #7d8c6f;
+    --agent-zcode: #c2571b;
+    --agent-codex: #8a8172;
+    --agent-qoder: #5f7d95;
+  }
+
+  /* ── 霓虹 Neon：赛博光效 ────────────────────────────────── */
+  [data-theme="neon"] {
+    --bg: #0b0616;
+    --card: #170d2e;
+    --card-hover: #1f1440;
+    --border: #2d1b52;
+    --primary: #9d4edd;
+    --primary-hover: #c77dff;
+    --cyan: #00f0ff;
+    --green: #00ffa3;
+    --amber: #ffb700;
+    --red: #ff4d6d;
+    --blue: #4cc9f0;
+    --pink: #ff2e97;
+    --purple: #9d4edd;
+    --text: #e9e4f7;
+    --text-2: #a795c9;
+    --text-3: #6b5a8e;
+
+    --bg-rgb: 11, 6, 22;
+    --border-rgb: 45, 27, 82;
+    --primary-rgb: 157, 78, 221;
+    --cyan-rgb: 0, 240, 255;
+    --red-rgb: 255, 77, 109;
+    --amber-rgb: 255, 183, 0;
+    --on-primary: #fff;
+    --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.6);
+
+    --chart-1: #00f0ff;
+    --chart-2: #ff2e97;
+    --chart-3: #9d4edd;
+    --chart-4: #a3ff12;
+    --chart-5: #ffb700;
+    --chart-6: #4cc9f0;
+    --chart-7: #c77dff;
+    --chart-8: #00ffa3;
+    --bar-from: #00f0ff;
+    --bar-to: #ff2e97;
+    --project-from: #9d4edd;
+    --project-to: #00f0ff;
+
+    --agent-hermes: #9d4edd;
+    --agent-hermes-win: #c77dff;
+    --agent-claude-code: #c77dff;
+    --agent-openclaw: #00ffa3;
+    --agent-openclaude: #ffb700;
+    --agent-hanako: #ff2e97;
+    --agent-mimo-code: #00f0ff;
+    --agent-opencode: #a3ff12;
+    --agent-zcode: #ff9e00;
+    --agent-codex: #8d99ae;
+    --agent-qoder: #4cc9f0;
   }
 
   body {
     font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", -apple-system, sans-serif;
     background: var(--bg);
     color: var(--text);
+  }
+
+  /* 主题氛围背景 */
+  [data-theme="obsidian"] body {
+    background-image:
+      radial-gradient(900px 480px at 85% -10%, rgba(129, 140, 248, 0.09), transparent 60%),
+      radial-gradient(700px 420px at 30% -10%, rgba(34, 211, 238, 0.06), transparent 60%);
+    background-attachment: fixed;
+  }
+  [data-theme="neon"] body {
+    background-image:
+      linear-gradient(rgba(157, 78, 221, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(157, 78, 221, 0.05) 1px, transparent 1px),
+      radial-gradient(800px 400px at 70% -5%, rgba(255, 46, 151, 0.12), transparent 60%),
+      radial-gradient(700px 400px at 20% -5%, rgba(0, 240, 255, 0.1), transparent 60%);
+    background-size: 44px 44px, 44px 44px, auto, auto;
+    background-attachment: fixed;
+  }
+  [data-theme="amber"] body {
+    background-image: radial-gradient(1000px 500px at 50% -10%, rgba(194, 87, 27, 0.05), transparent 60%);
+    background-attachment: fixed;
+  }
+  /* 暖砂：标题用衬线，编辑风 */
+  [data-theme="amber"] h1,
+  [data-theme="amber"] .chart-title {
+    font-family: Georgia, "Noto Serif SC", "Songti SC", serif;
+    letter-spacing: 0.5px;
+  }
+  /* 晨雾：卡片柔和阴影 */
+  [data-theme="daylight"] .chart-card,
+  [data-theme="daylight"] .stat-card,
+  [data-theme="daylight"] .table-card {
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
   }
 }
