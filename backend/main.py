@@ -28,6 +28,21 @@ from backend.collectors.registry import start_polling, stop_polling
 from backend.config import settings
 from backend.db.database import close_db, init_db
 from backend.maintenance import start_maintenance, stop_maintenance
+
+
+class FrontendStaticFiles(StaticFiles):
+    """index.html 协商缓存（应用更新后普通刷新即拿新前端）；哈希资源长期缓存。"""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        # 按 content-type 判断而非路径：starlette 各版本对目录路径的规范化不同；
+        # Windows 下 path 可能带反斜杠，先统一分隔符。
+        norm = path.replace("\\", "/")
+        if response.headers.get("content-type", "").startswith("text/html"):
+            response.headers["Cache-Control"] = "no-cache"
+        elif norm.startswith("assets/"):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
 from backend.quota.multipliers import start_refresh_loop, stop_refresh_loop
 
 logger = logging.getLogger(__name__)
@@ -119,7 +134,7 @@ def create_app() -> FastAPI:
 
     frontend_dist = paths.frontend_dist()
     if frontend_dist.exists():
-        app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
+        app.mount("/", FrontendStaticFiles(directory=str(frontend_dist), html=True), name="frontend")
 
     return app
 

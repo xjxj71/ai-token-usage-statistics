@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from backend import paths
+from backend.version import get_app_version
 
 logger = logging.getLogger(__name__)
 
@@ -298,7 +299,7 @@ def show_tray(base_url: str) -> None:
     icon = pystray.Icon(
         "ai-token-usage",
         icon_image,
-        title=f"AI 用量统计 · 就绪 · {base_url}",
+        title=f"AI 用量统计 v{get_app_version()} · 就绪 · {base_url}",
         menu=menu,
     )
     try:

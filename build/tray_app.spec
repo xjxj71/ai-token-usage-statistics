@@ -9,6 +9,8 @@ datas = [
     (str(ROOT / "frontend" / "dist"), "frontend/dist"),
     (str(ROOT / "config" / "model_pricing.yaml"), "config"),
     (str(ROOT / "config" / "quota_providers.example.yaml"), "config"),
+    # 版本号单一来源：托盘 tooltip 等运行时读取（backend/version.py）
+    (str(ROOT / "pyproject.toml"), "."),
 ]
 # Optional icon assets for tray fallback
 for extra in ("assets/tray-32.png", "assets/icon-previews/variant-a.png", "assets/app.ico"):
