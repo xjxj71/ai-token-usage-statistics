@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **每日定价自动更新**：OpenRouter 目录多键匹配（全名 / 去供应商前缀 / 去 `:variant` 后缀），修复此前精确匹配几乎全部落空的问题；刷新范围含「使用过但尚未定价」的模型；每天自动刷新一次，**当天手动刷新后不再自动**；手动编辑过的价格（`price_source='manual'`）不被自动覆盖；定价页展示刷新状态与补齐数量
+- **未计价记录补齐**：模型刚获得真实价格时，其历史 `cost_usd=0` 记录按新价补齐（含 `usage_daily` 归档）；**已有非零成本锁定**，不随后续 API 价格变动重算
+
 ### Changed
+- **默认主题改为暖砂 Warm Sand**；模型定价 / 数据管理面板默认展开
 - **动效加强**：鼠标跟随倾斜/光斑/环境光不再受 `prefers-reduced-motion` 门禁（指针驱动的微交互由用户直接控制；此前该开关在部分 WebView 环境恒为 true，导致动效几乎全被禁用）；倾斜幅度加大并叠加 scale 微放大；概览 hero 新增旋转光束边框；视图过渡加入 blur→清晰；ECharts 数据更新改为 700ms cubicInOut 平滑 morph
 
 ### Fixed

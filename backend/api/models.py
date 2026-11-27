@@ -134,7 +134,8 @@ async def update_pricing(model: str, body: PricingUpdate, request: Request):
     await db.execute(
         """UPDATE model_pricing
            SET input_price = ?, output_price = ?,
-               cache_read_price = ?, cache_write_price = ?, updated_at = ?
+               cache_read_price = ?, cache_write_price = ?, updated_at = ?,
+               price_source = 'manual'
            WHERE model = ?""",
         (body.input_price, body.output_price,
          body.cache_read_price, body.cache_write_price, now, model),
@@ -153,79 +154,29 @@ async def update_pricing(model: str, body: PricingUpdate, request: Request):
     }
 
 
+@router.get("/pricing/status")
+async def pricing_status():
+    """定价刷新状态：上次自动/手动时间、今日是否还会自动更新。"""
+    from backend.pricing.refresh import get_status
+
+    return get_status()
+
+
 @router.post("/pricing/refresh")
 async def refresh_pricing(request: Request):
-    """从 OpenRouter API 一键获取最新模型定价，更新数据库（仅本机或携带有效 API Key）。"""
+    """从 OpenRouter API 一键获取最新模型定价（仅本机或携带有效 API Key）。
+
+    手动刷新会记录时间：当天不再触发每日自动刷新。
+    匹配范围含使用过但尚未定价的模型；刚拿到价格的模型会补齐其历史 0 成本记录，
+    已有非零成本保持不变。
+    """
     require_local_or_key(request)
-    import json as json_mod
     import urllib.error
-    import urllib.request
 
-    db = await db_module.get_db()
-
-    # 获取当前数据库中已有的模型
-    existing_rows = await db.execute_fetchall("SELECT model FROM model_pricing")
-    existing_models = {r["model"] for r in existing_rows}
-
-    updated = 0
+    from backend.pricing.refresh import get_status, refresh_pricing_core
 
     try:
-        def _fetch():
-            req = urllib.request.Request(
-                "https://openrouter.ai/api/v1/models",
-                headers={"User-Agent": "ai-token-usage/1.0"},
-            )
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                return json_mod.loads(resp.read().decode("utf-8"))
-
-        import asyncio
-        data = await asyncio.to_thread(_fetch)
-
-        models = data.get("data", [])
-        now = datetime.now(UTC).isoformat()
-
-        # Only refresh models already tracked in our table — importing all
-        # OpenRouter models (hundreds) would pollute /api/pricing and the
-        # model dropdown. New models get seeded from config/model_pricing.yaml
-        # by _ensure_models_in_pricing instead.
-        updates: list[tuple[float, float, float, float, str, str]] = []
-
-        for m in models:
-            model_id = m.get("id", "")
-            if not model_id or model_id not in existing_models:
-                continue
-
-            pricing = m.get("pricing", {})
-            if not pricing:
-                continue
-
-            # OpenRouter pricing 是每 token 价格，转换为每 M token
-            try:
-                input_price = float(pricing.get("prompt", 0)) * 1_000_000
-                output_price = float(pricing.get("completion", 0)) * 1_000_000
-                cache_read_price = float(pricing.get("input_cache_read", 0)) * 1_000_000
-                cache_write_price = float(pricing.get("input_cache_write", 0)) * 1_000_000
-            except (TypeError, ValueError):
-                logger.debug("Skipping model %s: non-numeric pricing", model_id)
-                continue
-
-            updates.append(
-                (input_price, output_price, cache_read_price, cache_write_price, now, model_id)
-            )
-
-        if updates:
-            await db.executemany(
-                """UPDATE model_pricing
-                   SET input_price = ?, output_price = ?,
-                       cache_read_price = ?, cache_write_price = ?, updated_at = ?
-                   WHERE model = ?""",
-                updates,
-            )
-            await db.commit()
-            await db_module.sync_pricing_from_db(db)
-
-        updated = len(updates)
-
+        result = await refresh_pricing_core(manual=True)
     except urllib.error.URLError as e:
         logger.error("OpenRouter API 请求失败: %s", e)
         raise HTTPException(status_code=502, detail=f"OpenRouter API 请求失败: {e!s}")
@@ -233,4 +184,4 @@ async def refresh_pricing(request: Request):
         logger.exception("刷新定价失败")
         raise HTTPException(status_code=500, detail="刷新定价失败")
 
-    return {"updated": updated, "added": 0, "total": updated}
+    return {**result, "total": result["updated"] + result["added"], "status": get_status()}

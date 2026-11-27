@@ -10,7 +10,7 @@
   } from "../api/client";
   type BackupInfo = import("../api/client").BackupInfo;
 
-  let expanded = $state(false);
+  let expanded = $state(true);
 
   let settings = $state({ retention_days: 0, backup_keep: 10, auto_backup: true });
   let backups: BackupInfo[] = $state([]);

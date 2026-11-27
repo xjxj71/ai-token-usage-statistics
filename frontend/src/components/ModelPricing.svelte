@@ -25,9 +25,43 @@
   let editingModel: string | null = $state(null);
   let editForm = $state({ input_price: 0, output_price: 0, cache_read_price: 0, cache_write_price: 0 });
   let saveMsg = $state<{ model: string; ok: boolean; text: string } | null>(null);
-  let expanded = $state(false);
+  let expanded = $state(true);
   let refreshing = $state(false);
   let refreshMsg = $state<{ ok: boolean; text: string } | null>(null);
+  let refreshStatus = $state<{
+    last_auto_at?: string;
+    last_manual_at?: string;
+    auto_pending_today?: boolean;
+  } | null>(null);
+
+  function fmtWhen(iso?: string): string {
+    if (!iso) return "";
+    try {
+      const d = new Date(iso);
+      return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    } catch {
+      return "";
+    }
+  }
+
+  const statusText = $derived.by(() => {
+    if (!refreshStatus) return "";
+    const last = refreshStatus.last_manual_at || refreshStatus.last_auto_at;
+    const when = fmtWhen(last);
+    if (!refreshStatus.auto_pending_today && refreshStatus.last_manual_at) {
+      return `每日自动更新 · 今日已手动更新（${when}），不再自动`;
+    }
+    return when ? `每日自动更新 · 上次 ${when}` : "每日自动更新";
+  });
+
+  async function loadStatus() {
+    try {
+      const res = await fetchWithTimeout(`${BASE}/pricing/status`);
+      if (res.ok) refreshStatus = await res.json();
+    } catch {
+      // 状态展示可选
+    }
+  }
 
   // 分页状态
   let pageSize = $state(20);
@@ -130,8 +164,12 @@
         throw new Error(err.detail || "更新失败");
       }
       const data = await res.json();
-      refreshMsg = { ok: true, text: `已更新 ${data.updated || 0} 个模型的定价` };
+      refreshMsg = {
+        ok: true,
+        text: `已更新 ${data.updated || 0} 个定价 · 新增 ${data.added || 0} · 补齐 ${data.backfilled_records || 0} 条未计价记录`,
+      };
       await loadPricing();
+      await loadStatus();
     } catch (e: any) {
       refreshMsg = { ok: false, text: e.message || "更新失败" };
     } finally {
@@ -149,6 +187,7 @@
 
   onMount(() => {
     loadPricing();
+    loadStatus();
   });
 </script>
 
@@ -177,6 +216,9 @@
             <span class="text-xs {refreshMsg.ok ? 'text-[var(--green)]' : 'text-[var(--red)]'}">
               {refreshMsg.text}
             </span>
+          {/if}
+          {#if statusText}
+            <span class="text-xs text-[var(--text-3)]">{statusText}</span>
           {/if}
           <div class="toolbar-right">
             <div class="search-box">

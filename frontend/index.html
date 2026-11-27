@@ -7,7 +7,7 @@
     <script>
       // 首帧前应用已保存主题，避免闪烁
       try {
-        var t = localStorage.getItem("token-stat-theme");
+        var t = localStorage.getItem("token-stat-theme") || "amber";
         if (t && ["classic", "obsidian", "daylight", "amber", "neon"].indexOf(t) >= 0)
           document.documentElement.dataset.theme = t;
       } catch (e) {}

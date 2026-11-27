@@ -7,10 +7,10 @@
 export type ThemeId = "classic" | "obsidian" | "daylight" | "amber" | "neon";
 
 export const THEME_LIST: { id: ThemeId; label: string; hint: string; dot: string }[] = [
-  { id: "classic", label: "经典深色", hint: "当前默认 · 靛蓝石板", dot: "#6366F1" },
+  { id: "classic", label: "经典深色", hint: "原默认 · 靛蓝石板", dot: "#6366F1" },
   { id: "obsidian", label: "曜石 Obsidian", hint: "石墨玻璃 · 青紫点缀", dot: "#22D3EE" },
   { id: "daylight", label: "晨雾 Daylight", hint: "浅色清爽 · 柔和阴影", dot: "#5B5BD6" },
-  { id: "amber", label: "暖砂 Warm Sand", hint: "暖纸编辑风 · 莫兰迪", dot: "#C2571B" },
+  { id: "amber", label: "暖砂 Warm Sand", hint: "默认 · 暖纸莫兰迪", dot: "#C2571B" },
   { id: "neon", label: "霓虹 Neon", hint: "赛博光效 · 等宽数字", dot: "#FF2E97" },
 ];
 
@@ -24,7 +24,7 @@ function initialTheme(): ThemeId {
   } catch {
     // localStorage 不可用时退回默认
   }
-  return "classic";
+  return "amber";
 }
 
 export const themeState = $state({ current: initialTheme() });

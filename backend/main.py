@@ -44,6 +44,7 @@ class FrontendStaticFiles(StaticFiles):
             response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return response
 from backend.quota.multipliers import start_refresh_loop, stop_refresh_loop
+from backend.pricing.refresh import start_pricing_loop, stop_pricing_loop
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,8 @@ async def lifespan(app: FastAPI):
     # 模型消耗倍率后台同步：启动即拉取官方文档，之后按周期刷新；
     # 失败时沿用缓存/内置快照，不会阻塞启动。
     start_refresh_loop()
+    # 模型定价每日自动刷新（当天手动刷新过则跳过）；启动即检查一次。
+    start_pricing_loop()
 
     # Warm the exchange-rate cache in the background; failures fall back to
     # the configured static rate, so nothing needs to be awaited or surfaced.
@@ -70,6 +73,7 @@ async def lifespan(app: FastAPI):
     warmup_task = asyncio.create_task(_warm_rate())
     yield
     warmup_task.cancel()
+    stop_pricing_loop()
     stop_refresh_loop()
     stop_maintenance()
     stop_polling()

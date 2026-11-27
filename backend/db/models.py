@@ -164,12 +164,13 @@ async def _ensure_models_in_pricing(db: aiosqlite.Connection, models: set[str]) 
                     prices.get("cache_read", 0) if prices else 0.0,
                     prices.get("cache_write", 0) if prices else 0.0,
                     now,
+                    "seed",
                 )
             )
         await db.executemany(
             """INSERT INTO model_pricing
-               (model, input_price, output_price, cache_read_price, cache_write_price, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+               (model, input_price, output_price, cache_read_price, cache_write_price, updated_at, price_source)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
             insert_rows,
         )
         logger.info("Auto-detected new models added to pricing: %s", ", ".join(sorted(new_models)))

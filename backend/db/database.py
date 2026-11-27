@@ -33,7 +33,8 @@ CREATE TABLE IF NOT EXISTS model_pricing (
     output_price      REAL NOT NULL,
     cache_read_price  REAL DEFAULT 0.0,
     cache_write_price REAL DEFAULT 0.0,
-    updated_at        TEXT NOT NULL
+    updated_at        TEXT NOT NULL,
+    price_source      TEXT NOT NULL DEFAULT 'seed'
 );
 
 -- Daily aggregates kept when raw records are pruned by the retention job
@@ -139,6 +140,13 @@ async def _migrate(db: aiosqlite.Connection) -> None:
             "ALTER TABLE token_usage ADD COLUMN reasoning_tokens INTEGER NOT NULL DEFAULT 0"
         )
         logger.info("Migration: added token_usage.reasoning_tokens")
+
+    pcols = {r["name"] for r in await db.execute_fetchall("PRAGMA table_info(model_pricing)")}
+    if "price_source" not in pcols:
+        await db.execute(
+            "ALTER TABLE model_pricing ADD COLUMN price_source TEXT NOT NULL DEFAULT 'seed'"
+        )
+        logger.info("Migration: added model_pricing.price_source")
 
     version = (await db.execute_fetchall("PRAGMA user_version"))[0]["user_version"]
     if version < _SCHEMA_VERSION:
