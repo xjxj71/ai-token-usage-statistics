@@ -49,12 +49,16 @@
         type="date"
         bind:value={customFrom}
         class="date-input"
+        title="点击选择开始日期"
+        onclick={(e) => { try { e.currentTarget.showPicker(); } catch { /* 非用户手势等场景忽略 */ } }}
       />
       <span class="text-[var(--text-3)]">-</span>
       <input
         type="date"
         bind:value={customTo}
         class="date-input"
+        title="点击选择结束日期"
+        onclick={(e) => { try { e.currentTarget.showPicker(); } catch { /* 非用户手势等场景忽略 */ } }}
       />
       <button class="apply-btn" onclick={applyCustom}>应用</button>
     </div>

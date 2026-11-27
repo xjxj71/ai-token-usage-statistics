@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { fly } from "svelte/transition";
+  import { uiState, setView } from "./ui.svelte.ts";
+  import { cursorGlow } from "./motion";
   import type { SummaryResponse, UsageResponse, FilterState, TimeRange, TrendResponse, CacheRatioResponse, SessionsResponse, TokenRecord } from "./types";
   import { fetchSummary, fetchUsage, fetchAgents, fetchModels, fetchTrend, fetchCacheRatio, createEventSource, fetchConfig, fetchProjects, fetchSessions, refreshExchangeRate, fetchWithTimeout } from "./api/client";
   import { buildParams } from "./api/params";
@@ -21,7 +22,7 @@
   import BentoOverview from "./components/BentoOverview.svelte";
   import LiveMonitor from "./components/LiveMonitor.svelte";
 
-  let view = $state("overview");
+  const view = $derived(uiState.view);
   const VIEW_META: Record<string, { title: string; sub: string }> = {
     overview: { title: "概览", sub: "关键指标一屏全览 · Bento" },
     trends: { title: "趋势分析", sub: "用量趋势 · Agent 对比 · 缓存率" },
@@ -259,8 +260,8 @@
   });
 </script>
 
-<div class="shell">
-  <Sidebar current={view} onNavigate={(v) => (view = v)} sseConnected={sseConnected} />
+<div class="shell" use:cursorGlow>
+  <Sidebar current={view} onNavigate={setView} sseConnected={sseConnected} />
 
   <div class="shell-main">
     <header class="topbar">
@@ -311,7 +312,7 @@
       </div>
     {:else if summary}
       <div class="content">
-        {#if FILTER_VIEWS.has(view)}
+        <div class:hidden={!FILTER_VIEWS.has(view)}>
           <FilterBar
             {agents}
             {models}
@@ -321,10 +322,10 @@
             selectedProjects={filter.projects}
             onchange={handleFilterChange}
           />
-        {/if}
+        </div>
 
-        {#if view === "overview"}
-          <section class="view" transition:fly={{ x: 18, duration: 240 }}>
+        <!-- keep-alive：所有视图常驻 DOM，切换只改 hidden，图表不重建 -->
+        <section class="view" class:hidden={view !== "overview"}>
             <BentoOverview
               {summary}
               cacheRatio={cacheByAgent?.overall_cache_ratio ?? 0}
@@ -338,8 +339,7 @@
             <PlanQuotaCard />
             <ReportCard {filter} {usdToCnyRate} />
           </section>
-        {:else if view === "trends"}
-          <section class="view" transition:fly={{ x: 18, duration: 240 }}>
+        <section class="view" class:hidden={view !== "trends"}>
             <div class="grid2">
               <TrendLine data={trendByAgent} title="按 Agent 的 Token 用量趋势" />
               <TrendLine data={trendByModel} title="按模型的 Token 用量趋势" />
@@ -351,8 +351,7 @@
               byAgentModel={cacheByAgentModel?.items ?? []}
             />
           </section>
-        {:else if view === "sessions"}
-          <section class="view" transition:fly={{ x: 18, duration: 240 }}>
+        <section class="view" class:hidden={view !== "sessions"}>
             {#if sessions}
               <SessionTable
                 items={sessions.items}
@@ -366,8 +365,7 @@
               />
             {/if}
           </section>
-        {:else if view === "records"}
-          <section class="view" transition:fly={{ x: 18, duration: 240 }}>
+        <section class="view" class:hidden={view !== "records"}>
             {#if usage}
               <UsageTable
                 items={usage.items}
@@ -381,8 +379,7 @@
               />
             {/if}
           </section>
-        {:else if view === "monitor"}
-          <section class="view" transition:fly={{ x: 18, duration: 240 }}>
+        <section class="view" class:hidden={view !== "monitor"}>
             <LiveMonitor
               items={usage?.items ?? []}
               {summary}
@@ -393,15 +390,12 @@
               {sseConnected}
             />
           </section>
-        {:else if view === "pricing"}
-          <section class="view" transition:fly={{ x: 18, duration: 240 }}>
+        <section class="view" class:hidden={view !== "pricing"}>
             <ModelPricing {usdToCnyRate} />
           </section>
-        {:else if view === "data"}
-          <section class="view" transition:fly={{ x: 18, duration: 240 }}>
-            <DataManagement />
-          </section>
-        {/if}
+        <section class="view" class:hidden={view !== "data"}>
+          <DataManagement />
+        </section>
       </div>
     {/if}
   </div>
@@ -414,6 +408,16 @@
     background: var(--bg);
     color: var(--text);
   }
+  /* 页面级环境光：跟随鼠标的柔和光晕 */
+  .shell::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background: radial-gradient(600px circle at var(--gx, 50%) var(--gy, 30%), rgba(var(--primary-rgb), 0.05), transparent 60%);
+  }
+  .hidden { display: none !important; }
   .shell-main {
     flex: 1;
     min-width: 0;
@@ -446,7 +450,19 @@
     flex-direction: column;
     gap: 14px;
   }
-  .view { display: flex; flex-direction: column; gap: 14px; }
+  .view {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    /* display none→flex 时自动重放，keep-alive 切换的入场动效 */
+    animation: view-in .3s cubic-bezier(.2, .7, .3, 1);
+  }
+  @keyframes view-in {
+    from { opacity: 0; transform: translateX(14px); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .view { animation: none; }
+  }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   @media (max-width: 1100px) { .grid2 { grid-template-columns: 1fr; } }
 

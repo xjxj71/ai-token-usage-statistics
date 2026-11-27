@@ -4,6 +4,9 @@
   import type { CacheRatioItem } from "../types";
   import { escapeHtml } from "../utils/escape";
   import { chartPalette, type ChartPalette } from "../theme.svelte.ts";
+  import { themeState } from "../theme.svelte.ts";
+  import { uiState } from "../ui.svelte.ts";
+  import { tilt } from "../motion";
 
   interface Props {
     byAgent: CacheRatioItem[];
@@ -274,32 +277,46 @@
     return `${Math.max(320, data.length * 44 + 60)}px`;
   }
 
+  let lastData: unknown = null;
+  let lastTheme = "";
   $effect(() => {
     if (!chartEl) return;
+    void uiState.view; // keep-alive：视图显示时补初始化/重绘
+    if (chartEl.clientWidth === 0) return; // 隐藏视图不初始化
     const P = chartPalette();
     if (!chart) {
       chart = echarts.init(chartEl);
+      lastData = null;
     }
     const data = getCurrentData();
     if (!data?.length) {
       chart.clear();
+      lastData = null;
       return;
     }
-    chart.setOption(getCurrentOption(P), true);
+    if (lastData !== data || lastTheme !== themeState.current) {
+      chart.setOption(getCurrentOption(P), true);
+      lastData = data;
+      lastTheme = themeState.current;
+    }
     chart.resize();
   });
 
   onMount(() => {
     const handleResize = () => chart?.resize();
     window.addEventListener("resize", handleResize);
+    // 侧栏折叠/容器尺寸变化时自适应（window resize 不触发的场景）
+    const ro = new ResizeObserver(() => chart?.resize());
+    if (chartEl) ro.observe(chartEl);
     return () => {
       window.removeEventListener("resize", handleResize);
+      ro.disconnect();
       chart?.dispose();
     };
   });
 </script>
 
-<div class="chart-card">
+<div class="chart-card" use:tilt={{ max: 1.5 }}>
   <div class="flex items-center justify-between mb-3">
     <h3 class="chart-title mb-0">缓存率分析</h3>
     <div class="tab-group">

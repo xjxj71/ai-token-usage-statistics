@@ -4,6 +4,9 @@
   import type { BreakdownItem } from "../types";
   import { escapeHtml } from "../utils/escape";
   import { chartPalette, type ChartPalette } from "../theme.svelte.ts";
+  import { themeState } from "../theme.svelte.ts";
+  import { uiState } from "../ui.svelte.ts";
+  import { tilt } from "../motion";
 
   interface Props {
     breakdown: BreakdownItem[];
@@ -102,30 +105,46 @@
     };
   }
 
+  let lastData: unknown = null;
+  let lastTheme = "";
   $effect(() => {
     if (!chartEl) return;
+    void uiState.view; // keep-alive：视图显示时补初始化/重绘
+    if (chartEl.clientWidth === 0) return; // 隐藏视图不初始化
     const P = chartPalette();
     if (!chart) {
       chart = echarts.init(chartEl);
+      lastData = null;
     }
     if (!breakdown?.length) {
       chart.clear();
+      lastData = null;
       return;
     }
-    chart.setOption(buildOption(breakdown, P), true);
+    if (lastData !== breakdown || lastTheme !== themeState.current) {
+      chart.setOption(buildOption(breakdown, P), true);
+      lastData = breakdown;
+      lastTheme = themeState.current;
+    } else {
+      chart.resize();
+    }
   });
 
   onMount(() => {
     const handleResize = () => chart?.resize();
     window.addEventListener("resize", handleResize);
+    // 侧栏折叠/容器尺寸变化时自适应（window resize 不触发的场景）
+    const ro = new ResizeObserver(() => chart?.resize());
+    if (chartEl) ro.observe(chartEl);
     return () => {
       window.removeEventListener("resize", handleResize);
+      ro.disconnect();
       chart?.dispose();
     };
   });
 </script>
 
-<div class="chart-card">
+<div class="chart-card" use:tilt={{ max: 1.5 }}>
   <h3 class="chart-title">项目消耗分布</h3>
   {#if !breakdown?.length}
     <div class="empty-hint">当前范围内没有带项目信息的记录（仅 claude-code / openclaude / zcode / codex / qoder 提供工作目录数据）</div>

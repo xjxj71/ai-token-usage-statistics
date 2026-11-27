@@ -7,7 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **视图切换卡顿**：改为 keep-alive——所有视图常驻 DOM，切换只改显隐，ECharts 不再每次重建（首次显示才初始化，之后仅 resize）；图表加 ResizeObserver，侧栏折叠 / 容器尺寸变化时自适应
+- **自定义日期范围**：点击输入框直接弹出原生日期选择器（`showPicker()`），`color-scheme` 随主题明暗渲染，深色下日历图标不再隐形
+
 ### Changed
+- **概览 hero 改为总 Token**（核心指标），总费用降为普通 tile
+- **卡片鼠标跟随动效**：3D 倾斜（rAF 插值平滑）+ 光标光斑 + 页面级环境光，取代原简单悬停位移；`prefers-reduced-motion` 降级保留
+- **侧栏手动折叠**：底部按钮切换仅图标模式（状态持久化），右侧内容随宽度自适应；视图选择同样持久化
 - **布局重构：侧边导航 + Bento 概览 + 实时监控**（设计原型见 `design/prototypes/layouts.html`）
   - 长单页拆为 7 个侧边导航视图：概览 / 趋势分析 / 会话明细 / 使用记录 / 实时监控 / 模型定价 / 数据管理；视图切换滑入过渡，导航滑动指示器，窄屏侧栏折叠为图标
   - 概览改为 Bento 网格一屏全览：费用 hero（数字滚动 + 迷你走势）、缓存命中率环、指标 tiles、趋势大图、实时动态 tile、分布三图；卡片交错入场 / 悬停浮起

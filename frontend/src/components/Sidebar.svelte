@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { uiState, toggleCollapsed } from "../ui.svelte.ts";
+
   interface Props {
     current: string;
     onNavigate: (view: string) => void;
@@ -21,7 +23,7 @@
   const activeIndex = $derived(Math.max(0, ITEMS.findIndex((i) => i.id === current)));
 </script>
 
-<aside class="sidebar">
+<aside class="sidebar" class:collapsed={uiState.collapsed}>
   <div class="brand">
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2">
       <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
@@ -51,6 +53,16 @@
     {/each}
   </nav>
 
+  <button class="collapse-btn" onclick={toggleCollapsed} title={uiState.collapsed ? "展开侧栏" : "折叠侧栏（仅图标）"}>
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      {#if uiState.collapsed}
+        <path d="M13 17l5-5-5-5M6 17l5-5-5-5"/>
+      {:else}
+        <path d="M11 17l-5-5 5-5M18 17l-5-5 5-5"/>
+      {/if}
+    </svg>
+  </button>
+
   <div class="side-foot">
     <div class="sse" class:off={!sseConnected}>
       <span class="sse-dot"></span>{sseConnected ? "实时连接" : "连接断开"}
@@ -63,6 +75,7 @@
   .sidebar {
     width: 208px;
     flex-shrink: 0;
+    transition: width .28s cubic-bezier(.3, .8, .3, 1);
     background: var(--card);
     border-right: 1px solid var(--border);
     padding: 18px 12px 14px;
@@ -143,11 +156,36 @@
   .sse.off .sse-dot { animation: none; }
   .ver { color: var(--text-3); }
 
+  .collapse-btn {
+    margin-top: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 30px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-3);
+    cursor: pointer;
+    transition: all .2s;
+  }
+  .collapse-btn:hover { color: var(--text); border-color: rgba(var(--primary-rgb), .4); }
+
+  /* 手动折叠：仅图标，右侧内容随 flex 自适应加宽 */
+  .sidebar.collapsed { width: 62px; padding: 18px 8px 14px; }
+  .sidebar.collapsed .brand { justify-content: center; padding: 0 0 18px; }
+  .sidebar.collapsed .brand-text,
+  .sidebar.collapsed .nav-label,
+  .sidebar.collapsed .side-foot { display: none; }
+  .sidebar.collapsed .nav-item { justify-content: center; padding: 0; }
+  .sidebar.collapsed .nav-live { position: absolute; right: 6px; top: 6px; }
+
   @media (max-width: 1100px) {
     .sidebar { width: 62px; padding: 18px 8px 14px; }
     .brand { justify-content: center; padding: 0 0 18px; }
     .brand-text, .nav-label, .side-foot { display: none; }
     .nav-item { justify-content: center; padding: 0; }
     .nav-live { position: absolute; right: 6px; top: 6px; }
+    .collapse-btn { display: none; }
   }
 </style>

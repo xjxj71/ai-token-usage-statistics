@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { SummaryResponse, SummaryTotals, BreakdownItem, TrendResponse, TokenRecord } from "../types";
-  import { countUp, formatNumber } from "../motion";
+  import { countUp, formatNumber, tilt } from "../motion";
   import { agentColor } from "../theme.svelte.ts";
   import TrendLine from "./TrendLine.svelte";
   import AgentPie from "./AgentPie.svelte";
@@ -81,13 +81,13 @@
 </script>
 
 <div class="bento">
-  <!-- 费用 hero -->
-  <div class="tile b-hero">
-    <div class="t-label">总费用 · 当前范围 <span>CNY</span></div>
-    <div class="t-hero" use:countUp={{ value: cost, format: (n) => "¥" + n.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }), duration: 1000 }}></div>
-    {#if d("cost_usd") !== undefined}
-      {@const up = (d("cost_usd") ?? 0) > 0}
-      <div class="delta" class:good={!up} class:bad={up}>{up ? "↑" : "↓"} {Math.abs(d("cost_usd") ?? 0).toFixed(1)}% <span>较上期 · 下降为好</span></div>
+  <!-- 总 Token hero（核心指标） -->
+  <div class="tile b-hero" use:tilt>
+    <div class="t-label">总 TOKEN · 当前范围 <span>核心指标</span></div>
+    <div class="t-hero" use:countUp={{ value: summary.total_tokens, format: formatNumber, duration: 1000 }}></div>
+    {#if d("total_tokens") !== undefined}
+      {@const up = (d("total_tokens") ?? 0) > 0}
+      <div class="delta" class:good={up} class:bad={!up}>{up ? "↑" : "↓"} {Math.abs(d("total_tokens") ?? 0).toFixed(1)}% <span>较上期</span></div>
     {/if}
     {#if sparkPath.line}
       <svg class="hero-spark" viewBox="0 0 300 56" preserveAspectRatio="none">
@@ -97,18 +97,18 @@
     {/if}
   </div>
 
-  <!-- 总 Token -->
-  <div class="tile b-4">
-    <div class="t-label">总 TOKEN</div>
-    <div class="t-mid" use:countUp={{ value: summary.total_tokens, format: formatNumber }}></div>
-    {#if d("total_tokens") !== undefined}
-      {@const up = (d("total_tokens") ?? 0) > 0}
-      <div class="delta" class:good={up} class:bad={!up}>{up ? "↑" : "↓"} {Math.abs(d("total_tokens") ?? 0).toFixed(1)}% <span>较上期</span></div>
+  <!-- 总费用 -->
+  <div class="tile b-4" use:tilt>
+    <div class="t-label">总费用 <span>CNY</span></div>
+    <div class="t-mid" use:countUp={{ value: cost, format: (n) => "¥" + n.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}></div>
+    {#if d("cost_usd") !== undefined}
+      {@const up = (d("cost_usd") ?? 0) > 0}
+      <div class="delta" class:good={!up} class:bad={up}>{up ? "↑" : "↓"} {Math.abs(d("cost_usd") ?? 0).toFixed(1)}% <span>较上期 · 下降为好</span></div>
     {/if}
   </div>
 
   <!-- 缓存命中率环 -->
-  <div class="tile b-4 b-ring">
+  <div class="tile b-4 b-ring" use:tilt>
     <div class="cache-ring">
       <svg width="64" height="64" viewBox="0 0 64 64">
         <circle cx="32" cy="32" r="27" fill="none" stroke="rgba(var(--border-rgb), .6)" stroke-width="6"/>
@@ -124,34 +124,34 @@
   </div>
 
   <!-- 四个小指标 -->
-  <div class="tile b-2">
+  <div class="tile b-2" use:tilt={{ max: 4 }}>
     <div class="t-label">输入</div>
     <div class="t-sm" use:countUp={{ value: summary.input_tokens, format: formatNumber }}></div>
     {#if d("input_tokens") !== undefined}<div class="delta mini" class:good={(d("input_tokens") ?? 0) > 0} class:bad={(d("input_tokens") ?? 0) <= 0}>{(d("input_tokens") ?? 0) > 0 ? "↑" : "↓"} {Math.abs(d("input_tokens") ?? 0).toFixed(1)}%</div>{/if}
   </div>
-  <div class="tile b-2">
+  <div class="tile b-2" use:tilt={{ max: 4 }}>
     <div class="t-label">输出</div>
     <div class="t-sm" use:countUp={{ value: summary.output_tokens, format: formatNumber }}></div>
     {#if d("output_tokens") !== undefined}<div class="delta mini" class:good={(d("output_tokens") ?? 0) > 0} class:bad={(d("output_tokens") ?? 0) <= 0}>{(d("output_tokens") ?? 0) > 0 ? "↑" : "↓"} {Math.abs(d("output_tokens") ?? 0).toFixed(1)}%</div>{/if}
   </div>
-  <div class="tile b-2">
+  <div class="tile b-2" use:tilt={{ max: 4 }}>
     <div class="t-label">思考</div>
     <div class="t-sm" use:countUp={{ value: summary.reasoning_tokens, format: formatNumber }}></div>
     {#if d("reasoning_tokens") !== undefined}<div class="delta mini" class:good={(d("reasoning_tokens") ?? 0) > 0} class:bad={(d("reasoning_tokens") ?? 0) <= 0}>{(d("reasoning_tokens") ?? 0) > 0 ? "↑" : "↓"} {Math.abs(d("reasoning_tokens") ?? 0).toFixed(1)}%</div>{/if}
   </div>
-  <div class="tile b-2">
+  <div class="tile b-2" use:tilt={{ max: 4 }}>
     <div class="t-label">缓存</div>
     <div class="t-sm" use:countUp={{ value: summary.cache_tokens, format: formatNumber }}></div>
     {#if d("cache_tokens") !== undefined}<div class="delta mini" class:good={(d("cache_tokens") ?? 0) > 0} class:bad={(d("cache_tokens") ?? 0) <= 0}>{(d("cache_tokens") ?? 0) > 0 ? "↑" : "↓"} {Math.abs(d("cache_tokens") ?? 0).toFixed(1)}%</div>{/if}
   </div>
 
   <!-- 趋势大图 -->
-  <div class="tile b-trend">
+  <div class="tile b-trend" use:tilt={{ max: 1.5 }}>
     <TrendLine data={trendByAgent} title="Token 用量趋势 · 按 Agent" />
   </div>
 
   <!-- 请求次数 -->
-  <div class="tile b-4">
+  <div class="tile b-4" use:tilt>
     <div class="t-label">请求次数</div>
     <div class="t-mid" use:countUp={{ value: summary.call_count, format: (n) => Math.round(n).toLocaleString() + " 次" }}></div>
     {#if d("call_count") !== undefined}
@@ -161,7 +161,7 @@
   </div>
 
   <!-- 实时动态 -->
-  <div class="tile b-4 b-feed">
+  <div class="tile b-4 b-feed" use:tilt>
     <div class="t-label">实时动态 <span>最新 {feedItems.length} 条</span></div>
     <div class="feed-list">
       {#each feedItems as r (r.timestamp + r.agent + r.model)}
@@ -178,9 +178,9 @@
   </div>
 
   <!-- 分布三图 -->
-  <div class="tile b-tall"><AgentPie breakdown={agentBreakdown} /></div>
-  <div class="tile b-tall"><ModelBar breakdown={modelBreakdown} /></div>
-  <div class="tile b-tall"><ProjectBar breakdown={projectBreakdown} /></div>
+  <div class="tile b-tall" use:tilt={{ max: 1.5 }}><AgentPie breakdown={agentBreakdown} /></div>
+  <div class="tile b-tall" use:tilt={{ max: 1.5 }}><ModelBar breakdown={modelBreakdown} /></div>
+  <div class="tile b-tall" use:tilt={{ max: 1.5 }}><ProjectBar breakdown={projectBreakdown} /></div>
 </div>
 
 <style>
@@ -214,10 +214,10 @@
   .tile:nth-child(13) { animation-delay: 600ms; }
   @keyframes tile-in { from { opacity: 0; transform: translateY(14px); } }
   .tile:hover {
-    transform: translateY(-2px);
     border-color: rgba(var(--primary-rgb), .35);
     box-shadow: 0 8px 24px rgba(var(--bg-rgb), .5);
   }
+  .tile.tilting { will-change: transform; }
   .b-hero { grid-column: span 4; grid-row: span 2; display: flex; flex-direction: column; }
   .b-4 { grid-column: span 4; }
   .b-2 { grid-column: span 2; }
