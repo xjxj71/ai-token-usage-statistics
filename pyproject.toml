@@ -1,6 +1,6 @@
 [project]
 name = "ai-token-usage-statistics"
-version = "0.1.11"
+version = "0.1.12"
 description = "Monitor and visualize token consumption of AI coding agents in WSL"
 requires-python = ">=3.11"
 dependencies = [
