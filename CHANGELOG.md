@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **布局重构：侧边导航 + Bento 概览 + 实时监控**（设计原型见 `design/prototypes/layouts.html`）
+  - 长单页拆为 7 个侧边导航视图：概览 / 趋势分析 / 会话明细 / 使用记录 / 实时监控 / 模型定价 / 数据管理；视图切换滑入过渡，导航滑动指示器，窄屏侧栏折叠为图标
+  - 概览改为 Bento 网格一屏全览：费用 hero（数字滚动 + 迷你走势）、缓存命中率环、指标 tiles、趋势大图、实时动态 tile、分布三图；卡片交错入场 / 悬停浮起
+  - 新增**实时监控**视图：SSE 新记录滑入高亮渐隐、可暂停冻结画面、右侧摘要轨（费用 / 命中率 / Agent 占比 / 模型 Top）
+  - 动效统一克制：数字滚动 / 交错入场 / 悬停微交互 / 视图过渡，`prefers-reduced-motion` 全局降级
+  - AgentPie / ModelBar 新增 `compact` 模式供窄容器使用（隐藏外置标签 / 数值轴刻度）
+
 ### Added
 - **多主题切换**：经典深色 / 曜石 Obsidian / 晨雾 Daylight / 暖砂 Warm Sand / 霓虹 Neon 五套主题，头部调色板按钮切换，选择持久化到 localStorage 并在首帧前应用（无闪烁）。全部颜色收敛为 `app.css` CSS 变量（`[data-theme=...]` 覆盖），ECharts 通过 `theme.svelte.ts` 从同一组变量取运行时调色板，主题切换时图表自动重绘；Agent 身份色、表格徽章、筛选圆点跨主题保持一致（徽章文字色按主题文字色自动混合保证对比度）。设计原型见 `design/prototypes/`
 - **套餐倍率自动同步**：模型消耗倍率（抵扣系数/消耗倍率）不再硬编码，改为定时从官方文档中心抓取解析（`backend/quota/multipliers.py`：启动即拉取 + 每 6h 刷新 + `POST /api/quota/multipliers/refresh` 手动刷新，`data/model_multipliers.json` 持久化缓存，失败自动回退内置快照，卡片标注数据更新时间）

@@ -1,16 +1,13 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import type { SummaryResponse, SummaryTotals, UsageResponse, FilterState, TimeRange, TrendResponse, CacheRatioResponse, SessionsResponse, TokenRecord } from "./types";
+  import { fly } from "svelte/transition";
+  import type { SummaryResponse, UsageResponse, FilterState, TimeRange, TrendResponse, CacheRatioResponse, SessionsResponse, TokenRecord } from "./types";
   import { fetchSummary, fetchUsage, fetchAgents, fetchModels, fetchTrend, fetchCacheRatio, createEventSource, fetchConfig, fetchProjects, fetchSessions, refreshExchangeRate, fetchWithTimeout } from "./api/client";
   import { buildParams } from "./api/params";
   import { csvEscape } from "./utils/csv";
   import TimeRangeTabs from "./components/TimeRangeTabs.svelte";
-  import StatCard from "./components/StatCard.svelte";
   import ComparisonChart from "./components/ComparisonChart.svelte";
   import TrendLine from "./components/TrendLine.svelte";
-  import AgentPie from "./components/AgentPie.svelte";
-  import ModelBar from "./components/ModelBar.svelte";
-  import ProjectBar from "./components/ProjectBar.svelte";
   import UsageTable from "./components/UsageTable.svelte";
   import SessionTable from "./components/SessionTable.svelte";
   import FilterBar from "./components/FilterBar.svelte";
@@ -20,6 +17,21 @@
   import ReportCard from "./components/ReportCard.svelte";
   import DataManagement from "./components/DataManagement.svelte";
   import ThemeSwitcher from "./components/ThemeSwitcher.svelte";
+  import Sidebar from "./components/Sidebar.svelte";
+  import BentoOverview from "./components/BentoOverview.svelte";
+  import LiveMonitor from "./components/LiveMonitor.svelte";
+
+  let view = $state("overview");
+  const VIEW_META: Record<string, { title: string; sub: string }> = {
+    overview: { title: "概览", sub: "关键指标一屏全览 · Bento" },
+    trends: { title: "趋势分析", sub: "用量趋势 · Agent 对比 · 缓存率" },
+    sessions: { title: "会话明细", sub: "按 Agent × 会话聚合 · 点击行展开请求" },
+    records: { title: "使用记录", sub: "逐条请求明细 · 可搜索 / 导出" },
+    monitor: { title: "实时监控", sub: "SSE 实时推送 · 新记录滑入高亮" },
+    pricing: { title: "模型定价", sub: "模型单价维护 · 一键刷新" },
+    data: { title: "数据管理", sub: "保留策略 · 清理 · 备份" },
+  };
+  const FILTER_VIEWS = new Set(["overview", "trends", "sessions", "records"]);
 
   let summary: SummaryResponse | null = $state(null);
   let agentBreakdown: SummaryResponse["breakdown"] = $state([]);
@@ -151,17 +163,6 @@
     loadData();
   }
 
-  function delta(cur: number, prev: number | undefined | null): number | undefined {
-    // Previous period had no usage → a ratio would be meaningless; hide the badge.
-    if (prev === undefined || prev === null || prev === 0) return undefined;
-    return Math.round(((cur - prev) / prev) * 1000) / 10;
-  }
-
-  function totalsDelta(key: keyof SummaryTotals): number | undefined {
-    if (!summary?.previous) return undefined;
-    return delta(summary[key] as number, summary.previous![key] as number);
-  }
-
   async function loadSessionDetail(agent: string, sessionId: string): Promise<TokenRecord[]> {
     const params = buildParams(filter);
     const data = await fetchUsage({
@@ -258,188 +259,205 @@
   });
 </script>
 
-<main class="min-h-screen bg-[var(--bg)] text-[var(--text)]" style="padding-bottom: 2rem;">
-  <!-- Header -->
-  <header class="header-bar">
-    <div class="header-inner">
-      <div class="flex items-center gap-3">
-      <div class="flex items-center gap-2.5">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="2">
-          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-        </svg>
-        <h1 class="text-lg font-bold">AI Token 用量统计</h1>
+<div class="shell">
+  <Sidebar current={view} onNavigate={(v) => (view = v)} sseConnected={sseConnected} />
+
+  <div class="shell-main">
+    <header class="topbar">
+      <div class="topbar-title">
+        <h1>{VIEW_META[view].title}</h1>
+        <span class="topbar-sub">{VIEW_META[view].sub}</span>
       </div>
-      <div class="flex items-center gap-1.5 ml-2">
-        <div class="sse-dot {sseConnected ? 'connected' : 'disconnected'}"></div>
-        <span class="text-[11px] text-[var(--text-3)]">{sseConnected ? '实时连接' : '连接断开'}</span>
-      </div>
-      <div class="flex items-center gap-1.5 ml-3" title={rateSource === "live" ? "汇率来自实时行情" : "使用配置的静态汇率"}>
-        <span class="text-[11px] text-[var(--text-3)]">1 USD = ¥{usdToCnyRate.toFixed(2)}</span>
-        <span class="rate-tag {rateSource === 'live' ? 'live' : ''}">{rateSource === "live" ? "实时" : "静态"}</span>
-        <button class="rate-refresh" onclick={handleRateRefresh} disabled={rateRefreshing} title="刷新汇率">
-          {#if rateRefreshing}
-            <svg class="animate-spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
-          {:else}
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-2.64-6.36M21 3v6h-6"/></svg>
+      <div class="topbar-right">
+        <div class="flex items-center gap-1.5">
+          <div class="sse-dot {sseConnected ? 'connected' : 'disconnected'}"></div>
+          <span class="text-[11px] text-[var(--text-3)]">{sseConnected ? '实时连接' : '连接断开'}</span>
+        </div>
+        <div class="flex items-center gap-1.5" title={rateSource === "live" ? "汇率来自实时行情" : "使用配置的静态汇率"}>
+          <span class="text-[11px] text-[var(--text-3)]">1 USD = ¥{usdToCnyRate.toFixed(2)}</span>
+          <span class="rate-tag {rateSource === 'live' ? 'live' : ''}">{rateSource === "live" ? "实时" : "静态"}</span>
+          <button class="rate-refresh" onclick={handleRateRefresh} disabled={rateRefreshing} title="刷新汇率">
+            {#if rateRefreshing}
+              <svg class="animate-spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
+            {:else}
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-2.64-6.36M21 3v6h-6"/></svg>
+            {/if}
+          </button>
+          {#if rateError}
+            <span class="text-[11px] text-[var(--red)]">{rateError}</span>
           {/if}
-        </button>
-        {#if rateError}
-          <span class="text-[11px] text-[var(--red)]">{rateError}</span>
+        </div>
+        <ThemeSwitcher />
+        <TimeRangeTabs current={filter.range} onchange={handleRangeChange} />
+        {#if loading && summary}
+          <span class="text-xs text-[var(--text-3)] animate-pulse">刷新中...</span>
         {/if}
       </div>
-      {#if loading && summary}
-        <span class="text-xs text-[var(--text-3)] animate-pulse ml-2">刷新中...</span>
-      {/if}
-      <div class="ml-2"><ThemeSwitcher /></div>
-    </div>
-      <TimeRangeTabs current={filter.range} onchange={handleRangeChange} />
-    </div>
-  </header>
+    </header>
 
-  {#if error}
-    <div class="mx-6 mt-4 p-3 bg-red-900/30 border border-red-800 rounded-lg text-red-300 text-sm">
-      {error}
-    </div>
-  {/if}
-
-  {#if loading && !summary}
-    <div class="flex flex-col items-center justify-center h-64 text-[var(--text-3)] gap-3">
-      <svg class="animate-spin h-8 w-8" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-      </svg>
-      <span>加载中...</span>
-    </div>
-  {:else if summary}
-    <div class="px-6 pt-2 pb-6 space-y-6 mx-auto w-full max-w-[1800px]">
-      <!-- Plan Quota Monitor -->
-      <PlanQuotaCard />
-
-      <!-- Usage Report (collapsible) -->
-      <ReportCard {filter} {usdToCnyRate} />
-
-      <!-- Agent Filter Tags -->
-      <FilterBar
-        {agents}
-        {models}
-        {projects}
-        selectedAgents={filter.agents}
-        selectedModels={filter.models}
-        selectedProjects={filter.projects}
-        onchange={handleFilterChange}
-      />
-
-      <!-- Stat Cards: 8 列仅在 ≥1536px（1080p/2160p 桌面）启用；720p(1280) 及以下保持 4 列，避免涨幅标签折行 -->
-      <div class="grid grid-cols-2 md:grid-cols-4 2xl:grid-cols-8 gap-4">
-        <StatCard title="总 Token" value={summary.total_tokens} unit="" trend={totalsDelta("total_tokens")}
-          icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>' />
-        <StatCard title="输入 Token" value={summary.input_tokens} unit="" trend={totalsDelta("input_tokens")}
-          icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>' />
-        <StatCard title="输出 Token" value={summary.output_tokens} unit="" trend={totalsDelta("output_tokens")}
-          icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>' />
-        <StatCard title="思考 Token" value={summary.reasoning_tokens} unit="" trend={totalsDelta("reasoning_tokens")}
-          icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--pink)" stroke-width="2"><path d="M9 18h6M10 22h4M12 2a7 7 0 00-4 12.7c.6.5 1 1.4 1 2.3h6c0-.9.4-1.8 1-2.3A7 7 0 0012 2z"/></svg>' />
-        <StatCard title="缓存 Token" value={summary.cache_tokens} unit="" trend={totalsDelta("cache_tokens")}
-          icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M3 9h18"/></svg>' />
-        <StatCard title="总费用" value={summary.cost_usd * usdToCnyRate} unit="¥" prefix={true} goodWhenDown={true} trend={totalsDelta("cost_usd")}
-          icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>' />
-        <StatCard title="请求次数" value={summary.call_count} unit="次" trend={totalsDelta("call_count")}
-          icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>' />
-        <StatCard title="缓存命中率" value={cacheByAgent ? cacheByAgent.overall_cache_ratio * 100 : 0} unit="%"
-          icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg>' />
+    {#if error}
+      <div class="mx-6 mt-4 p-3 rounded-lg text-sm" style="background: rgba(var(--red-rgb), .1); border: 1px solid rgba(var(--red-rgb), .3); color: var(--red);">
+        {error}
       </div>
+    {/if}
 
-      <!-- Trend Charts -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <TrendLine data={trendByAgent} title="按 Agent 的 Token 用量趋势" />
-        <TrendLine data={trendByModel} title="按模型的 Token 用量趋势" />
+    {#if loading && !summary}
+      <div class="flex flex-col items-center justify-center h-64 text-[var(--text-3)] gap-3">
+        <svg class="animate-spin h-8 w-8" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+        </svg>
+        <span>加载中...</span>
       </div>
+    {:else if summary}
+      <div class="content">
+        {#if FILTER_VIEWS.has(view)}
+          <FilterBar
+            {agents}
+            {models}
+            {projects}
+            selectedAgents={filter.agents}
+            selectedModels={filter.models}
+            selectedProjects={filter.projects}
+            onchange={handleFilterChange}
+          />
+        {/if}
 
-      <!-- Stacked Bar -->
-      <ComparisonChart breakdown={agentBreakdown} />
-
-      <!-- Cache Ratio Analysis -->
-      <CacheRatioChart
-        byAgent={cacheByAgent?.items ?? []}
-        byModel={cacheByModel?.items ?? []}
-        byAgentModel={cacheByAgentModel?.items ?? []}
-      />
-
-      <!-- Pie + Model Bar + Project Bar (full width) -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <AgentPie breakdown={agentBreakdown} />
-        <ModelBar breakdown={modelBreakdown} />
-        <div class="lg:col-span-2">
-          <ProjectBar breakdown={projectBreakdown} />
-        </div>
+        {#if view === "overview"}
+          <section class="view" transition:fly={{ x: 18, duration: 240 }}>
+            <BentoOverview
+              {summary}
+              cacheRatio={cacheByAgent?.overall_cache_ratio ?? 0}
+              {agentBreakdown}
+              {modelBreakdown}
+              {projectBreakdown}
+              {trendByAgent}
+              usageItems={usage?.items ?? []}
+              {usdToCnyRate}
+            />
+            <PlanQuotaCard />
+            <ReportCard {filter} {usdToCnyRate} />
+          </section>
+        {:else if view === "trends"}
+          <section class="view" transition:fly={{ x: 18, duration: 240 }}>
+            <div class="grid2">
+              <TrendLine data={trendByAgent} title="按 Agent 的 Token 用量趋势" />
+              <TrendLine data={trendByModel} title="按模型的 Token 用量趋势" />
+            </div>
+            <ComparisonChart breakdown={agentBreakdown} />
+            <CacheRatioChart
+              byAgent={cacheByAgent?.items ?? []}
+              byModel={cacheByModel?.items ?? []}
+              byAgentModel={cacheByAgentModel?.items ?? []}
+            />
+          </section>
+        {:else if view === "sessions"}
+          <section class="view" transition:fly={{ x: 18, duration: 240 }}>
+            {#if sessions}
+              <SessionTable
+                items={sessions.items}
+                total={sessions.total}
+                page={sessions.page}
+                pageSize={sessionPageSize}
+                {usdToCnyRate}
+                loadDetail={loadSessionDetail}
+                onPageChange={handleSessionPageChange}
+                onPageSizeChange={handleSessionPageSizeChange}
+              />
+            {/if}
+          </section>
+        {:else if view === "records"}
+          <section class="view" transition:fly={{ x: 18, duration: 240 }}>
+            {#if usage}
+              <UsageTable
+                items={usage.items}
+                total={usage.total}
+                page={usage.page}
+                {pageSize}
+                {usdToCnyRate}
+                onPageChange={handlePageChange}
+                onPageSizeChange={handlePageSizeChange}
+                onExport={handleExport}
+              />
+            {/if}
+          </section>
+        {:else if view === "monitor"}
+          <section class="view" transition:fly={{ x: 18, duration: 240 }}>
+            <LiveMonitor
+              items={usage?.items ?? []}
+              {summary}
+              cacheRatio={cacheByAgent?.overall_cache_ratio ?? 0}
+              {agentBreakdown}
+              {modelBreakdown}
+              {usdToCnyRate}
+              {sseConnected}
+            />
+          </section>
+        {:else if view === "pricing"}
+          <section class="view" transition:fly={{ x: 18, duration: 240 }}>
+            <ModelPricing {usdToCnyRate} />
+          </section>
+        {:else if view === "data"}
+          <section class="view" transition:fly={{ x: 18, duration: 240 }}>
+            <DataManagement />
+          </section>
+        {/if}
       </div>
-
-      <!-- Session Table (drill-down) -->
-      {#if sessions}
-        <SessionTable
-          items={sessions.items}
-          total={sessions.total}
-          page={sessions.page}
-          pageSize={sessionPageSize}
-          {usdToCnyRate}
-          loadDetail={loadSessionDetail}
-          onPageChange={handleSessionPageChange}
-          onPageSizeChange={handleSessionPageSizeChange}
-        />
-      {/if}
-
-      <!-- Usage Table -->
-      {#if usage}
-        <UsageTable
-          items={usage.items}
-          total={usage.total}
-          page={usage.page}
-          {pageSize}
-          {usdToCnyRate}
-          onPageChange={handlePageChange}
-          onPageSizeChange={handlePageSizeChange}
-          onExport={handleExport}
-        />
-      {/if}
-
-      <!-- Model Pricing (collapsible) -->
-      <ModelPricing {usdToCnyRate} />
-
-      <!-- Data Management (collapsible) -->
-      <DataManagement />
-    </div>
-  {/if}
-</main>
+    {/if}
+  </div>
+</div>
 
 <style>
-  .header-bar {
-    border-bottom: 1px solid var(--border);
-    padding: 14px 24px;
-    background: var(--card);
+  .shell {
+    display: flex;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
   }
-  /* 4K/超宽屏下头部内容与主体内容一致限宽居中 */
-  .header-inner {
-    max-width: 1800px;
-    margin: 0 auto;
+  .shell-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 15;
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 14px;
     flex-wrap: wrap;
-    gap: 12px;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--card) 88%, transparent);
+    backdrop-filter: blur(10px);
   }
+  .topbar-title h1 { font-size: 17px; font-weight: 700; }
+  .topbar-sub { font-size: 10.5px; color: var(--text-3); }
+  .topbar-right { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .content {
+    width: 100%;
+    max-width: 1800px;
+    margin: 0 auto;
+    padding: 16px 24px 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .view { display: flex; flex-direction: column; gap: 14px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 1100px) { .grid2 { grid-template-columns: 1fr; } }
+
   .sse-dot {
     width: 8px;
     height: 8px;
     border-radius: 50%;
     animation: pulse-dot 2s infinite;
   }
-  .sse-dot.connected {
-    background: var(--green);
-  }
-  .sse-dot.disconnected {
-    background: var(--red);
-    animation: none;
-  }
+  .sse-dot.connected { background: var(--green); }
+  .sse-dot.disconnected { background: var(--red); animation: none; }
   @keyframes pulse-dot {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.4; }

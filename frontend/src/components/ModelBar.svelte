@@ -7,9 +7,11 @@
 
   interface Props {
     breakdown: BreakdownItem[];
+    /** 窄容器（如监控摘要轨）：隐藏数值轴刻度，避免标签叠压 */
+    compact?: boolean;
   }
 
-  let { breakdown }: Props = $props();
+  let { breakdown, compact = false }: Props = $props();
 
   let chartEl: HTMLDivElement | undefined = $state();
   let chart: any = null;
@@ -53,11 +55,12 @@
           return `<b>${escapeHtml(fullName)}</b><br/>合计: <b>${formatTokens(params[0].value)}</b>`;
         },
       },
-      grid: { left: "4%", right: "12%", bottom: "4%", top: "4%", containLabel: true },
+      grid: { left: "4%", right: compact ? "16%" : "12%", bottom: "4%", top: "4%", containLabel: true },
       xAxis: {
         type: "value",
         splitLine: { lineStyle: { color: P.split } },
         axisLabel: {
+          show: !compact,
           color: P.text3,
           fontSize: 11,
           formatter: (v: number) => {

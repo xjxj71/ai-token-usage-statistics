@@ -7,9 +7,11 @@
 
   interface Props {
     breakdown: BreakdownItem[];
+    /** 窄容器：隐藏外置标签（下方图例已足够），避免截断 */
+    compact?: boolean;
   }
 
-  let { breakdown }: Props = $props();
+  let { breakdown, compact = false }: Props = $props();
 
   let chartEl: HTMLDivElement | undefined = $state();
   let chart: any = null;
@@ -59,7 +61,7 @@
             borderWidth: 2,
           },
           label: {
-            show: true,
+            show: !compact,
             color: P.text2,
             fontSize: 11,
             formatter: (params: any) => {
