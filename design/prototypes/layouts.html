@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>布局与动效原型 — AI Token 用量统计</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "PingFang SC","Microsoft YaHei",sans-serif; background: #101218; color: #e8ebf2; padding: 44px 24px; }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  h1 { font-size: 23px; margin-bottom: 8px; }
+  .sub { color: #8b94a7; font-size: 13px; margin-bottom: 10px; line-height: 1.7; }
+  .sub a { color: #79c0ff; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 26px; }
+  a.card { display: block; text-decoration: none; color: inherit; border-radius: 14px; border: 1px solid rgba(255,255,255,.1); overflow: hidden; transition: transform .15s, border-color .15s; }
+  a.card:hover { transform: translateY(-3px); border-color: rgba(255,255,255,.3); }
+  .swatch { height: 96px; padding: 14px; display: flex; gap: 8px; align-items: flex-end; }
+  .swatch span { border-radius: 6px; }
+  .meta { padding: 14px 16px; background: #161a23; }
+  .meta b { font-size: 15px; }
+  .tag { display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 99px; border: 1px solid rgba(255,255,255,.18); color: #aab3c5; margin-left: 8px; vertical-align: 2px; }
+  .meta p { font-size: 12px; color: #8b94a7; margin-top: 6px; line-height: 1.7; }
+  .meta .motion { color: #6e7a91; font-size: 11px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>布局与动效原型 · 4 种范式</h1>
+  <div class="sub">同一份模拟数据，不同的信息架构与动效语言。布局不再沿用现有长页面，按各范式重新组织。<br>配色主题原型见 <a href="index.html">上一轮 4 套主题</a>；两轮可自由组合（如「布局 2 + 晨雾主题」）。</div>
+  <div class="grid">
+    <a class="card" href="layout-1-bento.html">
+      <div class="swatch" style="background:linear-gradient(135deg,#0b0e14,#171c28)">
+        <span style="width:52px;height:52px;background:#22d3ee22;border:1px solid #22d3ee55"></span>
+        <span style="width:30px;height:30px;background:#818cf822;border:1px solid #818cf855"></span>
+        <span style="width:30px;height:30px;background:#34d39922;border:1px solid #34d39955"></span>
+      </div>
+      <div class="meta"><b>1 · Bento 控制台</b><span class="tag">单屏 · 深色</span>
+        <p>12 列 bento 网格，一屏装下全部关键信息，无长滚动。费用 hero + 环形命中率 + 趋势 + 套餐 + 分布 + 实时动态。</p>
+        <div class="motion">动效：卡片交错入场 / 数字滚动 / 悬停浮起+顶部光线 / 折线绘制 / 环形扫入 / 动态流滑入高亮</div>
+      </div>
+    </a>
+    <a class="card" href="layout-2-sidebar.html">
+      <div class="swatch" style="background:linear-gradient(135deg,#f5f6f8,#e9ecf3)">
+        <span style="width:26px;height:52px;background:#5b5bd6"></span>
+        <span style="width:52px;height:30px;background:#fff;border:1px solid #d5d9e2"></span>
+        <span style="width:30px;height:30px;background:#eeeefc;border:1px solid #5b5bd644"></span>
+      </div>
+      <div class="meta"><b>2 · 侧边导航 SPA</b><span class="tag">分区视图 · 浅色</span>
+        <p>左侧导航把长页面拆成独立视图（概览/趋势/记录/会话/定价/数据），每屏聚焦一件事。导航可点击，记录行可展开。</p>
+        <div class="motion">动效：导航指示器滑动 / 视图出场+入场过渡 / 行交错 / 展开行高度动画 / 切换时图表重绘</div>
+      </div>
+    </a>
+    <a class="card" href="layout-3-scroll.html">
+      <div class="swatch" style="background:linear-gradient(135deg,#f7f2e9,#ece2cd)">
+        <span style="width:60px;height:40px;background:#c2571b"></span>
+        <span style="width:30px;height:30px;background:#7d8c6f"></span>
+        <span style="width:30px;height:30px;background:#5f7d95"></span>
+      </div>
+      <div class="meta"><b>3 · 滚动叙事</b><span class="tag">编辑风 · 浅色</span>
+        <p>保留单页滚动但做成「杂志章节」：hero 大数字 → 编号章节依次展开；滚过 hero 后关键 KPI 压缩成吸顶条随时可见。</p>
+        <div class="motion">动效：阅读进度条 / 吸顶条滑下 / 章节滚入显现 / 图表进入视口才绘制 / 进度条滚入动画</div>
+      </div>
+    </a>
+    <a class="card" href="layout-4-feed.html">
+      <div class="swatch" style="background:linear-gradient(135deg,#0d1117,#18212c)">
+        <span style="width:8px;height:52px;background:#3fb950"></span>
+        <span style="width:44px;height:12px;background:#58a6ff33;border:1px solid #58a6ff55"></span>
+        <span style="width:44px;height:12px;background:#3fb95022;border:1px solid #3fb95044"></span>
+      </div>
+      <div class="meta"><b>4 · 实时信息流</b><span class="tag">监控台 · 深色</span>
+        <p>以「正在发生什么」为中心：左侧实时使用流（SSE 新记录滑入），右侧固定摘要轨（KPI/套餐/分布）。适合挂着当监控屏。</p>
+        <div class="motion">动效：新记录滑入+绿色高亮渐隐 / KPI 数字跳动闪光 / LIVE 脉冲 / 暂停-恢复 / 摘要轨入场</div>
+      </div>
+    </a>
+  </div>
+</div>
+</body>
+</html>

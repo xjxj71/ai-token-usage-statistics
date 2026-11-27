@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>布局 4 · 实时信息流 — AI Token 用量统计</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #131a23; --panel-2: #18212c; --border: #212c3a;
+    --text: #e6edf5; --text-2: #8b98ab; --text-3: #55637a;
+    --blue: #58a6ff; --green: #3fb950; --amber: #d29922; --red: #f85149; --purple: #bc8cff; --cyan: #39c5cf;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif; background: var(--bg); color: var(--text); font-variant-numeric: tabular-nums; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+  .mono { font-family: "Cascadia Code", Consolas, monospace; }
+
+  .head { display: flex; align-items: center; gap: 18px; padding: 13px 22px; border-bottom: 1px solid var(--border); background: var(--panel); }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 14px; }
+  .brand svg { width: 22px; height: 22px; stroke: var(--blue); }
+  .live { display: flex; align-items: center; gap: 7px; font-size: 10px; letter-spacing: 1.5px; color: var(--green); }
+  .live i { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 10px var(--green); animation: pulse 1.6s infinite; }
+  @keyframes pulse { 50% { opacity: .25; transform: scale(.8); } }
+  .kpis { margin-left: auto; display: flex; gap: 0; }
+  .kpi { padding: 0 20px; border-left: 1px solid var(--border); text-align: right; }
+  .kpi-t { font-size: 9px; letter-spacing: 1px; color: var(--text-3); }
+  .kpi-v { font-size: 17px; font-weight: 700; margin-top: 2px; }
+  .kpi-v.flash { animation: kflash .8s ease; }
+  @keyframes kflash { 0% { color: var(--green); text-shadow: 0 0 12px rgba(63,185,80,.6); } }
+  .kpi-d { font-size: 9px; color: var(--green); }
+
+  .body { flex: 1; display: grid; grid-template-columns: 1fr 340px; min-height: 0; }
+
+  /* 左：信息流 */
+  .feed-pane { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); }
+  .feed-head { display: flex; align-items: center; gap: 12px; padding: 12px 22px; border-bottom: 1px solid var(--border); }
+  .feed-title { font-size: 12px; font-weight: 700; letter-spacing: 1px; }
+  .feed-sub { font-size: 10px; color: var(--text-3); }
+  .feed-toggle { margin-left: auto; font-size: 10px; color: var(--text-2); background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-family: inherit; }
+  .feed-cols { display: grid; grid-template-columns: 74px 110px 1fr 130px 70px 70px 64px; gap: 10px; padding: 7px 22px; font-size: 9px; letter-spacing: 1px; color: var(--text-3); border-bottom: 1px solid var(--border); }
+  .feed-scroll { flex: 1; overflow-y: auto; padding: 6px 14px 16px; }
+  .feed-scroll::-webkit-scrollbar { width: 8px; }
+  .feed-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  .rec {
+    display: grid; grid-template-columns: 74px 110px 1fr 130px 70px 70px 64px; gap: 10px; align-items: center;
+    padding: 8px 8px; border-radius: 8px; font-size: 11px; border: 1px solid transparent;
+    animation: rec-in .45s cubic-bezier(.2,.8,.3,1);
+  }
+  @keyframes rec-in { from { opacity: 0; transform: translateY(-14px) scale(.985); } }
+  .rec.fresh { background: rgba(63,185,80,.06); border-color: rgba(63,185,80,.25); }
+  .rec:hover { background: var(--panel-2); }
+  .rec-time { color: var(--text-3); font-size: 10px; }
+  .rec-agent { display: flex; align-items: center; gap: 7px; font-weight: 600; font-size: 10.5px; }
+  .rec-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .rec-model { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rec-proj { color: var(--text-3); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rec-num { text-align: right; color: var(--text-2); font-size: 10.5px; }
+  .rec-cost { text-align: right; font-weight: 600; }
+  .paused-note { text-align: center; font-size: 10px; color: var(--amber); padding: 6px; display: none; }
+
+  /* 右：摘要轨 */
+  .rail { overflow-y: auto; padding: 16px 18px 24px; display: flex; flex-direction: column; gap: 14px; background: var(--panel); }
+  .rail::-webkit-scrollbar { width: 8px; }
+  .rail::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  .r-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .r-title { font-size: 10px; letter-spacing: 1.5px; color: var(--text-3); margin-bottom: 10px; display: flex; justify-content: space-between; }
+  .r-big { font-size: 26px; font-weight: 800; letter-spacing: -.5px; }
+  .r-big small { font-size: 13px; color: var(--text-2); }
+  .r-delta { font-size: 10px; color: var(--green); margin-top: 4px; }
+  .r-spark { margin-top: 10px; }
+  .q-row { margin-bottom: 12px; }
+  .q-row:last-child { margin-bottom: 0; }
+  .q-name { display: flex; justify-content: space-between; font-size: 10.5px; margin-bottom: 6px; }
+  .q-name em { font-style: normal; color: var(--text-3); font-size: 9px; }
+  .q-bar { height: 5px; background: rgba(255,255,255,.07); border-radius: 99px; overflow: hidden; }
+  .q-fill { height: 100%; border-radius: 99px; width: 0; transition: width 1.1s cubic-bezier(.4,0,.2,1); }
+  .donut-wrap { display: flex; align-items: center; gap: 12px; }
+  .legend { flex: 1; display: flex; flex-direction: column; gap: 6px; font-size: 10px; }
+  .legend-item { display: flex; gap: 7px; align-items: center; }
+  .legend-dot { width: 7px; height: 7px; border-radius: 2px; }
+  .legend-name { flex: 1; color: var(--text-2); }
+  .hbar-body { display: flex; flex-direction: column; gap: 9px; }
+  .hbar-row { display: grid; grid-template-columns: 84px 1fr 40px; gap: 8px; align-items: center; font-size: 10px; }
+  .hbar-label { text-align: right; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hbar-track { height: 6px; background: rgba(255,255,255,.06); border-radius: 99px; overflow: hidden; }
+  .hbar-fill { height: 100%; border-radius: 99px; width: 0; transition: width 1s cubic-bezier(.4,0,.2,1); }
+  .hbar-val { color: var(--text-3); }
+  .proto-badge { position: fixed; left: 16px; bottom: 12px; font-size: 10px; color: var(--text-3); background: var(--panel); border: 1px solid var(--border); padding: 5px 12px; border-radius: 99px; z-index: 9; }
+</style>
+</head>
+<body>
+<div class="head">
+  <div class="brand">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+    AI Token 用量统计
+  </div>
+  <div class="live mono"><i></i>LIVE</div>
+  <div class="kpis">
+    <div class="kpi"><div class="kpi-t">总费用 · 30天</div><div class="kpi-v" id="k-cost">¥0</div><div class="kpi-d">↓ 6.3%</div></div>
+    <div class="kpi"><div class="kpi-t">总 TOKEN</div><div class="kpi-v" id="k-tok">0</div><div class="kpi-d">↑ 12.4%</div></div>
+    <div class="kpi"><div class="kpi-t">请求</div><div class="kpi-v" id="k-req">0</div><div class="kpi-d">↑ 11.0%</div></div>
+    <div class="kpi"><div class="kpi-t">命中率</div><div class="kpi-v" id="k-cache">0%</div><div class="kpi-d">↑ 2.1%</div></div>
+  </div>
+</div>
+
+<div class="body">
+  <div class="feed-pane">
+    <div class="feed-head">
+      <span class="feed-title">实时使用流</span>
+      <span class="feed-sub mono" id="feed-rate">~2.4s / 条 · SSE 推送</span>
+      <button class="feed-toggle" id="pause">⏸ 暂停</button>
+    </div>
+    <div class="paused-note" id="paused-note">已暂停 — 新记录仍在累积，恢复后补齐</div>
+    <div class="feed-cols"><span>时间</span><span>AGENT</span><span>模型</span><span>项目</span><span style="text-align:right">输入</span><span style="text-align:right">输出</span><span style="text-align:right">费用</span></div>
+    <div class="feed-scroll" id="feed"></div>
+  </div>
+
+  <div class="rail">
+    <div class="r-card">
+      <div class="r-title">费用走势 <span>近 30 天</span></div>
+      <div class="r-big"><small>¥</small><span id="rail-cost">0</span></div>
+      <div class="r-delta">↓ 6.3% 较上期</div>
+      <div class="r-spark" id="rail-spark"></div>
+    </div>
+    <div class="r-card">
+      <div class="r-title">套餐余量</div>
+      <div class="q-row"><div class="q-name">智谱 GLM Coding Plan <em>61%</em></div><div class="q-bar"><div class="q-fill" data-w="61%" style="background:var(--purple)"></div></div></div>
+      <div class="q-row"><div class="q-name">小米 MiMo Token Plan <em>42.8%</em></div><div class="q-bar"><div class="q-fill" data-w="42.8%" style="background:var(--cyan)"></div></div></div>
+      <div class="q-row"><div class="q-name">百炼团队版 <em>68%</em></div><div class="q-bar"><div class="q-fill" data-w="68%" style="background:var(--green)"></div></div></div>
+    </div>
+    <div class="r-card">
+      <div class="r-title">AGENT 分布</div>
+      <div class="donut-wrap"><div id="donut"></div><div class="legend" id="legend"></div></div>
+    </div>
+    <div class="r-card">
+      <div class="r-title">模型 TOP 5</div>
+      <div class="hbar-body" id="modelbars"></div>
+    </div>
+  </div>
+</div>
+<div class="proto-badge">布局 4 · 实时信息流 — 新记录滑入高亮 + KPI 跳动 + 悬停暂停</div>
+
+<script src="_shared.js"></script>
+<script src="_motion.js"></script>
+<script>
+  const AC = ['#bc8cff','#f0883e','#8b98ab','#58a6ff','#79c0ff','#3fb950'];
+  const SERIES = ['#58a6ff','#3fb950','#d29922','#bc8cff','#39c5cf','#f85149'];
+  countUp(document.getElementById('k-cost'), 2486, { fmt: n => '¥' + Math.round(n).toLocaleString() });
+  countUp(document.getElementById('k-tok'), 42.8, { fmt: n => n.toFixed(1)+'M' });
+  countUp(document.getElementById('k-req'), 18432, { fmt: n => Math.round(n).toLocaleString() });
+  countUp(document.getElementById('k-cache'), 87.6, { fmt: n => n.toFixed(1)+'%' });
+  countUp(document.getElementById('rail-cost'), 2486.4, { fmt: n => n.toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2}) });
+  spark(document.getElementById('rail-spark'), trendSeries(30, 80, 26, 5), '#58a6ff', 280, 44);
+  animateBars(document.querySelector('.rail'));
+  donut(document.getElementById('donut'), AGENTS.map(a=>({name:a.name,value:a.tokens})), AC, { size:110, thickness:14, centerColor:'#e6edf5', subColor:'rgba(230,237,245,.4)' });
+  animateDonut(document.querySelector('#donut svg'), 300);
+  const total=AGENTS.reduce((a,b)=>a+b.tokens,0);
+  AGENTS.forEach((a,i)=>{ const d=document.createElement('div'); d.className='legend-item'; d.innerHTML=`<span class="legend-dot" style="background:${AC[i]}"></span><span class="legend-name">${a.name}</span><b>${(a.tokens/total*100).toFixed(0)}%</b>`; document.getElementById('legend').appendChild(d); });
+  hbars(document.getElementById('modelbars'), MODELS.slice(0,5).map(m=>({name:m.name,value:m.tokens})), SERIES, {});
+  setTimeout(()=>{ const max=Math.max(...MODELS.map(m=>m.tokens)); document.querySelectorAll('#modelbars .hbar-fill').forEach((f,i)=>{ f.style.transitionDelay=(300+i*90)+'ms'; f.style.width=(MODELS[i].tokens/max*100)+'%'; }); }, 120);
+
+  // 实时流
+  const feed = document.getElementById('feed');
+  const models = ['glm-5.4','qwen4-max','gpt-5.1-codex','mimo-v2.6-pro','claude-sonnet-4.5','glm-5.3'];
+  const projects = ['ai-token-usage','research','portal','wsl-dev','sandbox','—'];
+  let n = 0, paused = false;
+  function addRec(fresh) {
+    const ai = n % AGENTS.length;
+    const t = new Date();
+    const ts = [t.getHours(), t.getMinutes(), t.getSeconds()].map(x=>String(x).padStart(2,'0')).join(':');
+    const inp = (Math.random()*180+8).toFixed(0)+'K', out = (Math.random()*9+0.4).toFixed(1)+'K';
+    const cost = (Math.random()*1.6+.02);
+    const d = document.createElement('div');
+    d.className = 'rec' + (fresh ? ' fresh' : '');
+    d.innerHTML = `<span class="rec-time mono">${ts}</span>
+      <span class="rec-agent"><span class="rec-dot" style="background:${AC[ai]}"></span>${AGENTS[ai].name}</span>
+      <span class="rec-model">${models[n % models.length]}</span>
+      <span class="rec-proj">${projects[n % projects.length]}</span>
+      <span class="rec-num mono">${inp}</span><span class="rec-num mono">${out}</span>
+      <span class="rec-cost mono" style="color:${cost>1?'var(--amber)':'var(--text-2)'}">¥${cost.toFixed(2)}</span>`;
+    feed.prepend(d);
+    if (fresh) {
+      setTimeout(()=>d.classList.remove('fresh'), 1800);
+      const kc = document.getElementById('k-cost');
+      kc.classList.remove('flash'); void kc.offsetWidth; kc.classList.add('flash');
+    }
+    while (feed.children.length > 60) feed.lastChild.remove();
+    n++;
+  }
+  for (let i = 0; i < 22; i++) addRec(false);
+  setInterval(()=>{ if (!paused) addRec(true); }, 2400);
+  document.getElementById('pause').onclick = function () {
+    paused = !paused;
+    this.textContent = paused ? '▶ 恢复' : '⏸ 暂停';
+    document.getElementById('paused-note').style.display = paused ? 'block' : 'none';
+  };
+  feed.addEventListener('mouseenter', ()=>{ /* 悬停时不高亮打扰，仅暂停自动滚动 */ feed.dataset.hover = '1'; });
+</script>
+</body>
+</html>

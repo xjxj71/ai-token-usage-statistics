@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>布局 2 · 侧边导航 SPA — AI Token 用量统计</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #fff; --border: #e5e8ee; --text: #191d26; --text-2: #5b6371; --text-3: #98a0ad;
+    --primary: #5b5bd6; --primary-soft: #eeeefc; --good: #0d9f6e; --bad: #dc4c4c;
+    --shadow: 0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.07);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif; background: var(--bg); color: var(--text); font-variant-numeric: tabular-nums; }
+  .app { display: flex; min-height: 100vh; }
+
+  .sidebar { width: 212px; flex-shrink: 0; background: var(--card); border-right: 1px solid var(--border); padding: 20px 12px; position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; }
+  .brand { display: flex; align-items: center; gap: 9px; padding: 0 10px 18px; font-weight: 700; font-size: 14px; }
+  .brand svg { width: 23px; height: 23px; stroke: var(--primary); }
+  .nav { position: relative; display: flex; flex-direction: column; gap: 2px; }
+  .nav-pill { position: absolute; left: 0; right: 0; height: 36px; border-radius: 9px; background: var(--primary-soft); transition: transform .3s cubic-bezier(.3,.8,.3,1); z-index: 0; }
+  .nav button { position: relative; z-index: 1; display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px; border: 0; background: transparent; border-radius: 9px; font-size: 12.5px; font-family: inherit; color: var(--text-2); cursor: pointer; transition: color .2s; text-align: left; }
+  .nav button svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2; }
+  .nav button.on { color: var(--primary); font-weight: 600; }
+  .nav button:hover:not(.on) { color: var(--text); }
+  .side-foot { margin-top: auto; padding: 10px 12px; font-size: 10px; color: var(--text-3); }
+  .sse { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; font-size: 10px; color: var(--good); }
+  .sse i { width: 6px; height: 6px; border-radius: 50%; background: var(--good); animation: pulse 2s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+
+  .main { flex: 1; min-width: 0; padding: 22px 28px 44px; }
+  .main-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+  .view-title { font-size: 19px; font-weight: 700; }
+  .view-sub { font-size: 11px; color: var(--text-3); margin-top: 3px; }
+  .seg { display: flex; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 3px; box-shadow: var(--shadow); }
+  .seg button { border: 0; background: transparent; font-family: inherit; font-size: 11.5px; color: var(--text-2); padding: 5px 15px; border-radius: 8px; cursor: pointer; transition: all .2s; }
+  .seg button.on { background: var(--primary); color: #fff; }
+
+  .view { display: none; }
+  .view.active { display: block; animation: view-in .38s cubic-bezier(.2,.7,.3,1); }
+  .view.leaving { animation: view-out .18s ease forwards; }
+  @keyframes view-in { from { opacity: 0; transform: translateX(18px); } }
+  @keyframes view-out { to { opacity: 0; transform: translateX(-12px); } }
+
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); }
+  .card-head { display: flex; justify-content: space-between; padding: 14px 18px 0; font-size: 12.5px; font-weight: 600; }
+  .card-hint { font-size: 10px; color: var(--text-3); font-weight: 400; }
+  .stats { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 14px; }
+  .stat { padding: 15px 17px; transition: transform .2s, box-shadow .2s; }
+  .stat:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(16,24,40,.09); }
+  .stat-t { font-size: 11px; color: var(--text-2); margin-bottom: 8px; }
+  .stat-v { font-size: 23px; font-weight: 700; letter-spacing: -.5px; }
+  .stat-d { font-size: 10px; margin-top: 6px; font-weight: 600; }
+  .stat-d.good { color: var(--good); } .stat-d.bad { color: var(--bad); }
+  .grid2 { display: grid; grid-template-columns: 1.8fr 1fr; gap: 12px; margin-bottom: 14px; }
+  .chart-body { padding: 8px 14px 14px; }
+  .donut-wrap { display: flex; align-items: center; gap: 16px; padding: 14px 18px; }
+  .legend { flex: 1; display: flex; flex-direction: column; gap: 7px; font-size: 11px; }
+  .legend-item { display: flex; gap: 8px; align-items: center; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 3px; }
+  .legend-name { flex: 1; color: var(--text-2); }
+  .hbar-body { padding: 12px 18px 16px; display: flex; flex-direction: column; gap: 10px; }
+  .hbar-row { display: grid; grid-template-columns: 100px 1fr 48px; gap: 9px; align-items: center; font-size: 11px; }
+  .hbar-label { text-align: right; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hbar-track { height: 8px; background: #eef0f4; border-radius: 99px; overflow: hidden; }
+  .hbar-fill { height: 100%; border-radius: 99px; width: 0; transition: width .9s cubic-bezier(.4,0,.2,1); }
+  .hbar-val { color: var(--text-2); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  thead th { text-align: left; padding: 10px 14px; font-size: 10.5px; color: var(--text-3); font-weight: 500; border-bottom: 1px solid var(--border); }
+  tbody td { padding: 9px 14px; border-bottom: 1px solid #f1f2f6; color: var(--text-2); }
+  .row-main { cursor: pointer; transition: background .15s; }
+  .row-main:hover td { background: #fafafc; }
+  .row-main td:first-child { border-left: 3px solid transparent; }
+  .row-main.open td:first-child { border-left-color: var(--primary); }
+  .agent-b { font-weight: 600; color: var(--text); padding: 2px 9px; border-radius: 99px; font-size: 10.5px; }
+  .row-detail td { padding: 0; border-bottom: 1px solid #f1f2f6; }
+  .detail-box { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .32s cubic-bezier(.3,.8,.3,1); }
+  .detail-box.open { grid-template-rows: 1fr; }
+  .detail-inner { overflow: hidden; }
+  .detail-pad { padding: 10px 14px 12px 20px; background: #fafafd; font-size: 10.5px; color: var(--text-2); display: flex; gap: 22px; flex-wrap: wrap; }
+  .detail-pad b { color: var(--text); }
+  .chev { display: inline-block; transition: transform .3s; color: var(--text-3); }
+  .open .chev { transform: rotate(90deg); }
+  .table-foot { display: flex; justify-content: space-between; padding: 10px 14px; font-size: 10.5px; color: var(--text-3); }
+  .proto-badge { position: fixed; right: 16px; bottom: 12px; font-size: 10px; color: var(--text-2); background: var(--card); border: 1px solid var(--border); padding: 5px 12px; border-radius: 99px; box-shadow: var(--shadow); z-index: 9; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+      Token 统计
+    </div>
+    <nav class="nav" id="nav">
+      <div class="nav-pill" id="pill"></div>
+      <button class="on" data-view="overview"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>概览</button>
+      <button data-view="trends"><svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>趋势分析</button>
+      <button data-view="records"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>使用记录</button>
+      <button data-view="sessions"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-9-9"/><path d="M12 7v5l3 3"/></svg>会话明细</button>
+      <button data-view="pricing"><svg viewBox="0 0 24 24"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>模型定价</button>
+      <button data-view="data"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5"/></svg>数据管理</button>
+    </nav>
+    <div class="side-foot">
+      <div class="sse"><i></i>实时连接</div>
+      1 USD = ¥7.24 · 实时<br>v0.1.12 · 布局原型 2
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="main-head">
+      <div>
+        <div class="view-title" id="view-title">概览</div>
+        <div class="view-sub">近 30 天 · 2026-10-29 ~ 11-28 · 点击左侧导航体验视图切换动效</div>
+      </div>
+      <div class="seg"><button>今日</button><button>7 天</button><button class="on">30 天</button><button>自定义</button></div>
+    </div>
+
+    <div class="view active" id="view-overview">
+      <div class="stats" id="stats"></div>
+      <div class="grid2">
+        <div class="card"><div class="card-head">Token 用量趋势 · 按 Agent<span class="card-hint">日粒度</span></div><div class="chart-body" id="trend1"></div></div>
+        <div class="card"><div class="card-head">Agent 分布</div><div class="donut-wrap"><div id="donut"></div><div class="legend" id="legend"></div></div></div>
+      </div>
+      <div class="card"><div class="card-head">模型消耗 Top 6</div><div class="hbar-body" id="modelbars"></div></div>
+    </div>
+
+    <div class="view" id="view-trends">
+      <div class="card" style="margin-bottom:14px"><div class="card-head">按模型的 Token 用量趋势<span class="card-hint">近 30 天</span></div><div class="chart-body" id="trend2"></div></div>
+      <div class="card"><div class="card-head">缓存命中率 · 按 Agent<span class="card-hint">%</span></div><div class="hbar-body" id="cachebars"></div></div>
+    </div>
+
+    <div class="view" id="view-records">
+      <div class="card">
+        <div class="card-head">使用记录<span class="card-hint">共 3,366 条 · 点击行展开明细</span></div>
+        <table>
+          <thead><tr><th></th><th>时间</th><th>Agent</th><th>模型</th><th>项目</th><th>输入</th><th>输出</th><th>费用</th></tr></thead>
+          <tbody id="rec-body"></tbody>
+        </table>
+        <div class="table-foot"><span>第 1 / 68 页</span><span>导出 CSV ↓</span></div>
+      </div>
+    </div>
+
+    <div class="view" id="view-sessions"><div class="card" style="padding:40px;text-align:center;color:var(--text-3);font-size:12px">会话明细视图（原型占位）— 真实应用中为可钻取会话表</div></div>
+    <div class="view" id="view-pricing"><div class="card" style="padding:40px;text-align:center;color:var(--text-3);font-size:12px">模型定价视图（原型占位）</div></div>
+    <div class="view" id="view-data"><div class="card" style="padding:40px;text-align:center;color:var(--text-3);font-size:12px">数据管理视图（原型占位）</div></div>
+  </div>
+</div>
+<div class="proto-badge">布局 2 · 侧边导航 SPA — 滑动指示器 + 视图过渡 + 行展开动效</div>
+
+<script src="_shared.js"></script>
+<script src="_motion.js"></script>
+<script>
+  const AC = ['#7c3aed','#ea580c','#64748b','#2563eb','#5b5bd6','#059669'];
+  const SERIES = ['#5b5bd6','#0ea5e9','#10b981','#f59e0b','#ec4899','#8b5cf6'];
+  const TITLES = { overview:'概览', trends:'趋势分析', records:'使用记录', sessions:'会话明细', pricing:'模型定价', data:'数据管理' };
+
+  // 概览统计卡
+  const stats = document.getElementById('stats');
+  STATS.slice(0,8).forEach((s,i)=>{
+    const d=document.createElement('div'); d.className='card stat';
+    const up=s.trend>0, good=s.goodWhenDown?!up:up;
+    d.innerHTML=`<div class="stat-t">${s.title}</div><div class="stat-v" data-n="${s.value}">${s.value}</div><div class="stat-d ${good?'good':'bad'}">${up?'↑':'↓'} ${Math.abs(s.trend)}% 较上期</div>`;
+    stats.appendChild(d);
+  });
+  stagger(stats, 55);
+
+  lineChart(document.getElementById('trend1'), [trendSeries(30,900,260,7),trendSeries(30,620,200,21),trendSeries(30,380,150,42)], SERIES, { grid:'rgba(16,24,40,.06)', label:'rgba(16,24,40,.4)', fillOpacity:.12 });
+  animateLines(document.querySelector('#trend1 svg'), 250);
+  donut(document.getElementById('donut'), AGENTS.map(a=>({name:a.name,value:a.tokens})), AC, { size:150, thickness:18, centerColor:'#191d26', subColor:'rgba(16,24,40,.45)' });
+  animateDonut(document.querySelector('#donut svg'), 300);
+  const total=AGENTS.reduce((a,b)=>a+b.tokens,0);
+  AGENTS.forEach((a,i)=>{ const d=document.createElement('div'); d.className='legend-item'; d.innerHTML=`<span class="legend-dot" style="background:${AC[i]}"></span><span class="legend-name">${a.name}</span><b>${(a.tokens/total*100).toFixed(0)}%</b>`; document.getElementById('legend').appendChild(d); });
+  hbars(document.getElementById('modelbars'), MODELS.map(m=>({name:m.name,value:m.tokens})), SERIES, {});
+  setTimeout(()=>{ const max=Math.max(...MODELS.map(m=>m.tokens)); document.querySelectorAll('#modelbars .hbar-fill').forEach((f,i)=>{ f.style.transitionDelay=(250+i*80)+'ms'; f.style.width=(MODELS[i].tokens/max*100)+'%'; }); }, 150);
+
+  // 趋势视图
+  lineChart(document.getElementById('trend2'), [trendSeries(30,700,220,11),trendSeries(30,500,180,31),trendSeries(30,300,120,53)], SERIES, { grid:'rgba(16,24,40,.06)', label:'rgba(16,24,40,.4)', fillOpacity:.12, h:300 });
+  const cacheData=[{name:'claude-code',value:94},{name:'zcode',value:97.7},{name:'codex',value:88},{name:'qoder',value:91},{name:'hermes',value:76},{name:'openclaw',value:82}];
+  hbars(document.getElementById('cachebars'), cacheData, SERIES, {});
+  document.querySelectorAll('#cachebars .hbar-fill').forEach((f,i)=>{ f.style.width=cacheData[i].value+'%'; });
+
+  // 使用记录：可展开行
+  const rb=document.getElementById('rec-body');
+  USAGE_ROWS.forEach((r,i)=>{
+    const tr=document.createElement('tr'); tr.className='row-main';
+    tr.innerHTML=`<td><span class="chev">›</span></td><td>${r[0]}</td><td><span class="agent-b" style="background:color-mix(in srgb, ${AC[i%6]} 14%, white);color:${AC[i%6]}">${r[1]}</span></td><td>${r[2]}</td><td>${r[3]}</td><td>${r[4]}</td><td>${r[5]}</td><td>${r[7]}</td>`;
+    const dr=document.createElement('tr'); dr.className='row-detail';
+    dr.innerHTML=`<td colspan="8"><div class="detail-box"><div class="detail-inner"><div class="detail-pad"><span>思考 Token <b>${r[6]}</b></span><span>缓存读取 <b>${(parseInt(r[4])*0.82).toFixed(0)}K</b></span><span>会话 <b>sess_${(i+1)*17}…</b></span><span>请求耗时 <b>${(1.2+i*0.4).toFixed(1)}s</b></span><span>单价 <b>¥${(0.002+i*0.001).toFixed(3)}/K</b></span></div></div></div></td>`;
+    tr.onclick=()=>{ tr.classList.toggle('open'); dr.querySelector('.detail-box').classList.toggle('open'); };
+    rb.append(tr,dr);
+  });
+  stagger(rb, 45);
+
+  // 视图切换：滑动 pill + 出场/入场动画
+  const nav=document.getElementById('nav'), pill=document.getElementById('pill');
+  const btns=[...nav.querySelectorAll('button')];
+  function movePill(btn){ pill.style.transform=`translateY(${btn.offsetTop}px)`; }
+  movePill(btns[0]);
+  let switching=false;
+  btns.forEach(btn=>btn.onclick=()=>{
+    if(switching||btn.classList.contains('on'))return;
+    switching=true;
+    btns.forEach(b=>b.classList.remove('on')); btn.classList.add('on'); movePill(btn);
+    const cur=document.querySelector('.view.active');
+    const next=document.getElementById('view-'+btn.dataset.view);
+    document.getElementById('view-title').textContent=TITLES[btn.dataset.view];
+    cur.classList.add('leaving');
+    setTimeout(()=>{
+      cur.classList.remove('active','leaving');
+      next.classList.add('active');
+      next.querySelectorAll('.hbar-fill').forEach(f=>{ const w=f.style.width; f.style.width='0'; requestAnimationFrame(()=>requestAnimationFrame(()=>f.style.width=w)); });
+      const svg=next.querySelector('.chart svg'); if(svg) animateLines(svg, 80);
+      switching=false;
+    }, 180);
+  });
+</script>
+</body>
+</html>

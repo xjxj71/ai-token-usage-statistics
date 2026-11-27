@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>布局 3 · 滚动叙事 — AI Token 用量统计</title>
+<style>
+  :root {
+    --bg: #f7f2e9; --paper: #fffdf8; --ink: #2b2620; --ink-2: #6f6558; --ink-3: #a2967f;
+    --rule: #e4dac8; --terra: #c2571b; --sage: #7d8c6f; --dusty: #5f7d95; --ochre: #b98a2f; --plum: #95618a;
+    --good: #5f7d4f; --bad: #b04a3a;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif; background: var(--bg); color: var(--ink); font-variant-numeric: tabular-nums; }
+  .serif { font-family: Georgia,"Noto Serif SC","Songti SC",serif; }
+
+  /* 阅读进度条 */
+  #progress { position: fixed; top: 0; left: 0; height: 3px; width: 0; background: linear-gradient(90deg, var(--terra), var(--ochre)); z-index: 60; }
+
+  /* 吸顶压缩条：滚过 hero 后滑下 */
+  .stickybar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+    background: color-mix(in srgb, var(--paper) 92%, transparent); backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--rule);
+    transform: translateY(-100%); transition: transform .35s cubic-bezier(.3,.8,.3,1);
+    display: flex; align-items: center; gap: 26px; padding: 9px 32px; font-size: 11px;
+  }
+  .stickybar.show { transform: none; }
+  .stickybar .sb-brand { font-weight: 700; font-size: 12px; letter-spacing: 1px; }
+  .stickybar .sb-kpi { display: flex; gap: 6px; align-items: baseline; color: var(--ink-2); }
+  .stickybar .sb-kpi b { font-size: 14px; color: var(--ink); }
+  .stickybar .sb-kpi em { font-style: normal; font-size: 9px; color: var(--good); }
+  .stickybar .sb-right { margin-left: auto; color: var(--ink-3); font-size: 10px; }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 32px 70px; }
+  .masthead { display: flex; align-items: baseline; justify-content: space-between; padding: 26px 0 16px; border-bottom: 2px solid var(--ink); }
+  .mast-title { font-size: 21px; font-weight: 700; letter-spacing: 1px; }
+  .mast-sub { font-size: 9px; letter-spacing: 2.5px; color: var(--ink-3); text-transform: uppercase; }
+  .mast-right { font-size: 10px; color: var(--ink-2); display: flex; gap: 16px; }
+  .subnav { display: flex; gap: 24px; padding: 11px 0; border-bottom: 1px solid var(--rule); font-size: 11.5px; }
+  .subnav a { color: var(--ink-2); text-decoration: none; letter-spacing: 1px; transition: color .2s; }
+  .subnav a.on { color: var(--terra); font-weight: 700; }
+
+  .hero { padding: 44px 0 34px; display: flex; align-items: flex-end; justify-content: space-between; gap: 30px; flex-wrap: wrap; }
+  .hero-label { font-size: 10px; letter-spacing: 2.5px; color: var(--ink-3); margin-bottom: 10px; }
+  .hero-value { font-size: 64px; font-weight: 700; letter-spacing: -1.5px; line-height: 1; }
+  .hero-value small { font-size: 26px; color: var(--ink-2); }
+  .hero-delta { margin-top: 12px; font-size: 12px; color: var(--good); }
+  .hero-delta span { color: var(--ink-3); }
+  .hero-kpis { display: flex; gap: 0; border-left: 1px solid var(--rule); }
+  .hk { padding: 4px 26px; border-right: 1px solid var(--rule); }
+  .hk-t { font-size: 9px; letter-spacing: 1.5px; color: var(--ink-3); margin-bottom: 7px; }
+  .hk-v { font-size: 24px; font-weight: 700; }
+  .hk-d { font-size: 9px; color: var(--good); margin-top: 4px; }
+  .seg { display: flex; border: 1px solid var(--ink); }
+  .seg button { border: 0; background: transparent; font-family: inherit; font-size: 11px; letter-spacing: 1px; padding: 7px 16px; cursor: pointer; color: var(--ink-2); transition: all .2s; }
+  .seg button.on { background: var(--ink); color: var(--paper); }
+
+  section { margin-top: 44px; }
+  .sec-head { display: flex; align-items: baseline; justify-content: space-between; border-bottom: 1px solid var(--ink); padding-bottom: 8px; margin-bottom: 18px; }
+  .sec-title { font-size: 16px; font-weight: 700; letter-spacing: 1px; }
+  .sec-no { font-size: 10px; color: var(--terra); letter-spacing: 2px; margin-right: 10px; }
+  .sec-hint { font-size: 9px; color: var(--ink-3); letter-spacing: 1.5px; }
+  .chart-body { padding: 4px 0; }
+  .grid2 { display: grid; grid-template-columns: 1.6fr 1fr; gap: 36px; }
+  .donut-wrap { display: flex; align-items: center; gap: 20px; }
+  .legend { flex: 1; display: flex; flex-direction: column; gap: 9px; font-size: 11px; }
+  .legend-item { display: flex; gap: 8px; align-items: center; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 2px; }
+  .legend-name { flex: 1; color: var(--ink-2); }
+  .quota-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 24px; }
+  .quota { background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 16px 18px; transition: transform .25s, box-shadow .25s; }
+  .quota:hover { transform: translateY(-3px); box-shadow: 0 8px 22px rgba(43,38,32,.1); }
+  .q-top { display: flex; justify-content: space-between; font-size: 11.5px; margin-bottom: 9px; }
+  .q-top em { font-style: normal; font-size: 9px; color: var(--ink-3); letter-spacing: 1px; }
+  .q-num { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+  .q-num small { font-size: 10px; color: var(--ink-3); font-weight: 400; }
+  .q-bar { height: 5px; background: var(--rule); margin-bottom: 8px; }
+  .q-fill { height: 100%; width: 0; transition: width 1.1s cubic-bezier(.4,0,.2,1); }
+  .q-meta { display: flex; justify-content: space-between; font-size: 9px; color: var(--ink-3); }
+  .hbar-body { display: flex; flex-direction: column; gap: 12px; }
+  .hbar-row { display: grid; grid-template-columns: 110px 1fr 50px; gap: 10px; align-items: center; font-size: 11px; }
+  .hbar-label { text-align: right; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hbar-track { height: 7px; background: var(--rule); }
+  .hbar-fill { height: 100%; width: 0; transition: width 1s cubic-bezier(.4,0,.2,1); }
+  .hbar-val { color: var(--ink-2); }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  thead th { text-align: left; padding: 8px 10px; font-size: 9px; letter-spacing: 1.5px; color: var(--ink-3); font-weight: 500; border-bottom: 1px solid var(--ink); }
+  tbody td { padding: 8px 10px; border-bottom: 1px solid var(--rule); color: var(--ink-2); }
+  tbody tr { transition: background .15s; }
+  tbody tr:hover { background: color-mix(in srgb, var(--terra) 4%, transparent); }
+  .agent-cell { color: var(--ink); font-weight: 700; }
+  .proto-badge { position: fixed; right: 16px; bottom: 12px; font-size: 10px; color: var(--ink-2); background: var(--paper); border: 1px solid var(--rule); padding: 5px 12px; border-radius: 99px; z-index: 9; }
+</style>
+</head>
+<body>
+<div id="progress"></div>
+<div class="stickybar" id="stickybar">
+  <span class="sb-brand serif">AI TOKEN 用量统计</span>
+  <span class="sb-kpi">费用 <b>¥2,486</b> <em>↓6.3%</em></span>
+  <span class="sb-kpi">Token <b>42.8M</b> <em>↑12.4%</em></span>
+  <span class="sb-kpi">命中率 <b>87.6%</b></span>
+  <span class="sb-kpi">请求 <b>18,432</b></span>
+  <span class="sb-right">近 30 天 · 1 USD = ¥7.24 · 实时</span>
+</div>
+
+<div class="wrap">
+  <div class="masthead">
+    <div style="display:flex;align-items:baseline;gap:14px">
+      <div class="mast-title serif">AI Token 用量统计</div>
+      <div class="mast-sub">Usage Ledger · Vol.30</div>
+    </div>
+    <div class="mast-right"><span>● 实时连接</span><span>2026 年 11 月 28 日</span></div>
+  </div>
+  <div class="subnav"><a class="on" href="#">概览</a><a href="#">趋势</a><a href="#">会话</a><a href="#">记录</a><a href="#">定价</a><a href="#">数据</a></div>
+
+  <div class="hero" id="hero">
+    <div>
+      <div class="hero-label">近 30 天总费用 · TOTAL SPEND</div>
+      <div class="hero-value serif"><small>¥</small><span id="hero-cost">0</span></div>
+      <div class="hero-delta">↓ 6.3% <span>较上期（费用下降为好）</span></div>
+    </div>
+    <div class="hero-kpis">
+      <div class="hk"><div class="hk-t">总 TOKEN</div><div class="hk-v serif" id="hk-tok">0</div><div class="hk-d">↑ 12.4%</div></div>
+      <div class="hk"><div class="hk-t">缓存命中率</div><div class="hk-v serif" id="hk-cache">0</div><div class="hk-d">↑ 2.1%</div></div>
+      <div class="hk"><div class="hk-t">请求次数</div><div class="hk-v serif" id="hk-req">0</div><div class="hk-d">↑ 11.0%</div></div>
+    </div>
+    <div class="seg"><button>今日</button><button>7 天</button><button class="on">30 天</button><button>自定义</button></div>
+  </div>
+
+  <section class="reveal">
+    <div class="sec-head"><span><span class="sec-no">01</span><span class="sec-title serif">用量趋势</span></span><span class="sec-hint">按 AGENT · 日粒度 · 滚入视口时绘制</span></div>
+    <div class="chart-body" id="trend"></div>
+  </section>
+
+  <section class="reveal">
+    <div class="sec-head"><span><span class="sec-no">02</span><span class="sec-title serif">套餐余量</span></span><span class="sec-hint">进度条滚入时动画</span></div>
+    <div class="quota-row">
+      <div class="quota"><div class="q-top"><b>智谱 GLM Coding Plan</b><em>MAX</em></div><div class="q-num serif">61% <small>周额度</small></div><div class="q-bar"><div class="q-fill" data-w="61%" style="background:var(--plum)"></div></div><div class="q-meta"><span>5h 窗口 32%</span><span>12-15 到期</span></div></div>
+      <div class="quota"><div class="q-top"><b>小米 MiMo Token Plan</b><em>PRO</em></div><div class="q-num serif">4,280 <small>/ 10,000</small></div><div class="q-bar"><div class="q-fill" data-w="42.8%" style="background:var(--dusty)"></div></div><div class="q-meta"><span>夜间 0.8x</span><span>12-01 重置</span></div></div>
+      <div class="quota"><div class="q-top"><b>百炼团队版</b><em>3 席位</em></div><div class="q-num serif">68% <small>团队合计</small></div><div class="q-bar"><div class="q-fill" data-w="68%" style="background:var(--sage)"></div></div><div class="q-meta"><span>2/3 活跃</span><span>12-20 重置</span></div></div>
+    </div>
+  </section>
+
+  <section class="reveal">
+    <div class="sec-head"><span><span class="sec-no">03</span><span class="sec-title serif">分布</span></span><span class="sec-hint">AGENT 占比 × 模型消耗</span></div>
+    <div class="grid2">
+      <div class="hbar-body" id="modelbars"></div>
+      <div class="donut-wrap"><div id="donut"></div><div class="legend" id="legend"></div></div>
+    </div>
+  </section>
+
+  <section class="reveal">
+    <div class="sec-head"><span><span class="sec-no">04</span><span class="sec-title serif">使用记录</span></span><span class="sec-hint">最新 6 条 · 共 18,432 条</span></div>
+    <table>
+      <thead><tr><th>时间</th><th>AGENT</th><th>模型</th><th>项目</th><th>输入</th><th>输出</th><th>思考</th><th>费用</th></tr></thead>
+      <tbody id="usage-body"></tbody>
+    </table>
+  </section>
+</div>
+<div class="proto-badge">布局 3 · 滚动叙事 — 吸顶压缩条 + 阅读进度 + 滚入显现/绘制</div>
+
+<script src="_shared.js"></script>
+<script src="_motion.js"></script>
+<script>
+  const AC = ['#95618a','#c2571b','#8a8172','#5f7d95','#b98a2f','#7d8c6f'];
+  const SERIES = ['#c2571b','#5f7d95','#7d8c6f','#b98a2f','#95618a','#7f6a53'];
+  countUp(document.getElementById('hero-cost'), 2486.4, { duration: 1200, fmt: n => n.toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2}) });
+  countUp(document.getElementById('hk-tok'), 42.8, { fmt: n => n.toFixed(1)+'M' });
+  countUp(document.getElementById('hk-cache'), 87.6, { fmt: n => n.toFixed(1)+'%' });
+  countUp(document.getElementById('hk-req'), 18432, { fmt: n => Math.round(n).toLocaleString() });
+
+  lineChart(document.getElementById('trend'), [trendSeries(30,900,260,7),trendSeries(30,620,200,21),trendSeries(30,380,150,42)], SERIES, { grid:'rgba(43,38,32,.09)', label:'rgba(43,38,32,.45)', fillOpacity:.13, stroke:1.8, h:300 });
+  donut(document.getElementById('donut'), AGENTS.map(a=>({name:a.name,value:a.tokens})), AC, { size:170, thickness:16, centerColor:'#2b2620', subColor:'rgba(43,38,32,.45)' });
+  const total=AGENTS.reduce((a,b)=>a+b.tokens,0);
+  AGENTS.forEach((a,i)=>{ const d=document.createElement('div'); d.className='legend-item'; d.innerHTML=`<span class="legend-dot" style="background:${AC[i]}"></span><span class="legend-name">${a.name}</span><b>${(a.tokens/total*100).toFixed(0)}%</b>`; document.getElementById('legend').appendChild(d); });
+  hbars(document.getElementById('modelbars'), MODELS.map(m=>({name:m.name,value:m.tokens})), SERIES, {});
+  USAGE_ROWS.forEach(r=>{ const tr=document.createElement('tr'); tr.innerHTML=r.map((c,i)=>`<td class="${i===1?'agent-cell':''}">${c}</td>`).join(''); document.getElementById('usage-body').appendChild(tr); });
+
+  // 滚入显现 + 进入视口才播放图表/进度动画
+  revealOnScroll('.reveal', (el) => {
+    const svg = el.querySelector('.chart-body svg, #donut svg');
+    if (el.querySelector('#trend')) animateLines(el.querySelector('#trend svg'), 100);
+    if (el.querySelector('#donut')) animateDonut(el.querySelector('#donut svg'), 150);
+    animateBars(el);
+    const max=Math.max(...MODELS.map(m=>m.tokens));
+    el.querySelectorAll('#modelbars .hbar-fill').forEach((f,i)=>{ f.style.transitionDelay=(150+i*90)+'ms'; f.style.width=(MODELS[i].tokens/max*100)+'%'; });
+  });
+
+  // 阅读进度 + 吸顶压缩条
+  const bar = document.getElementById('stickybar'), hero = document.getElementById('hero');
+  addEventListener('scroll', () => {
+    const h = document.documentElement;
+    const p = h.scrollTop / (h.scrollHeight - h.clientHeight);
+    document.getElementById('progress').style.width = (p*100)+'%';
+    bar.classList.toggle('show', h.scrollTop > hero.offsetTop + hero.offsetHeight - 40);
+  }, { passive: true });
+</script>
+</body>
+</html>
