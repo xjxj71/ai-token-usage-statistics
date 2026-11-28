@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **OpenClaw 重复计数**：`sessions.json` 的 `inputTokens` 等是会话累计计数器，旧采集器每次 `updatedAt` 前进就插一行全量，活跃会话被按更新次数倍数计入。现改为按会话状态推导增量（与 Hermes 同口径）；配套 `user_version=3` 一次性迁移，存量行按会话保留最新快照（真实库副本演练逐 agent 总量零偏差，迁移前自动备份）
+- **Hermes 漏采**：快速路径只 stat 主库 mtime/size，WAL 模式下两次 checkpoint 之间的写入全部被跳过。签名纳入 `-wal`（与 zcode 一致），hermes / hermes-win 同修
+- **保留期双重计数**：归档会删掉 Hermes 开放会话的旧小时行，而采集器每轮从 `session_marks` 重写全部小时行 → 同一用量同时存在于两表被 UNION 重复计入。归档/删除现跳过未结束（`raw_data` 无 `"ended": true`）的 hermes 行；归档成本对上报实际花费的 agent（hanako/hermes/openclaw）保留存储值，不再一律按目录价重算
+- **JSONL 采集器永久停摆**：一条无时区时间戳导致 naive/aware 比较抛 TypeError，水位不前进、每轮重读同一条毒行。`parse_timestamp` 统一返回 aware（naive 按 UTC）
+- **定价回填覆盖真实 0 花费**：刷新补齐 `cost_usd=0` 记录时无 agent 过滤，hanako 的供应商真实 0（免费额度）被改成目录价估算。现与迁移一致排除 hanako
+- **CSV 导出完全失效**：`limit=99999` 超后端上限必 422，且错误只 `console.warn`，按钮点了没反应。改为分页拉取（每页 500）并在 UI 显示错误
+- **概览实时动态渲染崩溃**：keyed each 用 `timestamp+agent+model` 作键，Hermes 整点时间戳下同小时同模型的两会话键重复，Svelte 5 生产模式直接抛 `each_key_duplicate`。改按记录 `id`
+- **Model/项目分布 tooltip 张冠李戴**：Y 轴类目反转为升序但 tooltip 仍按降序数组取名，悬停显示错误的模型/项目名。改用与 Y 轴同序的全名数组
+- **定价编辑静默改价**：CNY↔USD 往返换算（2 位小数）打开编辑直接保存就篡改价格，低价项损失 >1%、极低价归零；编辑期间汇率刷新还会加剧偏差。现锁定编辑开始时汇率、CNY 保留 6 位、未改动不提交
+- **自定义范围报告标题差一天**：标题切 UTC 日期而上海零点 = 前一日 16:00Z。按上海时区格式化（结束边界为排他次日零点，回退一天）
+- **非法日期 500**：`from=2026-13-45` 通过正则但 `strptime` 抛 ValueError 泄漏为 500。现返回 400
+- **SSE 重连风暴**：后端关闭轮询时前端 EventSource 每 ~3s 无限重连。识别 `polling_disabled` 后关闭流并 60s 低频探测；断线时保留防抖窗口内待执行的刷新，避免数据长期陈旧
+- **报告卡片竞态**：快速切换范围时旧响应覆盖新响应。加序号守卫
+- **会话明细错误缓存**：加载失败被缓存成空结果永久显示"暂无明细"且无法重试；切换筛选后旧范围明细不失效。失败不缓存、缓存 scope 计入筛选签名、按行记录 loading
+- **高亮残留/误报**：概览与实时监控的新记录高亮复位定时器挂在 effect cleanup 上，被翻页/切筛选提前清除；概览 `lastTopKey` 在 fresh 分支不更新导致每次刷新误报新记录。定时器移出 effect 并修正状态更新
+- **套餐配置写坏**：`write_text` 直写生产 YAML，崩溃半写即丢全部凭据。改临时文件 + `os.replace` 原子写
+- **小米套餐 planCode 笔误**：`get("planCode") or get("planCode")` 重复键，下划线风格响应永远取不到。第二处改 `plan_code`
+
+### Changed
+- **性能（后端）**：upsert 同值不再重写（Hermes 每轮重发的旧小时行），SSE 通知改按 `db.total_changes` 真实变更驱动；JSONL 扫描跳过未增长文件（数百空闲会话文件 × 5s 轮询的跨 VM open 归零）；汇率刷新单飞、锁不再横跨 15s 网络请求；WSL 全树 `chown -R` 从每 5s 降频到 10min；`wsl.exe --list --running` 缓存 TTL 2s→10s（不再每轮每采集器各 spawn 一次）
+- **性能（前端）**：6 个 ECharts 组件内容相同的 SSE 刷新跳过 notMerge 重建与 900ms 动画重放；调色板/Agent 徽章按主题缓存（每图表 effect ~20 次 getComputedStyle → 0）；tilt 插值收敛即停帧（悬停不动不再 60fps 写 transform）；keep-alive 隐藏视图数字滚动直接落值；countUp 动画中断从当前显示值续滚（不再倒跳）；消息复位定时器句柄化避免互相提前清除
+- **定价页**：刷新/搜索后页码越界自动钳回末页
+
 ### Added
 - **每日定价自动更新**：OpenRouter 目录多键匹配（全名 / 去供应商前缀 / 去 `:variant` 后缀），修复此前精确匹配几乎全部落空的问题；刷新范围含「使用过但尚未定价」的模型；每天自动刷新一次，**当天手动刷新后不再自动**；手动编辑过的价格（`price_source='manual'`）不被自动覆盖；定价页展示刷新状态与补齐数量
 - **未计价记录补齐**：模型刚获得真实价格时，其历史 `cost_usd=0` 记录按新价补齐（含 `usage_daily` 归档）；**已有非零成本锁定**，不随后续 API 价格变动重算

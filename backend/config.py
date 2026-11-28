@@ -20,8 +20,18 @@ logger = logging.getLogger(__name__)
 # be trusted longer — there is nothing to collect while stopped, and each
 # wsl.exe spawn costs seconds on some machines (observed ~5s with the distro
 # stopped), which used to be paid twice per poll cycle.
-_WSL_RUNNING_TTL = 2.0
+# The running TTL must exceed the poll interval (default 5s): at 2s every
+# WSL collector re-spawned wsl.exe --list --running on every single cycle.
+# A stale "running" answer only costs a failed UNC read, which is handled.
+_WSL_RUNNING_TTL = 10.0
 _WSL_STOPPED_TTL = 15.0
+
+# ensure_claude_projects_readable() spawns `wsl.exe -u root … chown -R &&
+# chmod -R` over the whole projects tree — thousands of files of metadata
+# rewrites.  Doing that every 5s poll is pure load; root-owned files only
+# appear when the user runs Claude Code via sudo, so a 10-minute cadence is
+# plenty (a permission error self-heals within one interval).
+_PERM_FIX_INTERVAL_SECONDS = 600.0
 
 # Windowed (tray/noconsole) builds must not flash a console for wsl.exe.
 _NO_WINDOW = {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}
@@ -69,6 +79,8 @@ class Settings(BaseSettings):
 
     # (monotonic_time, result) cache for is_wsl_running()
     _wsl_running_cache: tuple[float, bool] | None = PrivateAttr(default=None)
+    # monotonic time of the last permission-fix pass (throttled)
+    _perm_fix_at: float | None = PrivateAttr(default=None)
 
     @property
     def is_wsl(self) -> bool:
@@ -196,7 +208,15 @@ class Settings(BaseSettings):
         This method chowns and chmods the tree so the default user can read.
         Inside WSL we are already root — direct chmod/chown.
         On Windows we call ``wsl.exe -u root`` to do it.
+
+        Throttled to one pass per ``_PERM_FIX_INTERVAL_SECONDS`` — callers
+        invoke it every poll, but the recursive chown/chmod is expensive.
         """
+        now = time.monotonic()
+        if self._perm_fix_at is not None and now - self._perm_fix_at < _PERM_FIX_INTERVAL_SECONDS:
+            return
+        self._perm_fix_at = now
+
         linux_dir = f"/home/{self.wsl_user_accessible}/.claude/projects"
         try:
             if self.is_wsl:

@@ -60,68 +60,101 @@ class TestOpenClawCollector:
     def test_name(self, collector):
         assert collector.name == "openclaw"
 
-    @pytest.mark.asyncio
-    async def test_collect_parses_sessions_json(self, collector, tmp_path):
-        """OpenClaw sessions.json is a dict keyed by agent session names."""
+    @staticmethod
+    def _session_file(tmp_path, session_data):
         session_file = tmp_path / "sessions.json"
+        session_file.write_text(json.dumps(session_data), encoding="utf-8")
+        return session_file
 
-        # Correct format: dict keyed by agent names, NOT a list
-        session_data = {
+    async def _poll(self, collector, session_file, state):
+        with patch("backend.collectors.openclaw.settings") as mock_settings:
+            mock_settings.is_wsl_running.return_value = True
+            mock_settings.wsl_copy_to_tmp.return_value = True
+            mock_settings.openclaw_sessions_path = str(session_file)
+            with (
+                patch.object(collector, "_load_state", return_value=state),
+                patch.object(collector, "_save_state") as save,
+            ):
+                records = await collector.collect()
+        return records, save.call_args[0][0] if save.call_args else {}
+
+    @pytest.mark.asyncio
+    async def test_new_session_writes_full_counters(self, collector, tmp_path):
+        """A session created since the previous poll starts from zero."""
+        session_file = self._session_file(tmp_path, {
             "agent:main:main": {
                 "sessionId": "sess-1",
                 "model": "gpt-4o",
+                "startedAt": 1746178800000,   # 2025-05-02 epoch ms
                 "inputTokens": 1000,
                 "outputTokens": 500,
                 "cacheRead": 200,
                 "cacheWrite": 0,
                 "estimatedCostUsd": 0.005,
-                "updatedAt": 1746178800000,  # 2025-05-02 epoch ms
+                "updatedAt": 1746182400000,
             }
-        }
-        session_file.write_text(json.dumps(session_data), encoding="utf-8")
-
-        with patch("backend.collectors.openclaw.settings") as mock_settings:
-            mock_settings.is_wsl_running.return_value = True
-            mock_settings.wsl_copy_to_tmp.return_value = True
-            mock_settings.openclaw_sessions_path = str(session_file)
-            with (
-                patch.object(collector, "_load_state", return_value={}),
-                patch.object(collector, "_save_state"),
-            ):
-                records = await collector.collect()
-
+        })
+        records, _ = await self._poll(
+            collector, session_file, {"last_poll_at": "2025-05-01T00:00:00+00:00"}
+        )
         assert len(records) == 1
         assert records[0].agent == "openclaw"
         assert records[0].model == "gpt-4o"
         assert records[0].input_tokens == 1000
         assert records[0].output_tokens == 500
+        assert records[0].cost_usd == 0.005
 
     @pytest.mark.asyncio
-    async def test_collect_skips_old_records(self, collector, tmp_path):
-        session_file = tmp_path / "sessions.json"
-
-        session_data = {
-            "agent:main:old": {
-                "sessionId": "sess-old",
-                "model": "gpt-4o",
-                "inputTokens": 100,
-                "outputTokens": 50,
-                "updatedAt": 1746048000000,  # 2025-05-01 epoch ms
-            }
+    async def test_active_session_writes_deltas_not_snapshots(self, collector, tmp_path):
+        """Cumulative counters → per-poll increments; a repeated poll with
+        unchanged counters writes nothing (the old collector re-inserted the
+        full session total on every updatedAt advance)."""
+        base = {
+            "sessionId": "sess-1", "model": "gpt-4o",
+            "startedAt": 1746178800000,
+            "inputTokens": 1000, "outputTokens": 500,
+            "cacheRead": 200, "cacheWrite": 0,
+            "estimatedCostUsd": 0.005, "updatedAt": 1746182400000,
         }
-        session_file.write_text(json.dumps(session_data), encoding="utf-8")
+        state = {
+            "last_poll_at": "2025-05-02T11:00:00+00:00",
+            "session_counters": {"sess-1|gpt-4o": [1000, 500, 200, 0, 0.005]},
+        }
+        # Counters advanced by 300/150/60 — only the delta is written.
+        grown = {**base, "inputTokens": 1300, "outputTokens": 650,
+                 "cacheRead": 260, "estimatedCostUsd": 0.0065,
+                 "updatedAt": 1746186000000}
+        records, new_state = await self._poll(
+            collector, self._session_file(tmp_path, {"agent:main:main": grown}), state
+        )
+        assert len(records) == 1
+        assert (records[0].input_tokens, records[0].output_tokens, records[0].cache_read_tokens) == (300, 150, 60)
+        assert records[0].cost_usd == pytest.approx(0.0015)
+        assert new_state["session_counters"]["sess-1|gpt-4o"] == [1300, 650, 260, 0, 0.0065]
 
-        with patch("backend.collectors.openclaw.settings") as mock_settings:
-            mock_settings.is_wsl_running.return_value = True
-            mock_settings.wsl_copy_to_tmp.return_value = True
-            mock_settings.openclaw_sessions_path = str(session_file)
-            with (
-                patch.object(collector, "_load_state", return_value={"last_timestamp": "2025-05-02T00:00:00Z"}),
-                patch.object(collector, "_save_state"),
-            ):
-                records = await collector.collect()
+        # Same counters again → nothing.
+        records, _ = await self._poll(
+            collector, self._session_file(tmp_path, {"agent:main:main": grown}), new_state
+        )
+        assert records == []
 
-        assert len(records) == 0
+    @pytest.mark.asyncio
+    async def test_pre_existing_session_is_seeded_not_dumped(self, collector, tmp_path):
+        """First sight of a session older than the previous poll: current
+        counters become the baseline, pre-existing usage is not written."""
+        session_file = self._session_file(tmp_path, {
+            "agent:main:old": {
+                "sessionId": "sess-old", "model": "gpt-4o",
+                "startedAt": 1746048000000,   # 2025-05-01, before last poll
+                "inputTokens": 100, "outputTokens": 50,
+                "updatedAt": 1746178800000,
+            }
+        })
+        records, new_state = await self._poll(
+            collector, session_file, {"last_poll_at": "2025-05-02T00:00:00+00:00"}
+        )
+        assert records == []
+        assert new_state["session_counters"]["sess-old|gpt-4o"][:4] == [100, 50, 0, 0]
 
     @pytest.mark.asyncio
     async def test_collect_skips_when_wsl_stopped(self, collector):

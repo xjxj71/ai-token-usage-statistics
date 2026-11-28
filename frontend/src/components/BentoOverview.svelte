@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import type { SummaryResponse, SummaryTotals, BreakdownItem, TrendResponse, TokenRecord } from "../types";
   import { countUp, formatNumber, tilt } from "../motion";
   import { agentColor } from "../theme.svelte.ts";
@@ -58,16 +59,26 @@
   const feedItems = $derived((usageItems ?? []).slice(0, 5));
   let freshKey = $state("");
   let lastTopKey = "";
+  // 复位定时器放在 effect 之外：effect cleanup 在每次重跑前都会执行，
+  // 若把定时器挂在 cleanup 上，翻页/切筛选会提前清掉它，高亮永久残留。
+  let freshTimer: ReturnType<typeof setTimeout> | null = null;
   $effect(() => {
     const top = feedItems[0];
     if (!top) return;
-    const key = top.timestamp + top.agent + top.model;
+    const key = String(top.id);
     if (lastTopKey && key !== lastTopKey) {
       freshKey = key;
-      const t = setTimeout(() => (freshKey = ""), 1800);
-      return () => clearTimeout(t);
+      if (freshTimer) clearTimeout(freshTimer);
+      freshTimer = setTimeout(() => {
+        freshKey = "";
+        freshTimer = null;
+      }, 1800);
     }
+    // fresh 分支也要更新，否则 lastTopKey 停在旧值，之后每次刷新都误报"新记录"
     lastTopKey = key;
+  });
+  onMount(() => () => {
+    if (freshTimer) clearTimeout(freshTimer);
   });
 
   function fmtTime(ts: string): string {
@@ -164,8 +175,8 @@
   <div class="tile b-4 b-feed" use:tilt>
     <div class="t-label">实时动态 <span>最新 {feedItems.length} 条</span></div>
     <div class="feed-list">
-      {#each feedItems as r (r.timestamp + r.agent + r.model)}
-        {@const key = r.timestamp + r.agent + r.model}
+      {#each feedItems as r (r.id)}
+        {@const key = String(r.id)}
         <div class="feed-item" class:fresh={freshKey === key}>
           <span class="feed-dot" style="background:{agentColor(r.agent)}"></span>
           <span class="feed-agent">{r.agent}</span>

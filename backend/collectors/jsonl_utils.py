@@ -19,6 +19,10 @@ _MS_EPOCH_THRESHOLD = 1e12
 def parse_timestamp(ts: str | float) -> datetime:
     """Parse a timestamp — handles ISO strings, second/millisecond epoch ints.
 
+    Always returns an **aware** datetime (naive ISO strings are read as UTC):
+    a single naive value would otherwise raise TypeError when compared against
+    the aware watermark, and that exception escapes the per-file OSError guard
+    — stalling the collector on the same poison line every poll, forever.
     Falls back to epoch on failure with a warning log.
     """
     if isinstance(ts, (int, float)):
@@ -26,7 +30,8 @@ def parse_timestamp(ts: str | float) -> datetime:
             ts = ts / 1000.0
         return datetime.fromtimestamp(ts, tz=UTC)
     try:
-        return datetime.fromisoformat(str(ts))
+        dt = datetime.fromisoformat(str(ts))
+        return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
     except (ValueError, TypeError):
         logger.debug("Failed to parse timestamp: %s", ts)
         return datetime(1970, 1, 1, tzinfo=UTC)
@@ -135,6 +140,7 @@ def scan_jsonl_directory(
     """
     records: list[TokenRecord] = []
     max_ts_str = ""
+    max_dt: datetime | None = None
     # Carry untouched files' watermarks forward: the caller replaces the whole
     # state map, so a consumed-and-skipped file would otherwise drop out and
     # be re-read from byte 0 on its next growth.
@@ -155,6 +161,12 @@ def scan_jsonl_directory(
         # File was truncated or replaced — reset position
         if start_pos > file_size:
             start_pos = 0
+
+        # Nothing appended since last poll — skip the open entirely.
+        # Hundreds of idle session files × every 5s poll over \\wsl$ UNC
+        # is a lot of cross-VM file opens for zero new data.
+        if start_pos == file_size:
+            continue
 
         try:
             # Binary mode on purpose: text-mode positions are opaque cookies
@@ -187,7 +199,8 @@ def scan_jsonl_directory(
                     record = build_token_record(data, agent_name, include_metadata)
                     if record is not None:
                         records.append(record)
-                        if not max_ts_str or ts_dt > parse_timestamp(max_ts_str):
+                        if max_dt is None or ts_dt > max_dt:
+                            max_dt = ts_dt
                             max_ts_str = ts
 
         except OSError as e:

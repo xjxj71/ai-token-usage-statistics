@@ -43,8 +43,8 @@ class FrontendStaticFiles(StaticFiles):
         elif norm.startswith("assets/"):
             response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return response
-from backend.quota.multipliers import start_refresh_loop, stop_refresh_loop
 from backend.pricing.refresh import start_pricing_loop, stop_pricing_loop
+from backend.quota.multipliers import start_refresh_loop, stop_refresh_loop
 
 logger = logging.getLogger(__name__)
 

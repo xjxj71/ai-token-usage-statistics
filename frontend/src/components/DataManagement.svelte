@@ -22,6 +22,8 @@
   let backing = $state(false);
   let backupMsg = $state("");
   let busyBackup = $state("");
+  let saveMsgTimer: ReturnType<typeof setTimeout> | null = null;
+  let backupMsgTimer: ReturnType<typeof setTimeout> | null = null;
 
   function fmtSize(bytes: number): string {
     if (bytes >= 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + " MB";
@@ -67,7 +69,8 @@
       saveMsg = e.message || "保存失败";
     } finally {
       saving = false;
-      setTimeout(() => (saveMsg = ""), 3000);
+      if (saveMsgTimer) clearTimeout(saveMsgTimer);
+      saveMsgTimer = setTimeout(() => (saveMsg = ""), 3000);
     }
   }
 
@@ -103,7 +106,8 @@
       backupMsg = e.message || "备份失败";
     } finally {
       backing = false;
-      setTimeout(() => (backupMsg = ""), 3000);
+      if (backupMsgTimer) clearTimeout(backupMsgTimer);
+      backupMsgTimer = setTimeout(() => (backupMsg = ""), 3000);
     }
   }
 

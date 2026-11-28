@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import type { TokenRecord, SummaryResponse, BreakdownItem } from "../types";
   import { countUp, formatNumber } from "../motion";
   import { agentColor } from "../theme.svelte.ts";
@@ -26,9 +27,12 @@
     paused = !paused;
   }
 
-  // 新记录高亮：对比上一批 key，新增的标 fresh 1.8s
+  // 新记录高亮：对比上一批 key，新增的标 fresh 1.8s。
+  // 复位定时器放在 effect 之外：cleanup 在每次重跑前执行，挂在上面
+  // 会被翻页/切筛选提前清掉，高亮永久残留。
   let known = new Set<string>();
   let freshKeys = $state<Set<string>>(new Set());
+  let freshTimer: ReturnType<typeof setTimeout> | null = null;
   const keyOf = (r: TokenRecord) => r.timestamp + "|" + r.agent + "|" + r.model + "|" + r.session_id;
   $effect(() => {
     const keys = items.map(keyOf);
@@ -36,12 +40,17 @@
       const added = keys.filter((k) => !known.has(k));
       if (added.length > 0) {
         freshKeys = new Set(added);
-        const t = setTimeout(() => (freshKeys = new Set()), 1800);
-        known = new Set(keys);
-        return () => clearTimeout(t);
+        if (freshTimer) clearTimeout(freshTimer);
+        freshTimer = setTimeout(() => {
+          freshKeys = new Set();
+          freshTimer = null;
+        }, 1800);
       }
     }
     known = new Set(keys);
+  });
+  onMount(() => () => {
+    if (freshTimer) clearTimeout(freshTimer);
   });
 
   function fmtTime(ts: string): string {

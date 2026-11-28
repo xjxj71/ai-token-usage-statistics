@@ -177,15 +177,30 @@
     return [...data.items].reverse();
   }
 
+  let exporting = $state(false);
+
   async function handleExport() {
+    if (exporting) return;
+    exporting = true;
+    error = "";
     try {
       const params = buildParams(filter);
-      const res = await fetchWithTimeout(`/api/usage?${new URLSearchParams({ ...params, limit: "99999" })}`);
-      if (!res.ok) throw new Error("导出失败");
-      const data = await res.json();
+      // /api/usage caps limit at 500 — page through the whole result set
+      // instead of asking for limit=99999 (which 422s and exports nothing).
+      const PAGE = 500;
+      const items: TokenRecord[] = [];
+      let page = 1;
+      let total = Infinity;
+      while (items.length < total) {
+        const data = await fetchUsage({ ...params, page: String(page), limit: String(PAGE) });
+        total = data.total;
+        items.push(...data.items);
+        if (data.items.length < PAGE) break;
+        page += 1;
+      }
 
       const header = "时间,Agent,模型,项目,输入Token,输出Token,思考Token,缓存Token,费用(CNY)";
-      const rows = data.items.map((r: any) =>
+      const rows = items.map((r) =>
         [
           csvEscape(r.timestamp),
           csvEscape(r.agent),
@@ -198,7 +213,7 @@
           (r.cost_usd * usdToCnyRate).toFixed(4),
         ].join(",")
       );
-      const csv = "\uFEFF" + header + "\n" + rows.join("\n");
+      const csv = "﻿" + header + "\n" + rows.join("\n");
 
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
       const url = URL.createObjectURL(blob);
@@ -208,7 +223,9 @@
       a.click();
       URL.revokeObjectURL(url);
     } catch (e: any) {
-      console.warn("导出失败:", e);
+      error = `导出失败：${e.message || e}`;
+    } finally {
+      exporting = false;
     }
   }
 
@@ -362,6 +379,7 @@
                 loadDetail={loadSessionDetail}
                 onPageChange={handleSessionPageChange}
                 onPageSizeChange={handleSessionPageSizeChange}
+                filterKey={JSON.stringify(filter)}
               />
             {/if}
           </section>

@@ -61,8 +61,15 @@ def resolve_range(
         _validate_date_format(from_date, "from")
         _validate_date_format(to_date, "to")
 
-        from_dt = datetime.strptime(from_date, "%Y-%m-%d").replace(tzinfo=local_tz)
-        to_dt = datetime.strptime(to_date, "%Y-%m-%d").replace(tzinfo=local_tz)
+        try:
+            from_dt = datetime.strptime(from_date, "%Y-%m-%d").replace(tzinfo=local_tz)
+            to_dt = datetime.strptime(to_date, "%Y-%m-%d").replace(tzinfo=local_tz)
+        except ValueError:
+            # Regex passed but the calendar date is impossible (e.g. 2026-13-45)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid date value: from='{from_date}', to='{to_date}'. Expected real YYYY-MM-DD dates.",
+            )
 
         if from_dt > to_dt:
             raise HTTPException(

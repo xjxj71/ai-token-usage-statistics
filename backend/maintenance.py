@@ -114,6 +114,27 @@ async def update_app_settings(updates: dict) -> dict:
 # ── Retention ───────────────────────────────────────────────────
 
 
+# Agents whose stored cost_usd may be the vendor-reported actual spend —
+# archiving must preserve it, not replace it with a list-price computation
+# (same convention as data_migrations.REPORTED_COST_AGENTS, extended to the
+# collectors that prefer actual cost when the source reports one).
+_REPORTED_COST_AGENTS = ("hanako", "hermes", "hermes-win", "openclaw")
+
+# Open Hermes sessions are re-derived from session_marks on every poll: the
+# collector re-upserts ALL their hour rows, including ones older than the
+# cutoff.  Archiving those hours would leave the same usage in both tables
+# (aggregate reads UNION them) → double counting.  Only consolidated final
+# rows (raw_data "ended": true) are safe to archive; hour rows stay raw until
+# the session closes and replace_session collapses them into one final row.
+# Bare column names (no alias): shared by the archive SELECT and the DELETE,
+# and SQLite's DELETE target cannot carry an alias.
+_ARCHIVABLE_WHERE = """
+    timestamp < :cutoff
+    AND NOT (agent IN ('hermes', 'hermes-win')
+             AND COALESCE(raw_data, '') NOT LIKE '%"ended": true%')
+"""
+
+
 async def run_retention(retention_days: int) -> dict:
     """Archive-then-delete raw records older than ``retention_days`` days."""
     if retention_days <= 0:
@@ -122,6 +143,7 @@ async def run_retention(retention_days: int) -> dict:
     cutoff = (datetime.now(UTC) - timedelta(days=retention_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
     db = await db_module.get_db()
 
+    reported = ",".join(f"'{a}'" for a in _REPORTED_COST_AGENTS)
     archive_sql = f"""
         INSERT INTO usage_daily
             (date, agent, model, project,
@@ -132,15 +154,18 @@ async def run_retention(retention_days: int) -> dict:
                SUM(t.cache_read_tokens), SUM(t.cache_write_tokens),
                SUM(t.reasoning_tokens),
                SUM(
-                   t.input_tokens      * COALESCE(p.input_price, 0)      / 1000000.0 +
-                   t.output_tokens     * COALESCE(p.output_price, 0)     / 1000000.0 +
-                   t.cache_read_tokens * COALESCE(p.cache_read_price, 0) / 1000000.0 +
-                   t.cache_write_tokens* COALESCE(p.cache_write_price,0) / 1000000.0
+                   CASE WHEN t.agent IN ({reported}) THEN t.cost_usd
+                   ELSE (
+                       t.input_tokens      * COALESCE(p.input_price, 0)      +
+                       t.output_tokens     * COALESCE(p.output_price, 0)     +
+                       t.cache_read_tokens * COALESCE(p.cache_read_price, 0) +
+                       t.cache_write_tokens* COALESCE(p.cache_write_price,0)
+                   ) / 1000000.0 END
                ),
                COUNT(*)
         FROM token_usage t
         LEFT JOIN model_pricing p ON t.model = p.model
-        WHERE t.timestamp < ?
+        WHERE {_ARCHIVABLE_WHERE}
         GROUP BY 1, t.agent, t.model, t.project
         ON CONFLICT(date, agent, model, project) DO UPDATE SET
             input_tokens       = input_tokens       + excluded.input_tokens,
@@ -151,10 +176,14 @@ async def run_retention(retention_days: int) -> dict:
             cost_usd           = cost_usd           + excluded.cost_usd,
             call_count         = call_count         + excluded.call_count
     """
-    archive_cur = await db.execute(archive_sql, (cutoff,))
+    archive_cur = await db.execute(archive_sql, {"cutoff": cutoff})
     archived = archive_cur.rowcount or 0
 
-    delete_cur = await db.execute("DELETE FROM token_usage WHERE timestamp < ?", (cutoff,))
+    # Delete exactly what was archived — the same guard, or open-session
+    # hour rows would be dropped without being aggregated (data loss).
+    delete_cur = await db.execute(
+        f"DELETE FROM token_usage WHERE {_ARCHIVABLE_WHERE}", {"cutoff": cutoff}
+    )
     deleted = delete_cur.rowcount or 0
     await db.commit()
 

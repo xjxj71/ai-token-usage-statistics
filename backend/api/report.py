@@ -8,6 +8,7 @@ a quota overview, plus a ready-to-copy Markdown rendering.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Query
 
@@ -156,7 +157,15 @@ async def get_report(
     except Exception as e:  # noqa: BLE001
         logger.warning("Quota overview unavailable for report: %s", e)
 
-    label = _RANGE_LABELS.get(range_key, f"{from_ts[:10]} ~ {to_ts[:10]}")
+    # Custom-range label: show Shanghai dates, not the UTC date slice —
+    # local midnight is 16:00Z the previous day, and ``to_ts`` is the
+    # exclusive next-day boundary.
+    label = _RANGE_LABELS.get(range_key)
+    if label is None:
+        shanghai = timezone(timedelta(hours=8))
+        start = datetime.fromisoformat(from_ts).astimezone(shanghai)
+        end = datetime.fromisoformat(to_ts).astimezone(shanghai) - timedelta(days=1)
+        label = f"{start:%Y-%m-%d} ~ {end:%Y-%m-%d}"
     from backend.exchange_rate import get_rate
 
     usd_to_cny = (await get_rate()).rate

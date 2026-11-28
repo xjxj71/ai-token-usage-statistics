@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
 from backend.collectors.base import BaseCollector
@@ -16,6 +17,22 @@ logger = logging.getLogger(__name__)
 
 
 class OpenClawCollector(BaseCollector):
+    """Collect token usage from OpenClaw sessions.json.
+
+    ``inputTokens`` / ``outputTokens`` / ``cacheRead`` / ``cacheWrite`` /
+    ``estimatedCostUsd`` are **cumulative per-session counters** (the file is
+    a session registry, like Hermes' state.db).  Writing them as-is on every
+    ``updatedAt`` advance counted a session's whole usage once per update —
+    the same bug class fixed for Hermes in user_version 2.
+
+    Each poll therefore derives per-session deltas against the counters
+    stored in collector state (``session_counters``).  A session first seen
+    with usage from before we watched it starts from its current counters
+    (only later usage is written); one created since the previous poll starts
+    from zero.  Counter resets clamp to zero per field.  Rows written before
+    this convention are consolidated by the user_version 3 migration.
+    """
+
     @property
     def name(self) -> str:
         return "openclaw"
@@ -31,8 +48,13 @@ class OpenClawCollector(BaseCollector):
             return []
 
         state = self._load_state()
-        last_ts_str = state.get("last_timestamp", "")
-        last_dt = parse_timestamp(last_ts_str)
+        counters: dict[str, list] = state.get("session_counters", {})
+        last_poll_ts: float | None = None
+        if state.get("last_poll_at"):
+            try:
+                last_poll_ts = datetime.fromisoformat(state["last_poll_at"]).timestamp()
+            except ValueError:
+                last_poll_ts = None
 
         # Copy sessions.json from WSL /root to /tmp for UNC access
         if not await asyncio.to_thread(
@@ -63,52 +85,83 @@ class OpenClawCollector(BaseCollector):
             return []
 
         records: list[TokenRecord] = []
-        max_ts_str = last_ts_str
+        # Rebuilt from the current file every poll — sessions that disappeared
+        # from the registry drop out of state instead of accumulating forever.
+        new_counters: dict[str, list] = {}
+        now_utc = datetime.now(UTC)
 
         for agent_key, session in data.items():
             if not isinstance(session, dict):
                 continue
 
-            # updatedAt is millisecond epoch integer
-            ts_raw = session.get("updatedAt", session.get("startedAt", ""))
-            ts_dt = parse_timestamp(ts_raw)
-            if ts_dt <= last_dt:
+            session_id = str(session.get("sessionId", agent_key))
+            model = session.get("model", "unknown")
+            cur = (
+                session.get("inputTokens", 0) or 0,
+                session.get("outputTokens", 0) or 0,
+                session.get("cacheRead", 0) or 0,
+                session.get("cacheWrite", 0) or 0,
+            )
+            reported_cost = session.get("estimatedCostUsd", 0) or 0
+            cum_cost = (
+                reported_cost
+                if reported_cost > 0
+                else calculate_cost(model, *cur)
+            )
+            series = (*cur, cum_cost)
+
+            key = f"{session_id}|{model}"
+            prev = counters.get(key)
+            if prev is None:
+                # First sight: a session created since the previous poll
+                # starts from zero; anything older may carry usage from
+                # before we watched it — its current counters become the
+                # baseline so pre-existing usage is not dumped into today.
+                started_raw = session.get("startedAt")
+                started_ts = (
+                    parse_timestamp(started_raw).timestamp() if started_raw else None
+                )
+                is_new = (
+                    last_poll_ts is not None
+                    and started_ts is not None
+                    and started_ts > last_poll_ts
+                )
+                base = (0, 0, 0, 0, 0.0) if is_new else series
+            else:
+                base = tuple(prev)
+
+            delta = tuple(max(c - b, 0) for c, b in zip(series, base))
+            new_counters[key] = list(series)
+            if not any(delta[:4]):
                 continue
 
-            model = session.get("model", "unknown")
-            input_tokens = session.get("inputTokens", 0) or 0
-            output_tokens = session.get("outputTokens", 0) or 0
-            cache_read = session.get("cacheRead", 0) or 0
-            cache_write = session.get("cacheWrite", 0) or 0
-            cost = session.get("estimatedCostUsd", 0) or 0
-
-            if cost <= 0:
-                cost = calculate_cost(model, input_tokens, output_tokens, cache_read, cache_write)
-
-            # Convert ts to ISO string for storage
-            ts_iso = ts_dt.isoformat()
-
+            # updatedAt is millisecond epoch integer — when the usage happened
+            ts_dt = parse_timestamp(session.get("updatedAt", session.get("startedAt", "")))
             records.append(
                 TokenRecord(
-                    timestamp=ts_iso,
+                    timestamp=ts_dt.isoformat(),
                     agent=self.name,
                     model=model,
-                    session_id=str(session.get("sessionId", agent_key)),
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    cache_read_tokens=cache_read,
-                    cache_write_tokens=cache_write,
-                    cost_usd=round(cost, 6),
+                    session_id=session_id,
+                    input_tokens=int(delta[0]),
+                    output_tokens=int(delta[1]),
+                    cache_read_tokens=int(delta[2]),
+                    cache_write_tokens=int(delta[3]),
+                    cost_usd=round(delta[4], 6),
                     raw_data=json.dumps(
-                        {"agent_key": agent_key, "session_id": session.get("sessionId")},
+                        {
+                            "agent_key": agent_key,
+                            "session_id": session.get("sessionId"),
+                            "mode": "delta",
+                        },
                         ensure_ascii=False,
                     ),
                 )
             )
-            if not max_ts_str or ts_dt > parse_timestamp(max_ts_str):
-                max_ts_str = ts_raw
 
+        self._save_state(
+            {"session_counters": new_counters, "last_poll_at": now_utc.isoformat()}
+        )
         if records:
-            self._save_state({"last_timestamp": max_ts_str})
-
+            logger.info("OpenClaw: %d delta records from %d sessions", len(records), len(new_counters))
         return records

@@ -63,10 +63,18 @@ export interface ChartPalette {
   stackCache: string;
 }
 
+// 调色板按主题缓存：chartPalette() 一次约 20 次 getComputedStyle，
+// 每个图表 effect / 每行徽章都调用，SSE 刷新时是持续的样式计算开销。
+// 读取 themeState.current 保持响应性——主题切换即失效。
+let paletteCache: { theme: ThemeId; value: ChartPalette } | null = null;
+const colorCache = new Map<string, { theme: ThemeId; color: string }>();
+const badgeCache = new Map<string, { theme: ThemeId; bg: string; text: string }>();
+
 /** 在 $effect / 模板中调用，主题切换时自动触发重算 */
 export function chartPalette(): ChartPalette {
-  void themeState.current;
-  return {
+  const theme = themeState.current;
+  if (paletteCache && paletteCache.theme === theme) return paletteCache.value;
+  const value: ChartPalette = {
     series: [1, 2, 3, 4, 5, 6, 7, 8].map((i) => cssVar(`--chart-${i}`)),
     text: cssVar("--text"),
     text2: cssVar("--text-2"),
@@ -85,20 +93,31 @@ export function chartPalette(): ChartPalette {
     stackOutput: cssVar("--chart-2"),
     stackCache: cssVar("--chart-4"),
   };
+  paletteCache = { theme, value };
+  return value;
 }
 
 /** Agent 身份色（FilterBar 圆点、表格徽章、环形图共用） */
 export function agentColor(agent: string): string {
-  void themeState.current;
-  return cssVar(`--agent-${agent}`) || cssVar("--chart-1");
+  const theme = themeState.current;
+  const hit = colorCache.get(agent);
+  if (hit && hit.theme === theme) return hit.color;
+  const color = cssVar(`--agent-${agent}`) || cssVar("--chart-1");
+  colorCache.set(agent, { theme, color });
+  return color;
 }
 
 /** 表格徽章：底色取身份色 16% 透明，文字色向当前主题文字色混合 28%
  * （深色主题自动提亮、浅色主题自动加深，保证对比度） */
 export function agentBadge(agent: string): { bg: string; text: string } {
+  const theme = themeState.current;
+  const hit = badgeCache.get(agent);
+  if (hit && hit.theme === theme) return hit;
   const c = agentColor(agent);
-  return {
+  const value = {
     bg: `color-mix(in srgb, ${c} 16%, transparent)`,
     text: `color-mix(in srgb, ${c} 72%, ${cssVar("--text")})`,
   };
+  badgeCache.set(agent, { theme, ...value });
+  return value;
 }

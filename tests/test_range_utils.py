@@ -63,6 +63,16 @@ class TestResolveRange:
             resolve_range("custom", "2026/06/01", "2026-06-11")
         assert exc_info.value.status_code == 400
 
+    def test_custom_impossible_calendar_date_raises_400(self):
+        # Passes the YYYY-MM-DD regex but is not a real date — must be a 400,
+        # not a leaked ValueError (500).
+        with pytest.raises(HTTPException) as exc_info:
+            resolve_range("custom", "2026-13-45", "2026-06-11")
+        assert exc_info.value.status_code == 400
+        with pytest.raises(HTTPException) as exc_info:
+            resolve_range("custom", "2026-06-01", "2026-02-30")
+        assert exc_info.value.status_code == 400
+
     def test_timezone_handling(self):
         from_ts, to_ts = resolve_range("today", None, None, tz_name="Asia/Shanghai")
         assert from_ts is not None

@@ -171,11 +171,14 @@ async def refresh_pricing_core(*, manual: bool) -> dict:
             prices["input"], prices["output"],
             prices["cache_read"], prices["cache_write"], model,
         )
+        # hanako 存的是供应商上报成本，0 可能是真实 0（免费额度），
+        # 不能用目录价回填 —— 与 data_migrations.REPORTED_COST_AGENTS 一致。
+        # hermes/openclaw 的 0 必为「当时无价算出的 0」（有实际花费会优先存），可回填。
         cur = await db.execute(
             """UPDATE token_usage
                SET cost_usd = ROUND((input_tokens * ? + output_tokens * ?
                      + cache_read_tokens * ? + cache_write_tokens * ?) / 1000000.0, 6)
-               WHERE model = ? AND cost_usd = 0""",
+               WHERE model = ? AND cost_usd = 0 AND agent != 'hanako'""",
             params,
         )
         backfilled += cur.rowcount or 0
@@ -183,7 +186,7 @@ async def refresh_pricing_core(*, manual: bool) -> dict:
             """UPDATE usage_daily
                SET cost_usd = ROUND((input_tokens * ? + output_tokens * ?
                      + cache_read_tokens * ? + cache_write_tokens * ?) / 1000000.0, 6)
-               WHERE model = ? AND cost_usd = 0""",
+               WHERE model = ? AND cost_usd = 0 AND agent != 'hanako'""",
             params,
         )
 

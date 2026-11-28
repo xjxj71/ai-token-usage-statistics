@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import sqlite3
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -69,23 +68,12 @@ class HermesCollector(BaseCollector):
         else:
             src_path = f"{settings.wsl_root}\\root\\.hermes\\state.db"
 
-        def _stat(p: str) -> os.stat_result | None:
-            try:
-                return Path(p).stat()
-            except OSError as exc:
-                # Stat may fail if WSL distro is stopped or not installed.
-                # Don't bail out — fall through to try wsl_copy_to_tmp which
-                # uses wsl.exe and may still succeed.
-                logger.debug("Hermes: cannot stat source db at %s: %s", p, exc)
-                return None
+        # Stat may fail if WSL distro is stopped or not installed — don't
+        # bail out, fall through to wsl_copy_to_tmp which may still succeed.
+        src_sig = await asyncio.to_thread(self._source_signature, src_path)
 
-        src_stat = await asyncio.to_thread(_stat, src_path)
-
-        if src_stat is not None and self._source_unchanged(state, src_stat):
-            logger.debug(
-                "Hermes: source db unchanged (mtime=%s), skipping poll",
-                src_stat.st_mtime,
-            )
+        if self._source_unchanged(state, src_sig):
+            logger.debug("Hermes: source db unchanged (sig=%s), skipping poll", src_sig)
             return []
 
         if not await asyncio.to_thread(
@@ -119,34 +107,43 @@ class HermesCollector(BaseCollector):
         finally:
             Path(tmp_path).unlink(missing_ok=True)
 
-        # Try to get fresh stat from the copied file for next poll's fast-path.
-        # If stat originally failed (WSL down), use the copy's mtime/size instead.
-        try:
-            stat_target = src_path if src_stat is not None else db_path
-            fresh_stat = await asyncio.to_thread(Path(stat_target).stat)
-        except OSError:
-            fresh_stat = src_stat
+        # Fresh signature for next poll's fast-path; if the source stat
+        # failed (WSL down), sign the copied file instead.
+        stat_target = src_path if src_sig is not None else db_path
+        fresh_sig = await asyncio.to_thread(self._source_signature, stat_target)
 
-        self._save_state(
-            {
-                **new_state,
-                "source_mtime": fresh_stat.st_mtime if fresh_stat else None,
-                "source_size": fresh_stat.st_size if fresh_stat else None,
-            }
-        )
+        self._save_state({**new_state, "source_sig": fresh_sig})
         self._log_cycle(records, new_state)
         return records
 
     @staticmethod
-    def _source_unchanged(state: dict, src_stat: os.stat_result) -> bool:
-        prev_mtime = state.get("source_mtime")
-        prev_size = state.get("source_size")
-        return (
-            prev_mtime is not None
-            and prev_size is not None
-            and src_stat.st_mtime == prev_mtime
-            and src_stat.st_size == prev_size
-        )
+    def _source_signature(src_path: str) -> tuple | None:
+        """Cheap change-detection signature: (mtime_ns, size) of db and WAL.
+
+        WAL-mode writes land in ``-wal`` first, so the main file's mtime
+        alone misses every write between checkpoints (same rationale as
+        ``zcode._source_signature``).  ``-shm`` changes on every reader
+        access and is deliberately excluded.
+        """
+        try:
+            main = Path(src_path).stat()
+            wal = Path(src_path + "-wal")
+            if wal.exists():
+                w = wal.stat()
+                wal_sig = (w.st_mtime_ns, w.st_size)
+            else:
+                wal_sig = (0, 0)
+            return (main.st_mtime_ns, main.st_size, *wal_sig)
+        except OSError as exc:
+            logger.debug("Hermes: cannot stat source db at %s: %s", src_path, exc)
+            return None
+
+    @staticmethod
+    def _source_unchanged(state: dict, sig: tuple | None) -> bool:
+        prev = state.get("source_sig")
+        # JSON round-trips tuples as lists; older state (source_mtime/size
+        # only) has no source_sig → one full poll re-establishes it.
+        return sig is not None and prev is not None and tuple(prev) == sig
 
     def _log_cycle(self, records: list[TokenRecord], state: dict) -> None:
         logger.info(

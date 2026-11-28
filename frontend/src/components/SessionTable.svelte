@@ -11,6 +11,8 @@
     loadDetail: (agent: string, sessionId: string) => Promise<TokenRecord[]>;
     onPageChange: (page: number) => void;
     onPageSizeChange?: (size: number) => void;
+    /** 当前筛选签名：范围/筛选变化时明细缓存必须失效（loadDetail 用的是新范围） */
+    filterKey?: string;
   }
 
   let {
@@ -22,22 +24,27 @@
     loadDetail,
     onPageChange,
     onPageSizeChange,
+    filterKey = "",
   }: Props = $props();
 
   const PAGE_SIZES = [10, 20, 50];
   const DETAIL_LIMIT = 200;
 
   let expandedKey: string | null = $state(null);
-  let loadingKey: string | null = $state(null);
+  let loadingKeys: Record<string, boolean> = $state({});
+  let detailErrors: Record<string, string> = $state({});
   let details: Record<string, TokenRecord[]> = $state({});
   let detailScope = "";
 
-  // Drill-down rows are scoped to the current page; drop caches when paging.
+  // Drill-down rows are scoped to the current page AND filter; drop caches
+  // when either changes, or a session expanded under the old range would
+  // keep showing stale detail under the new one.
   $effect(() => {
-    const scope = `${page}|${pageSize}`;
+    const scope = `${page}|${pageSize}|${filterKey}`;
     if (scope !== detailScope) {
       detailScope = scope;
       details = {};
+      detailErrors = {};
       expandedKey = null;
     }
   });
@@ -71,14 +78,16 @@
       return;
     }
     expandedKey = key;
-    if (!details[key]) {
-      loadingKey = key;
+    if (!details[key] && !loadingKeys[key]) {
+      loadingKeys[key] = true;
+      delete detailErrors[key];
       try {
         details[key] = await loadDetail(s.agent, s.session_id);
-      } catch {
-        details[key] = [];
+      } catch (e: any) {
+        // 失败不缓存成空结果——否则永久显示"暂无明细"且无法重试
+        detailErrors[key] = e?.message || "加载失败";
       } finally {
-        loadingKey = null;
+        delete loadingKeys[key];
       }
     }
   }
@@ -169,8 +178,10 @@
             <tr class="detail-row">
               <td></td>
               <td colspan="8">
-                {#if loadingKey === key}
+                {#if loadingKeys[key]}
                   <div class="detail-loading">加载请求明细...</div>
+                {:else if detailErrors[key]}
+                  <div class="detail-loading">明细加载失败：{detailErrors[key]}（收起后重新展开可重试）</div>
                 {:else if (details[key] ?? []).length === 0}
                   <div class="detail-loading">该会话暂无明细记录</div>
                 {:else}

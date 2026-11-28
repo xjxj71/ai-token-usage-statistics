@@ -75,6 +75,10 @@
   );
   let totalPages = $derived(Math.max(1, Math.ceil(filteredData.length / pageSize)));
   let pagedData = $derived(filteredData.slice((currentPage - 1) * pageSize, currentPage * pageSize));
+  // 刷新/搜索后模型数可能变少，页码越界时钳回末页
+  $effect(() => {
+    if (currentPage > totalPages) currentPage = totalPages;
+  });
 
   function changePageSize(size: number) {
     pageSize = size;
@@ -106,13 +110,21 @@
     }
   }
 
+  // 编辑开始时锁定的汇率与原值：编辑期间顶部汇率可能被刷新，
+  // startEdit/saveEdit 必须用同一个汇率换算，否则往返换算篡改价格
+  let editRate = 7.25;
+  let editOriginal: PricingItem | null = null;
+
   function startEdit(item: PricingItem) {
     editingModel = item.model;
+    editRate = usdToCnyRate;
+    editOriginal = item;
+    // CNY 保留 6 位小数：2 位会让低价项（如 ¥0.10/M）往返换算损失 >1%
     editForm = {
-      input_price: +(item.input_price * usdToCnyRate).toFixed(2),
-      output_price: +(item.output_price * usdToCnyRate).toFixed(2),
-      cache_read_price: +(item.cache_read_price * usdToCnyRate).toFixed(2),
-      cache_write_price: +(item.cache_write_price * usdToCnyRate).toFixed(2),
+      input_price: +(item.input_price * editRate).toFixed(6),
+      output_price: +(item.output_price * editRate).toFixed(6),
+      cache_read_price: +(item.cache_read_price * editRate).toFixed(6),
+      cache_write_price: +(item.cache_write_price * editRate).toFixed(6),
     };
     saveMsg = null;
   }
@@ -123,16 +135,23 @@
   }
 
   async function saveEdit(model: string) {
+    const usdForm = {
+      input_price: +(editForm.input_price / editRate).toFixed(6),
+      output_price: +(editForm.output_price / editRate).toFixed(6),
+      cache_read_price: +(editForm.cache_read_price / editRate).toFixed(6),
+      cache_write_price: +(editForm.cache_write_price / editRate).toFixed(6),
+    };
+    // 打开编辑直接保存（未改动）：不提交，避免换算舍入 silently 改价
+    const KEYS = ["input_price", "output_price", "cache_read_price", "cache_write_price"] as const;
+    if (editOriginal && editOriginal.model === model && KEYS.every((k) => Math.abs(usdForm[k] - editOriginal![k]) < 1e-9)) {
+      editingModel = null;
+      saveMsg = { model, ok: true, text: "未改动" };
+      return;
+    }
     saving = model;
     saveMsg = null;
     try {
       const encoded = encodeURIComponent(model);
-      const usdForm = {
-        input_price: +(editForm.input_price / usdToCnyRate).toFixed(6),
-        output_price: +(editForm.output_price / usdToCnyRate).toFixed(6),
-        cache_read_price: +(editForm.cache_read_price / usdToCnyRate).toFixed(6),
-        cache_write_price: +(editForm.cache_write_price / usdToCnyRate).toFixed(6),
-      };
       const res = await fetchWithTimeout(`${BASE}/pricing/${encoded}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },

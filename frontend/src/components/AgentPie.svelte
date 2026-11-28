@@ -85,25 +85,26 @@
     };
   }
 
-  let lastData: unknown = null;
+  let lastDataKey = "";
   let lastTheme = "";
   $effect(() => {
     if (!chartEl) return;
     void uiState.view; // keep-alive：视图显示时补初始化/重绘
     if (chartEl.clientWidth === 0) return; // 隐藏视图不初始化
-    const P = chartPalette();
     if (!chart) {
       chart = echarts.init(chartEl);
-      lastData = null;
+      lastDataKey = "";
     }
     if (!breakdown?.length) {
       chart.clear();
-      lastData = null;
+      lastDataKey = "";
       return;
     }
-    if (lastData !== breakdown || lastTheme !== themeState.current) {
-      chart.setOption(buildOption(breakdown, P), true);
-      lastData = breakdown;
+    // 内容相同的 SSE 刷新跳过重建（避免 notMerge 全量重绘 + 动画重放）
+    const dataKey = JSON.stringify(breakdown);
+    if (dataKey !== lastDataKey || lastTheme !== themeState.current) {
+      chart.setOption(buildOption(breakdown, chartPalette()), true);
+      lastDataKey = dataKey;
       lastTheme = themeState.current;
     } else {
       chart.resize();

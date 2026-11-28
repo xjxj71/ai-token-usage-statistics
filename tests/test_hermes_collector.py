@@ -181,6 +181,36 @@ async def test_rows_are_absolute_hour_totals_across_app_restarts(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_identical_upsert_is_a_noop_for_change_tracking():
+    """Re-upserting identical values must not count as a change: Hermes
+    re-emits an open session's earlier hour rows on every poll, and SSE
+    notifications are driven by ``db.total_changes``.  A ``raw_data``-only
+    difference (the ``last_seen`` stamp, which has no readers) must be
+    skipped too, so an idle hour row causes no WAL write."""
+    from dataclasses import replace
+
+    db = await _memory_db()
+    try:
+        rec = TokenRecord(
+            timestamp=H10, agent="hermes", model=MODEL, session_id="s1",
+            input_tokens=100, output_tokens=10, cache_read_tokens=900,
+            cost_usd=0.01, raw_data='{"last_seen": "t1"}',
+        )
+        await upsert_records(db, [rec])
+        baseline = db.total_changes
+
+        await upsert_records(db, [replace(rec, raw_data='{"last_seen": "t2"}')])
+        assert db.total_changes == baseline
+
+        await upsert_records(db, [replace(rec, input_tokens=150)])
+        assert db.total_changes == baseline + 1
+        rows = await db.execute_fetchall("SELECT input_tokens FROM token_usage")
+        assert rows[0][0] == 150
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
 async def test_closed_session_heals_after_state_loss(tmp_path):
     """Losing the state file must not double count: a closed session is
     rewritten from state.db's own totals over whatever rows exist."""

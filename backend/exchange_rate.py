@@ -38,6 +38,9 @@ class RateInfo:
 
 _state_lock = asyncio.Lock()
 _cached: RateInfo | None = None
+# Single-flight refresh task: concurrent callers share one fetch instead of
+# queueing behind the lock for up to _FETCH_TIMEOUT seconds each.
+_inflight: asyncio.Task | None = None
 
 
 def _persist_path() -> Path:
@@ -84,36 +87,65 @@ def _fallback() -> RateInfo:
     return RateInfo(rate=settings.usd_to_cny_rate, source="fallback", fetched_at="")
 
 
-async def get_rate(force: bool = False) -> RateInfo:
-    """Return the effective USD→CNY rate, fetching live when the cache is stale."""
+def _cache_age_seconds(now: datetime) -> float | None:
+    """Age of the cached rate; None when there is no usable cache.
+
+    An unreadable ``fetched_at`` (legacy/hand-edited persistence with an
+    empty stamp) counts as stale instead of raising ValueError into every
+    API caller.
+    """
+    if _cached is None:
+        return None
+    try:
+        return (now - datetime.fromisoformat(_cached.fetched_at)).total_seconds()
+    except (ValueError, TypeError):
+        return None
+
+
+async def _refresh(now: datetime) -> RateInfo:
+    """One live fetch with the fallback chain; never raises."""
     global _cached
+    try:
+        rate = await asyncio.to_thread(_fetch_live_blocking)
+        info = RateInfo(rate=rate, source="live", fetched_at=now.isoformat())
+        _cached = info
+        await asyncio.to_thread(_persist, info)
+        logger.info("Exchange rate refreshed: 1 USD = %.4f CNY", rate)
+        return info
+    except Exception as e:  # noqa: BLE001 — never raise, fall back instead
+        logger.warning("Live exchange rate fetch failed (%s); using fallback", e)
+
+    if _cached is not None:
+        return _cached
+    persisted = await asyncio.to_thread(_load_persisted)
+    if persisted is not None:
+        _cached = persisted
+        return persisted
+    return _fallback()
+
+
+async def get_rate(force: bool = False) -> RateInfo:
+    """Return the effective USD→CNY rate, fetching live when the cache is stale.
+
+    The lock only guards cache inspection and task creation — the network
+    fetch runs outside it, and concurrent stale callers await the same
+    single-flight task (previously each queued behind a 15s fetch serially).
+    """
+    global _inflight
     async with _state_lock:
         now = datetime.now(UTC)
         if not force and _cached is not None:
-            age = (now - datetime.fromisoformat(_cached.fetched_at)).total_seconds()
-            if age < _CACHE_TTL_SECONDS:
+            age = _cache_age_seconds(now)
+            if age is not None and age < _CACHE_TTL_SECONDS:
                 return _cached
-
-        try:
-            rate = await asyncio.to_thread(_fetch_live_blocking)
-            info = RateInfo(rate=rate, source="live", fetched_at=now.isoformat())
-            _cached = info
-            await asyncio.to_thread(_persist, info)
-            logger.info("Exchange rate refreshed: 1 USD = %.4f CNY", rate)
-            return info
-        except Exception as e:  # noqa: BLE001 — never raise, fall back instead
-            logger.warning("Live exchange rate fetch failed (%s); using fallback", e)
-
-        if _cached is not None:
-            return _cached
-        persisted = await asyncio.to_thread(_load_persisted)
-        if persisted is not None:
-            _cached = persisted
-            return persisted
-        return _fallback()
+        if _inflight is None or _inflight.done():
+            _inflight = asyncio.create_task(_refresh(now))
+        task = _inflight
+    return await asyncio.shield(task)
 
 
 def reset_cache() -> None:
     """Clear the in-memory cache (used by tests)."""
-    global _cached
+    global _cached, _inflight
     _cached = None
+    _inflight = None

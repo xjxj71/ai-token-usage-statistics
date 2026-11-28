@@ -5,7 +5,11 @@ from datetime import UTC, datetime
 import aiosqlite
 
 from backend.config import settings
-from backend.db.data_migrations import DATA_SCHEMA_VERSION, migrate_token_semantics
+from backend.db.data_migrations import (
+    DATA_SCHEMA_VERSION,
+    migrate_openclaw_deltas,
+    migrate_token_semantics,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -155,11 +159,17 @@ async def _migrate(db: aiosqlite.Connection) -> None:
         logger.info("Migration: schema upgraded to user_version=%d", _SCHEMA_VERSION)
         version = _SCHEMA_VERSION
 
-    if version < DATA_SCHEMA_VERSION:
+    if version < 2:
         stats = await migrate_token_semantics(db)
+        await db.execute("PRAGMA user_version = 2")
+        logger.info("Migration: token semantics and pricing normalised (user_version=2): %s", stats)
+        version = 2
+
+    if version < DATA_SCHEMA_VERSION:
+        stats = await migrate_openclaw_deltas(db)
         await db.execute(f"PRAGMA user_version = {DATA_SCHEMA_VERSION}")
         logger.info(
-            "Migration: token semantics and pricing normalised (user_version=%d): %s",
+            "Migration: openclaw snapshots consolidated (user_version=%d): %s",
             DATA_SCHEMA_VERSION, stats,
         )
 

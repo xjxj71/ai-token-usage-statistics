@@ -184,15 +184,29 @@ async def update_provider_config(body: ProviderConfigUpdate, request: Request):
     if body.access_key_secret is not None:
         prov_cfg["access_key_secret"] = body.access_key_secret
 
-    # Persist to YAML.
+    # Persist to YAML atomically (temp file + rename): a crash mid-write must
+    # not leave a truncated config that drops every provider's credentials.
     _CONFIG_YAML.parent.mkdir(parents=True, exist_ok=True)
+
+    def _write_atomic() -> None:
+        import os
+        import tempfile
+
+        text = yaml.dump(raw, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        fd, tmp = tempfile.mkstemp(dir=_CONFIG_YAML.parent, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(text)
+            os.replace(tmp, _CONFIG_YAML)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+
     try:
-        await asyncio.to_thread(
-            lambda: _CONFIG_YAML.write_text(
-                yaml.dump(raw, default_flow_style=False, allow_unicode=True, sort_keys=False),
-                encoding="utf-8",
-            )
-        )
+        await asyncio.to_thread(_write_atomic)
     except Exception as exc:  # noqa: BLE001
         logger.error("Failed to write %s: %s", _CONFIG_YAML, exc)
         raise HTTPException(status_code=500, detail=f"Failed to persist config: {exc}")

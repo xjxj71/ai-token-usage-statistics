@@ -42,6 +42,9 @@
 
     const projectNames = sorted.map((d) => d.project || "未知");
     const totals = sorted.map((d) => d.input_tokens + d.output_tokens + d.cache_read_tokens + d.cache_write_tokens);
+    // Y 轴与柱数据都反转为升序（最大在顶部）；tooltip 的 dataIndex 指向
+    // 升序类目，必须用同序的全名数组取名，否则名字和数值张冠李戴
+    const axisNames = [...projectNames].reverse();
 
     return {
       backgroundColor: "transparent",
@@ -56,7 +59,7 @@
         textStyle: { color: P.tooltipText, fontSize: 12 },
         axisPointer: { type: "shadow" },
         formatter: (params: any[]) => {
-          const fullName = projectNames[params[0].dataIndex] || params[0].axisValue;
+          const fullName = axisNames[params[0].dataIndex] || params[0].axisValue;
           return `<b>${escapeHtml(fullName)}</b><br/>合计: <b>${formatTokens(params[0].value)}</b>`;
         },
       },
@@ -75,7 +78,7 @@
       },
       yAxis: {
         type: "category",
-        data: projectNames.map((n) => truncate(n)).reverse(),
+        data: axisNames.map((n) => truncate(n)),
         axisLine: { show: false },
         axisTick: { show: false },
         axisLabel: { color: P.text2, fontSize: 12 },
@@ -109,25 +112,27 @@
     };
   }
 
-  let lastData: unknown = null;
+  let lastDataKey = "";
   let lastTheme = "";
   $effect(() => {
     if (!chartEl) return;
     void uiState.view; // keep-alive：视图显示时补初始化/重绘
     if (chartEl.clientWidth === 0) return; // 隐藏视图不初始化
-    const P = chartPalette();
     if (!chart) {
       chart = echarts.init(chartEl);
-      lastData = null;
+      lastDataKey = "";
     }
     if (!breakdown?.length) {
       chart.clear();
-      lastData = null;
+      lastDataKey = "";
       return;
     }
-    if (lastData !== breakdown || lastTheme !== themeState.current) {
-      chart.setOption(buildOption(breakdown, P), true);
-      lastData = breakdown;
+    // SSE 每次刷新都换新数组引用；内容相同时跳过重建，避免无谓的
+    // notMerge 全量重绘 + 900ms 入场动画重放，也省掉一次 chartPalette()
+    const dataKey = JSON.stringify(breakdown);
+    if (dataKey !== lastDataKey || lastTheme !== themeState.current) {
+      chart.setOption(buildOption(breakdown, chartPalette()), true);
+      lastDataKey = dataKey;
       lastTheme = themeState.current;
     } else {
       chart.resize();

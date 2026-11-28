@@ -118,25 +118,27 @@
     };
   }
 
-  let lastData: unknown = null;
+  let lastDataKey = "";
   let lastTheme = "";
   $effect(() => {
     if (!chartEl) return;
     void uiState.view; // keep-alive：视图显示时补初始化/重绘
     if (chartEl.clientWidth === 0) return; // 隐藏视图不初始化
-    const P = chartPalette();
     if (!chart) {
       chart = echarts.init(chartEl);
-      lastData = null;
+      lastDataKey = "";
     }
     if (!data) {
       chart.clear();
-      lastData = null;
+      lastDataKey = "";
       return;
     }
-    if (lastData !== data || lastTheme !== themeState.current) {
-      chart.setOption(buildOption(data, P), true);
-      lastData = data;
+    // SSE 每次刷新都换新对象引用；内容相同时跳过重建，避免无谓的
+    // notMerge 全量重绘 + 900ms 入场动画重放，也省掉一次 chartPalette()
+    const dataKey = JSON.stringify(data);
+    if (dataKey !== lastDataKey || lastTheme !== themeState.current) {
+      chart.setOption(buildOption(data, chartPalette()), true);
+      lastDataKey = dataKey;
       lastTheme = themeState.current;
     } else {
       chart.resize();

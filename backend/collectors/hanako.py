@@ -164,6 +164,7 @@ def _scan_sessions(
     """Blocking scan of Hanako session files — run via asyncio.to_thread."""
     records: list[TokenRecord] = []
     max_ts_str = ""
+    max_dt: datetime | None = None
     # Carry untouched files' watermarks forward: the caller replaces the whole
     # state map, so a consumed-and-skipped file would otherwise drop out and
     # be re-read from byte 0 on its next growth.
@@ -230,7 +231,8 @@ def _scan_sessions(
                     record = _build_record(data, agent_name)
                     if record is not None:
                         records.append(record)
-                        if not max_ts_str or ts_dt > parse_timestamp(max_ts_str):
+                        if max_dt is None or ts_dt > max_dt:
+                            max_dt = ts_dt
                             max_ts_str = ts
 
         except OSError as e:

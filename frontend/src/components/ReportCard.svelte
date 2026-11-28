@@ -18,6 +18,8 @@
   let copyMsg = $state("");
 
   let lastParamsKey: string | null = null;
+  let loadSeq = 0;
+  let copyMsgTimer: ReturnType<typeof setTimeout> | null = null;
 
   function fmtTokens(n: number): string {
     if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
@@ -33,14 +35,19 @@
   }
 
   async function load(params: Record<string, string>) {
+    // 序号守卫：快速切换范围时旧响应不得覆盖新响应（与 App.loadData 一致）
+    const seq = ++loadSeq;
     loading = true;
     error = "";
     try {
-      report = await fetchReport(params);
+      const data = await fetchReport(params);
+      if (seq !== loadSeq) return;
+      report = data;
     } catch (e: any) {
+      if (seq !== loadSeq) return;
       error = e.message || "报告加载失败";
     } finally {
-      loading = false;
+      if (seq === loadSeq) loading = false;
     }
   }
 
@@ -64,7 +71,8 @@
       copyMsg = "复制失败（浏览器拒绝剪贴板访问）";
     } finally {
       copying = false;
-      setTimeout(() => (copyMsg = ""), 2500);
+      if (copyMsgTimer) clearTimeout(copyMsgTimer);
+      copyMsgTimer = setTimeout(() => (copyMsg = ""), 2500);
     }
   }
 

@@ -11,20 +11,22 @@ export interface CountUpOpts {
 
 export function countUp(node: HTMLElement, opts: CountUpOpts) {
   let raf = 0;
-  let from = 0;
-  let current = opts.value;
+  let target = opts.value;
+  // 屏幕上正在显示的值：动画中途来新值时从这里接着滚，
+  // 而不是从上一个目标值起跳（快速切筛选/SSE 密集刷新时数字会先倒跳）
+  let displayed = 0;
 
   function animate(to: number) {
     cancelAnimationFrame(raf);
     const start = performance.now();
     const duration = opts.duration ?? 850;
-    const a = from;
+    const a = displayed;
     function tick(now: number) {
       const t = Math.min(1, (now - start) / duration);
       const e = 1 - Math.pow(1 - t, 3);
-      node.textContent = opts.format(a + (to - a) * e);
+      displayed = a + (to - a) * e;
+      node.textContent = opts.format(displayed);
       if (t < 1) raf = requestAnimationFrame(tick);
-      else from = to;
     }
     raf = requestAnimationFrame(tick);
   }
@@ -35,9 +37,17 @@ export function countUp(node: HTMLElement, opts: CountUpOpts) {
   return {
     update(next: CountUpOpts) {
       opts = next;
-      if (next.value !== current) {
-        current = next.value;
-        animate(next.value);
+      if (next.value !== target) {
+        target = next.value;
+        // keep-alive 隐藏视图（display:none）不做滚动动画，直接落值——
+        // 长期开着的托盘应用里，隐藏视图的动画是纯 CPU 浪费
+        if (node.offsetParent === null) {
+          cancelAnimationFrame(raf);
+          displayed = next.value;
+          node.textContent = opts.format(displayed);
+        } else {
+          animate(next.value);
+        }
       }
     },
     destroy() {
@@ -70,13 +80,20 @@ export function tilt(node: HTMLElement, opts?: { max?: number }) {
     cy += (ty - cy) * 0.14;
     lift += (liftT - lift) * 0.14;
     scale += (scaleT - scale) * 0.14;
-    node.style.transform =
-      `perspective(900px) rotateX(${cx.toFixed(2)}deg) rotateY(${cy.toFixed(2)}deg) translateY(${lift.toFixed(2)}px) scale(${scale.toFixed(3)})`;
-    const settled = !hovering && Math.abs(cx) < 0.02 && Math.abs(cy) < 0.02 && Math.abs(lift) < 0.05 && Math.abs(scale - 1) < 0.001;
+    // 收敛到目标即停帧——悬停不动时不再以 60fps 持续写 transform，
+    // pointermove 改变目标后 kick() 重新驱动插值
+    const settled =
+      Math.abs(cx - tx) < 0.02 && Math.abs(cy - ty) < 0.02 &&
+      Math.abs(lift - liftT) < 0.05 && Math.abs(scale - scaleT) < 0.001;
     if (settled) {
-      node.style.transform = "";
+      cx = tx; cy = ty; lift = liftT; scale = scaleT;
+      node.style.transform = hovering
+        ? `perspective(900px) rotateX(${cx.toFixed(2)}deg) rotateY(${cy.toFixed(2)}deg) translateY(${lift.toFixed(2)}px) scale(${scale.toFixed(3)})`
+        : "";
       raf = 0;
     } else {
+      node.style.transform =
+        `perspective(900px) rotateX(${cx.toFixed(2)}deg) rotateY(${cy.toFixed(2)}deg) translateY(${lift.toFixed(2)}px) scale(${scale.toFixed(3)})`;
       raf = requestAnimationFrame(loop);
     }
   }

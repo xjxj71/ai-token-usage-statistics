@@ -289,26 +289,27 @@
     return `${Math.max(320, data.length * 44 + 60)}px`;
   }
 
-  let lastData: unknown = null;
+  let lastDataKey = "";
   let lastTheme = "";
   $effect(() => {
     if (!chartEl) return;
     void uiState.view; // keep-alive：视图显示时补初始化/重绘
     if (chartEl.clientWidth === 0) return; // 隐藏视图不初始化
-    const P = chartPalette();
     if (!chart) {
       chart = echarts.init(chartEl);
-      lastData = null;
+      lastDataKey = "";
     }
     const data = getCurrentData();
     if (!data?.length) {
       chart.clear();
-      lastData = null;
+      lastDataKey = "";
       return;
     }
-    if (lastData !== data || lastTheme !== themeState.current) {
-      chart.setOption(getCurrentOption(P), true);
-      lastData = data;
+    // 内容相同的 SSE 刷新跳过重建；tab 切换改变 option 结构，计入 key
+    const dataKey = activeTab + "|" + JSON.stringify(data);
+    if (dataKey !== lastDataKey || lastTheme !== themeState.current) {
+      chart.setOption(getCurrentOption(chartPalette()), true);
+      lastDataKey = dataKey;
       lastTheme = themeState.current;
     }
     chart.resize();

@@ -1,4 +1,6 @@
-"""One-time data migration (user_version 1 → 2): token semantics and pricing.
+"""One-time data migrations (user_version 1 → 2 → 3).
+
+v2: token semantics and pricing.
 
 Rows written before this release break two conventions the rest of the app
 sums by:
@@ -42,10 +44,11 @@ from backend.pricing.model_pricing import cost_from_prices, load_yaml_pricing
 
 logger = logging.getLogger(__name__)
 
-DATA_SCHEMA_VERSION = 2
+DATA_SCHEMA_VERSION = 3
 
 ZCODE_AGENTS = ("zcode",)
 HERMES_AGENTS = ("hermes", "hermes-win")
+OPENCLAW_AGENTS = ("openclaw",)
 # hanako stores the cost its provider reported (``usage.cost.total``).  A
 # zero there can be a genuine zero, so it is never "backfilled" with a list
 # price.
@@ -406,9 +409,9 @@ async def _fix_usage_daily(db: aiosqlite.Connection) -> int:
 # ── Backup / entry point ─────────────────────────────────────────
 
 
-def _backup_path() -> Path:
+def _backup_path(version: int) -> Path:
     stamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-    return settings.db_path.parent / "backups" / f"token_statistic_{stamp}_pre-v{DATA_SCHEMA_VERSION}.db"
+    return settings.db_path.parent / "backups" / f"token_statistic_{stamp}_pre-v{version}.db"
 
 
 def _sqlite_backup(src: Path, dst: Path) -> Path:
@@ -433,9 +436,9 @@ async def migrate_token_semantics(db: aiosqlite.Connection) -> dict[str, Any]:
     has_rows = (await db.execute_fetchall("SELECT 1 FROM token_usage LIMIT 1"))
     has_daily = (await db.execute_fetchall("SELECT 1 FROM usage_daily LIMIT 1"))
     if has_rows or has_daily:
-        path = await asyncio.to_thread(_sqlite_backup, Path(settings.db_path), _backup_path())
+        path = await asyncio.to_thread(_sqlite_backup, Path(settings.db_path), _backup_path(2))
         stats["backup"] = str(path)
-        logger.info("Migration: pre-v%d database copy at %s", DATA_SCHEMA_VERSION, path)
+        logger.info("Migration: pre-v2 database copy at %s", path)
 
     effective, pricing_stats = await _effective_pricing(db)
     stats.update(pricing_stats)
@@ -463,4 +466,53 @@ async def migrate_token_semantics(db: aiosqlite.Connection) -> dict[str, Any]:
             )
         await _recalculate_costs(db, "usage_daily", effective, stats)
 
+    return stats
+
+
+# ── user_version 2 → 3: openclaw snapshots → one row per session ─────
+
+
+async def migrate_openclaw_deltas(db: aiosqlite.Connection) -> dict[str, Any]:
+    """Consolidate pre-v3 openclaw rows (one-time, gated on user_version).
+
+    The old collector wrote the session's **cumulative counters** as a new
+    row on every ``updatedAt`` advance, so summing rows counted an active
+    session's usage once per update (the bug class fixed for Hermes in v2).
+    The counters at each snapshot are not recoverable as increments after
+    the fact, so the best available approximation is the **latest snapshot
+    per (session_id, model)** — the session's totals so far, same shape as
+    a Hermes consolidated row.  The collector now writes true deltas.
+
+    Rows without a session_id cannot be grouped and are left untouched.
+    """
+    stats: dict[str, Any] = {"openclaw_rows_before": 0, "openclaw_snapshots_dropped": 0}
+    n = (await db.execute_fetchall(
+        "SELECT COUNT(*) AS n FROM token_usage WHERE agent = 'openclaw' AND session_id != ''"
+    ))[0]["n"]
+    stats["openclaw_rows_before"] = n
+    if not n:
+        return stats
+
+    path = await asyncio.to_thread(
+        _sqlite_backup, Path(settings.db_path), _backup_path(DATA_SCHEMA_VERSION)
+    )
+    stats["backup"] = str(path)
+    logger.info("Migration: pre-v%d database copy at %s", DATA_SCHEMA_VERSION, path)
+
+    cur = await db.execute(
+        """
+        DELETE FROM token_usage
+        WHERE agent = 'openclaw' AND session_id != '' AND id NOT IN (
+            SELECT id FROM (
+                SELECT id, ROW_NUMBER() OVER (
+                    PARTITION BY session_id, model
+                    ORDER BY timestamp DESC, id DESC
+                ) AS rn
+                FROM token_usage
+                WHERE agent = 'openclaw' AND session_id != ''
+            ) WHERE rn = 1
+        )
+        """
+    )
+    stats["openclaw_snapshots_dropped"] = cur.rowcount or 0
     return stats

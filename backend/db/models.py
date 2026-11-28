@@ -208,6 +208,13 @@ async def upsert_records(db: aiosqlite.Connection, records: Sequence[TokenRecord
     latest values on each poll.  A record flagged ``replace_session`` (a
     Hermes session that just closed) first drops every existing row of that
     session, so the final total replaces the hourly rows.
+
+    The DO UPDATE carries a no-op guard: a row whose token/cost/project values
+    are unchanged is not rewritten (Hermes re-emits an open session's earlier
+    hour rows on every poll).  ``raw_data`` is deliberately left out of the
+    guard — its ``last_seen`` stamp changes every poll but has no readers, so
+    a stamp-only difference must not cause a WAL write.  This also keeps
+    ``db.total_changes`` meaningful for change-driven SSE notifications.
     """
     if not records:
         return
@@ -235,7 +242,14 @@ async def upsert_records(db: aiosqlite.Connection, records: Sequence[TokenRecord
                 reasoning_tokens     = excluded.reasoning_tokens,
                 cost_usd             = excluded.cost_usd,
                 raw_data             = excluded.raw_data,
-                project              = excluded.project""",
+                project              = excluded.project
+           WHERE input_tokens       IS NOT excluded.input_tokens
+              OR output_tokens      IS NOT excluded.output_tokens
+              OR cache_read_tokens  IS NOT excluded.cache_read_tokens
+              OR cache_write_tokens IS NOT excluded.cache_write_tokens
+              OR reasoning_tokens   IS NOT excluded.reasoning_tokens
+              OR cost_usd           IS NOT excluded.cost_usd
+              OR project            IS NOT excluded.project""",
         [
             (
                 r.timestamp, r.agent, r.model, r.session_id, r.project,

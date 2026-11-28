@@ -70,10 +70,15 @@ export function createEventSource(
   onError?: () => void,
   onOpen?: () => void,
 ): { close: () => void } {
-  const es = new EventSource(`${BASE}/stream`);
-
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   const DEBOUNCE_MS = 3000;
+  // When the server closes the stream for good (polling disabled), probe
+  // at low frequency instead of letting EventSource retry every ~3s forever.
+  const PROBE_MS = 60_000;
+
+  let es: EventSource | null = null;
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let probeTimer: ReturnType<typeof setTimeout> | null = null;
+  let closed = false;
 
   const clearDebounce = () => {
     if (debounceTimer) {
@@ -82,36 +87,74 @@ export function createEventSource(
     }
   };
 
-  es.addEventListener("open", () => {
-    onOpen?.();
-  });
+  const scheduleProbe = () => {
+    if (closed || probeTimer) return;
+    probeTimer = setTimeout(() => {
+      probeTimer = null;
+      if (!closed) connect();
+    }, PROBE_MS);
+  };
 
-  es.addEventListener("message", (event: MessageEvent) => {
-    try {
-      const parsed = JSON.parse(event.data);
-      // Heartbeats (no new data) keep the connection alive — reloading the
-      // whole dashboard on each of them burned CPU around the clock in the
-      // packaged tray app, whose tab stays open for days.
-      if (parsed?.type !== "new_records") return;
-      clearDebounce();
-      debounceTimer = setTimeout(() => {
-        onMessage(parsed);
-        debounceTimer = null;
-      }, DEBOUNCE_MS);
-    } catch (e: unknown) {
-      console.warn("SSE parse error:", e);
-    }
-  });
+  function connect() {
+    es = new EventSource(`${BASE}/stream`);
 
-  es.addEventListener("error", () => {
-    clearDebounce();
-    onError?.();
-  });
+    es.addEventListener("open", () => {
+      onOpen?.();
+    });
+
+    es.addEventListener("message", (event: MessageEvent) => {
+      try {
+        const parsed = JSON.parse(event.data);
+        if (parsed?.type === "polling_disabled") {
+          // Server ended the stream; EventSource would treat that as an
+          // error and reconnect every ~3s indefinitely. Close and probe.
+          es?.close();
+          es = null;
+          clearDebounce();
+          onError?.();
+          scheduleProbe();
+          return;
+        }
+        // Heartbeats (no new data) keep the connection alive — reloading the
+        // whole dashboard on each of them burned CPU around the clock in the
+        // packaged tray app, whose tab stays open for days.
+        if (parsed?.type !== "new_records") return;
+        clearDebounce();
+        debounceTimer = setTimeout(() => {
+          debounceTimer = null;
+          onMessage(parsed);
+        }, DEBOUNCE_MS);
+      } catch (e: unknown) {
+        console.warn("SSE parse error:", e);
+      }
+    });
+
+    es.addEventListener("error", () => {
+      // A drop inside the debounce window must not discard the pending
+      // refresh: the server only sends new_records on the NEXT change, so
+      // an idle user would stare at stale data indefinitely.
+      if (debounceTimer) {
+        clearDebounce();
+        onMessage({ type: "new_records" });
+      }
+      onError?.();
+      // CONNECTING → EventSource retries on its own; CLOSED (server sent a
+      // non-retryable status, or we closed it) → probe at low frequency.
+      if (es?.readyState === EventSource.CLOSED) scheduleProbe();
+    });
+  }
+
+  connect();
 
   return {
     close: () => {
+      closed = true;
       clearDebounce();
-      es.close();
+      if (probeTimer) {
+        clearTimeout(probeTimer);
+        probeTimer = null;
+      }
+      es?.close();
     },
   };
 }

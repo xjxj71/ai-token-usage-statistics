@@ -513,7 +513,8 @@ async def test_report_endpoint(client, monkeypatch):
     assert res.status_code == 200
     data = res.json()
 
-    assert data["label"]
+    # Shanghai dates, not the UTC slice (local midnight = 16:00Z previous day)
+    assert data["label"] == "2026-05-02 ~ 2026-05-02"
     assert data["totals"]["input_tokens"] == 6000
     assert data["previous"]["input_tokens"] == 100
     # Top agent by tokens is claude-code (7500 vs 1500)

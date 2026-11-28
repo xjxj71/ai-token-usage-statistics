@@ -132,7 +132,7 @@ class XiaomiQuotaProvider(QuotaProvider):
         p_data = plan_data.get("data") or {}
         if p_data:
             plan_name = p_data.get("planName") or p_data.get("plan_name", "Unknown")
-            raw_type = (p_data.get("planCode") or p_data.get("planCode") or "").lower()
+            raw_type = (p_data.get("planCode") or p_data.get("plan_code") or "").lower()
             if raw_type in _plan_limits_monthly():
                 plan_type = raw_type
             expires_at = p_data.get("currentPeriodEnd") or p_data.get("expireTime")

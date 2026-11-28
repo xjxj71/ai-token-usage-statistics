@@ -54,20 +54,16 @@ class HermesWindowsCollector(HermesCollector):
             # LOCALAPPDATA not set — not on Windows or unusual environment.
             return []
 
-        # Fast-path: skip if source DB has not changed since last poll.
-        try:
-            src_stat = await asyncio.to_thread(Path(src_path).stat)
-        except OSError as exc:
-            logger.debug(
-                "Hermes-win: cannot stat source db at %s: %s", src_path, exc
-            )
+        # Fast-path: skip if source DB (incl. WAL) has not changed since
+        # last poll — the inherited signature covers -wal; main-file mtime
+        # alone misses writes between checkpoints.
+        src_sig = await asyncio.to_thread(self._source_signature, src_path)
+        if src_sig is None:
+            logger.debug("Hermes-win: cannot stat source db at %s", src_path)
             return []
 
-        if self._source_unchanged(state, src_stat):
-            logger.debug(
-                "Hermes-win: source db unchanged (mtime=%s), skipping poll",
-                src_stat.st_mtime,
-            )
+        if self._source_unchanged(state, src_sig):
+            logger.debug("Hermes-win: source db unchanged (sig=%s), skipping poll", src_sig)
             return []
 
         # Direct local copy — no WSL intermediary needed.
@@ -84,12 +80,6 @@ class HermesWindowsCollector(HermesCollector):
         finally:
             Path(tmp_path).unlink(missing_ok=True)
 
-        self._save_state(
-            {
-                **new_state,
-                "source_mtime": src_stat.st_mtime,
-                "source_size": src_stat.st_size,
-            }
-        )
+        self._save_state({**new_state, "source_sig": src_sig})
         self._log_cycle(records, new_state)
         return records

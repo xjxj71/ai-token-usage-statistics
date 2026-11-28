@@ -56,6 +56,14 @@ def is_polling_active() -> bool:
 
 
 async def run_collection_cycle() -> int:
+    """Run every collector once; return the number of rows actually changed.
+
+    The count comes from ``db.total_changes`` deltas, not ``len(records)``:
+    collectors may re-emit rows that are already stored identically (Hermes
+    hour rows, dedup'd inserts), and those must not trigger SSE ``new_records``
+    — a browser tab left open for days would refetch the whole dashboard on
+    every 5s poll for nothing.
+    """
     db = await get_db()
     total_new = 0
 
@@ -63,12 +71,17 @@ async def run_collection_cycle() -> int:
         try:
             records: Sequence[TokenRecord] = await collector.collect()
             if records:
+                before = db.total_changes
                 if collector.upsert_mode:
                     await upsert_records(db, records)
                 else:
                     await insert_records(db, records)
-                total_new += len(records)
-                logger.info("Collected %d records from %s", len(records), collector.name)
+                changed = db.total_changes - before
+                total_new += changed
+                logger.info(
+                    "Collected %d records from %s (%d rows changed)",
+                    len(records), collector.name, changed,
+                )
         except Exception:
             logger.exception("Collector %s failed", collector.name)
 
